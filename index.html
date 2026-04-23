@@ -1022,14 +1022,11 @@ async function loadTodaysJobs() {
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
 
-    const data = await apiGet('Work Orders', {
-      filterByFormula: `AND(
-        IS_SAME({Scheduled Date}, '${dateStr}', 'day'),
-        {Status} != 'Cancelled',
-        {Status} != 'Paid'
-      )`,
-      sort: '[{"field":"Scheduled Date","direction":"asc"}]',
-    });
+const data = await apiGet('Work Orders', {
+  filterByFormula: `AND({Status} != 'Cancelled', {Status} != 'Paid')`,
+  sort: '[{"field":"Scheduled Date","direction":"asc"}]',
+  maxRecords: '50',
+});
 
     const records = data.records || [];
 
