@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CJB Comfort — Field App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --charcoal: #2e2e2e;
+    --red: #c81f25;
+    --red-dark: #a01820;
+    --gold: #e5ba05;
+    --white: #ffffff;
+    --gray-light: #f4f4f4;
+    --gray-mid: #d8d8d8;
+    --gray-text: #666;
+    --gray-border: #cccccc;
+    --success: #1a6b35;
+    --success-bg: #e2f0e7;
+    --warning-bg: #fef9e0;
+    --radius: 12px;
+    --shadow: 0 2px 12px rgba(0,0,0,0.09);
+    --focus-ring: 0 0 0 3px rgba(200,31,37,0.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'Barlow', sans-serif;
+    background: var(--gray-light);
+    color: var(--charcoal);
+    min-height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* Focus styles for keyboard nav */
+  :focus-visible {
+    outline: 3px solid var(--red);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ── SCREENS ── */
+  .screen { display: none; min-height: 100vh; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--charcoal);
+    padding: 14px 20px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  /* Fan blade SVG */
+  .logo-icon {
+    width: 30px;
+    height: 30px;
+    color: var(--gold);
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: 0.3px;
+  }
+
+  .logo-text span { color: var(--gold); }
+
+  .header-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--white);
+  }
+
+  /* ── BACK BUTTON ── */
+  .back-btn {
+    background: none;
+    border: none;
+    color: var(--gold);
+    font-family: 'Barlow', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 0;
+    min-height: 44px;
+  }
+
+  /* ── GREETING STRIP ── */
+  .greeting-strip {
+    background: var(--red);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .greeting-hello {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--white);
+    line-height: 1.2;
+  }
+
+  .greeting-date {
+    font-size: 12px;
+    color: rgba(255,255,255,0.80);
+    margin-top: 2px;
+  }
+
+  .jobs-count-badge {
+    background: var(--gold);
+    color: var(--charcoal);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 11px;
+    border-radius: 20px;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+  }
+
+  /* ── SCROLL CONTENT ── */
+  .scroll-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── SECTION LABEL ── */
+  .section-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    color: var(--gray-text);
+    margin-bottom: 10px;
+    margin-top: 4px;
+    padding-left: 2px;
+  }
+
+  /* ── JOB CARDS ── */
+  .job-card {
+    background: var(--white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    /* Accessibility: left border + pattern indicator, not color alone */
+    border-left: 5px solid var(--gray-mid);
+    transition: transform 0.12s;
+  }
+
+  .job-card:active { transform: scale(0.985); }
+
+  /* Status variants — border color + pill text both convey status */
+  .job-card.scheduled   { border-left-color: var(--gold); }
+  .job-card.in-progress { border-left-color: var(--red); }
+  .job-card.complete    { border-left-color: var(--success); }
+
+  .job-card-top {
+    padding: 13px 16px 8px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .job-time {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--charcoal);
+  }
+
+  .job-time-ampm {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-text);
+    margin-left: 2px;
+  }
+
+  /* Pills: text label + distinct shape/border — not color alone */
+  .status-pill {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 4px; /* square-ish — visually distinct from complete's rounded */
+    white-space: nowrap;
+    flex-shrink: 0;
+    border: 2px solid transparent;
+  }
+
+  /* Scheduled: outlined square pill */
+  .pill-scheduled {
+    background: var(--warning-bg);
+    color: #5c4700;
+    border-color: #c9a800;
+    border-radius: 4px;
+  }
+
+  /* In Progress: filled, underlined */
+  .pill-in-progress {
+    background: var(--charcoal);
+    color: var(--white);
+    border-color: var(--charcoal);
+    border-radius: 4px;
+    text-decoration: underline;
+    text-decoration-color: var(--gold);
+    text-underline-offset: 2px;
+  }
+
+  /* Complete: rounded pill — different SHAPE from others */
+  .pill-complete {
+    background: var(--success-bg);
+    color: #0e4220;
+    border-color: #5aaa78;
+    border-radius: 20px;
+  }
+
+  .job-card-body {
+    padding: 0 16px 12px;
+  }
+
+  .job-customer {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--charcoal);
+    line-height: 1.2;
+    margin-bottom: 2px;
+  }
+
+  .job-type-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gray-text);
+    background: var(--gray-light);
+    border: 1px solid var(--gray-mid);
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-bottom: 8px;
+  }
+
+  .job-address-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--charcoal);
+    line-height: 1.4;
+  }
+
+  .job-address-row svg { flex-shrink: 0; margin-top: 1px; color: var(--red); }
+
+  .job-card-actions {
+    display: flex;
+    gap: 8px;
+    padding: 0 16px 14px;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    flex: 1;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 8px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px; /* touch target */
+    transition: filter 0.12s;
+    letter-spacing: 0.2px;
+  }
+
+  .btn:active { filter: brightness(0.85); }
+
+  .btn-dark    { background: var(--charcoal); color: var(--white); }
+  .btn-red     { background: var(--red); color: var(--white); }
+  .btn-gold    { background: var(--gold); color: var(--charcoal); }
+  .btn-outline { background: var(--white); color: var(--charcoal); border: 2px solid var(--charcoal); }
+  .btn-success { background: var(--success); color: var(--white); }
+
+  .btn-full {
+    flex: none;
+    width: 100%;
+    border-radius: 10px;
+    padding: 15px;
+    font-size: 15px;
+  }
+
+  /* ── LOADING / EMPTY ── */
+  .loading-state, .empty-state {
+    text-align: center;
+    padding: 56px 24px;
+    color: var(--gray-text);
+  }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--gray-mid);
+    border-top-color: var(--red);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto 16px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-state h3 { font-size: 16px; font-weight: 700; color: var(--charcoal); margin-bottom: 6px; }
+  .empty-state p  { font-size: 14px; line-height: 1.5; }
+
+  /* ── JOB DETAIL ── */
+  .detail-section {
+    background: var(--white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+
+  .detail-section-header {
+    background: var(--charcoal);
+    padding: 10px 16px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .detail-row {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--gray-light);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .detail-row:last-child { border-bottom: none; }
+
+  .detail-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--gray-text);
+  }
+
+  .detail-value {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--charcoal);
+    line-height: 1.4;
+  }
+
+  .detail-value.big { font-size: 17px; font-weight: 700; }
+
+  .detail-value a {
+    color: var(--red);
+    text-decoration: underline;
+    font-weight: 600;
+  }
+
+  .equipment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--gray-light);
+    border: 1.5px solid var(--gray-border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .equipment-chip svg { color: var(--red); }
+
+  /* ── STATUS ACTION BAR ── */
+  .status-action-bar {
+    background: var(--white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .status-action-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-text);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  /* ── FORMS ── */
+  .form-field { margin-bottom: 14px; }
+
+  .form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--gray-text);
+    margin-bottom: 6px;
+  }
+
+  .form-input, .form-textarea {
+    width: 100%;
+    border: 2px solid var(--gray-border);
+    border-radius: 8px;
+    padding: 11px 13px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 15px;
+    color: var(--charcoal);
+    background: var(--white);
+    transition: border-color 0.15s;
+    -webkit-appearance: none;
+    min-height: 44px;
+  }
+
+  .form-input:focus, .form-textarea:focus {
+    outline: none;
+    border-color: var(--charcoal);
+    box-shadow: var(--focus-ring);
+  }
+
+  .form-textarea { resize: none; line-height: 1.5; min-height: 90px; }
+
+  /* Parts grid — shape + text, not just color */
+  .parts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .part-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 2px solid var(--gray-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--white);
+    transition: all 0.12s;
+    -webkit-user-select: none;
+    user-select: none;
+    min-height: 44px;
+    line-height: 1.3;
+  }
+
+  .part-chip:focus-within {
+    box-shadow: var(--focus-ring);
+  }
+
+  /* Selected: bold border + checkmark prefix — not color alone */
+  .part-chip.selected {
+    border-color: var(--charcoal);
+    border-width: 2px;
+    background: var(--charcoal);
+    color: var(--white);
+    font-weight: 700;
+  }
+
+  .part-chip .check-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .part-chip.selected .check-icon { opacity: 1; }
+
+  .part-chip input { display: none; }
+
+  /* Photo upload */
+  .photo-upload-area {
+    border: 2px dashed var(--gray-border);
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+    cursor: pointer;
+    color: var(--gray-text);
+    font-size: 14px;
+    font-weight: 600;
+    transition: border-color 0.15s;
+    min-height: 80px;
+  }
+
+  .photo-upload-area:active { border-color: var(--charcoal); }
+
+  .photo-upload-area svg { margin-bottom: 8px; color: var(--gray-mid); }
+
+  .photos-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .photo-thumb {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid var(--gray-mid);
+  }
+
+  /* Follow-up radio buttons */
+  .radio-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  .radio-option {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 12px;
+    border: 2px solid var(--gray-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 44px;
+    transition: all 0.12s;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .radio-option input { display: none; }
+
+  .radio-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--gray-border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s;
+  }
+
+  .radio-dot-inner {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--white);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  .radio-option.selected {
+    border-color: var(--charcoal);
+    background: var(--charcoal);
+    color: var(--white);
+  }
+
+  .radio-option.selected .radio-dot {
+    border-color: var(--white);
+    background: var(--white);
+  }
+
+  .radio-option.selected .radio-dot-inner {
+    background: var(--charcoal);
+    opacity: 1;
+  }
+
+  /* Ready to invoice toggle */
+  .ready-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--gray-light);
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    border: 2px solid var(--gray-mid);
+    min-height: 44px;
+  }
+
+  .ready-toggle-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--charcoal);
+    line-height: 1.3;
+  }
+
+  .ready-toggle-sub {
+    font-size: 12px;
+    color: var(--gray-text);
+    margin-top: 2px;
+  }
+
+  /* Toggle: also shows ON/OFF text for colorblind users */
+  .toggle-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .toggle-label-text {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-text);
+    width: 24px;
+    text-align: right;
+  }
+
+  .toggle-switch {
+    width: 50px;
+    height: 28px;
+    background: var(--gray-mid);
+    border-radius: 14px;
+    position: relative;
+    transition: background 0.2s;
+    border: 2px solid var(--gray-border);
+    flex-shrink: 0;
+  }
+
+  .toggle-switch.on {
+    background: var(--success);
+    border-color: var(--success);
+  }
+
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: var(--white);
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    transition: transform 0.2s;
+  }
+
+  .toggle-switch.on .toggle-knob { transform: translateX(22px); }
+
+  .ready-toggle.active {
+    border-color: var(--success);
+    background: var(--success-bg);
+  }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--charcoal);
+    color: var(--white);
+    padding: 12px 24px;
+    border-radius: 24px;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    transition: transform 0.3s;
+    z-index: 999;
+    white-space: nowrap;
+    max-width: 90vw;
+    text-align: center;
+    /* Toasts also use text prefixes not color alone */
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.success { background: var(--success); }
+  .toast.error   { background: #8b0000; }
+
+  /* ── ERROR BANNER ── */
+  .error-banner {
+    background: #fff0f0;
+    border: 2px solid #c81f25;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #8b0000;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: none;
+  }
+
+  .bottom-pad { height: 32px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════
+     SCREEN 1 — TODAY'S JOBS
+═══════════════════════════════ -->
+<div id="screen-home" class="screen active" role="main">
+
+  <header class="header" role="banner">
+    <div class="logo" aria-label="CJB Comfort">
+      <!-- Fan blade / HVAC spinner icon matching CJB logo -->
+      <svg class="logo-icon" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M16 14.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5z"/>
+        <path d="M16 2c1.1 0 2 .45 2 1s-.9 1-2 1c-3.5 0-6 2.8-6 6.5 0 1.2.3 2.3.8 3.2-.6-.1-1.1-.2-1.8-.2C6.3 13.5 4 11.2 4 8.5 4 4.9 7.6 2 16 2z" opacity=".9"/>
+        <path d="M30 16c0 1.1-.45 2-1 2s-1-.9-1-2c0-3.5-2.8-6-6.5-6-1.2 0-2.3.3-3.2.8.1-.6.2-1.1.2-1.8 0-2.7 2.3-5 5-5C27.1 4 30 7.6 30 16z" opacity=".9"/>
+        <path d="M16 30c-1.1 0-2-.45-2-1s.9-1 2-1c3.5 0 6-2.8 6-6.5 0-1.2-.3-2.3-.8-3.2.6.1 1.1.2 1.8.2 2.7 0 5 2.3 5 5C28 27.1 24.4 30 16 30z" opacity=".9"/>
+        <path d="M2 16c0-1.1.45-2 1-2s1 .9 1 2c0 3.5 2.8 6 6.5 6 1.2 0 2.3-.3 3.2-.8-.1.6-.2 1.1-.2 1.8 0 2.7-2.3 5-5 5C4.9 28 2 24.4 2 16z" opacity=".9"/>
+      </svg>
+      <div class="logo-text"><span>CJB</span> Comfort</div>
+    </div>
+    <div class="header-name" aria-label="Logged in as Cornell Hart">Cornell Hart</div>
+  </header>
+
+  <div class="greeting-strip" role="region" aria-label="Schedule summary">
+    <div>
+      <div class="greeting-hello" id="greeting-text">Good morning, Cornell</div>
+      <div class="greeting-date" id="greeting-date"></div>
+    </div>
+    <div class="jobs-count-badge" id="jobs-badge" aria-live="polite">Loading...</div>
+  </div>
+
+  <div class="scroll-content">
+    <div class="error-banner" id="home-error" role="alert"></div>
+    <h2 class="section-label">Today's Jobs</h2>
+    <div id="jobs-list" aria-live="polite" aria-label="Job list">
+      <div class="loading-state" role="status">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>Loading your schedule...</div>
+      </div>
+    </div>
+    <div class="bottom-pad"></div>
+  </div>
+
+</div>
+
+
+<!-- ═══════════════════════════════
+     SCREEN 2 — JOB DETAIL
+═══════════════════════════════ -->
+<div id="screen-detail" class="screen" role="main">
+
+  <header class="header">
+    <button class="back-btn" onclick="showScreen('home')" aria-label="Back to today's jobs">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M5 12l7 7M5 12l7-7"/></svg>
+      Today
+    </button>
+    <div class="logo" aria-hidden="true">
+      <div class="logo-text"><span>CJB</span> Comfort</div>
+    </div>
+  </header>
+
+  <div class="scroll-content" id="detail-content" aria-live="polite">
+    <div class="loading-state" role="status">
+      <div class="spinner" aria-hidden="true"></div>
+      <div>Loading job...</div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ═══════════════════════════════
+     SCREEN 3 — COMPLETE JOB
+═══════════════════════════════ -->
+<div id="screen-complete" class="screen" role="main">
+
+  <header class="header">
+    <button class="back-btn" onclick="showScreen('detail')" aria-label="Back to job detail">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M5 12l7 7M5 12l7-7"/></svg>
+      Job
+    </button>
+    <div class="logo" aria-hidden="true">
+      <div class="logo-text"><span>CJB</span> Comfort</div>
+    </div>
+  </header>
+
+  <div class="scroll-content">
+    <h2 class="section-label">Complete Job</h2>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+      <div id="complete-job-summary" style="font-size:16px; font-weight:700; color:var(--charcoal); margin-bottom:3px;"></div>
+      <div id="complete-job-sub" style="font-size:13px; color:var(--gray-text);"></div>
+    </div>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+
+      <div class="form-field">
+        <label class="form-label" for="field-work">Work Performed <span aria-label="required" style="color:var(--red);">*</span></label>
+        <textarea class="form-textarea" id="field-work" placeholder="Describe what you did on this job..." rows="4" aria-required="true"></textarea>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="field-diagnosis">Diagnosis — What You Found</label>
+        <textarea class="form-textarea" id="field-diagnosis" placeholder="What was wrong with the system?" rows="3"></textarea>
+      </div>
+
+      <div class="form-field" style="margin-bottom:0;">
+        <label class="form-label" for="field-recommendations">Recommendations</label>
+        <textarea class="form-textarea" id="field-recommendations" placeholder="Follow-up work needed? Parts to order?" rows="2"></textarea>
+      </div>
+
+    </div>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+      <fieldset style="border:none; padding:0; margin:0;">
+        <legend class="form-label" style="margin-bottom:10px;">Common Parts Used</legend>
+        <div class="parts-grid" id="parts-grid" role="group" aria-label="Select parts used"></div>
+        <div style="margin-top:10px;">
+          <label class="form-label" for="field-parts-other">Other Parts / Notes</label>
+          <input type="text" class="form-input" id="field-parts-other" placeholder="Anything not listed above...">
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+      <div class="form-field" style="margin-bottom:0;">
+        <label class="form-label">Photos</label>
+        <div class="photo-upload-area"
+          onclick="document.getElementById('photo-input').click()"
+          role="button"
+          tabindex="0"
+          aria-label="Add photos — tap to open camera or photo library"
+          onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('photo-input').click()">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <div>Tap to add photos</div>
+          <div style="font-size:12px; margin-top:4px; color:var(--gray-text);">Saved to equipment record</div>
+        </div>
+        <input type="file" id="photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handlePhotos(this)" aria-label="Upload job photos">
+        <div class="photos-preview" id="photos-preview" aria-label="Photo previews" role="list"></div>
+      </div>
+    </div>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+      <fieldset style="border:none; padding:0; margin:0;">
+        <legend class="form-label" style="margin-bottom:8px;">Follow-Up Required?</legend>
+        <div class="radio-group" role="group" aria-label="Follow-up required">
+          <label class="radio-option selected" id="radio-no-label" onclick="selectFollowup('no')">
+            <input type="radio" name="followup" value="no" id="followup-no" checked aria-label="No follow-up required">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            No
+          </label>
+          <label class="radio-option" id="radio-yes-label" onclick="selectFollowup('yes')">
+            <input type="radio" name="followup" value="yes" id="followup-yes" aria-label="Yes, flag Bridgett for follow-up">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            Yes — flag Bridgett
+          </label>
+        </div>
+        <div id="followup-notes-wrap" style="display:none; margin-top:10px;">
+          <label class="form-label" for="field-followup-notes">What needs to happen next?</label>
+          <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="Describe the follow-up needed..."></textarea>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:16px;">
+      <div class="ready-toggle"
+        id="ready-invoice-toggle"
+        onclick="toggleReadyInvoice()"
+        role="checkbox"
+        aria-checked="false"
+        tabindex="0"
+        onkeydown="if(event.key==='Enter'||event.key===' ')toggleReadyInvoice()"
+        aria-label="Mark as ready to invoice — Bridgett will review and send">
+        <div>
+          <div class="ready-toggle-label">Ready to Invoice</div>
+          <div class="ready-toggle-sub">Bridgett will review and send</div>
+        </div>
+        <div class="toggle-wrap">
+          <span class="toggle-label-text" id="toggle-label-text" aria-hidden="true">OFF</span>
+          <div class="toggle-switch" id="invoice-switch" aria-hidden="true">
+            <div class="toggle-knob"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-dark btn-full" id="submit-complete-btn" onclick="submitComplete()" aria-label="Save and mark this job as complete">
+      Mark Job Complete
+    </button>
+
+    <div class="bottom-pad"></div>
+  </div>
+
+</div>
+
+
+<!-- TOAST -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+
+<script>
+// ═══════════════════════
+// CONFIG
+// ═══════════════════════
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+const COMMON_PARTS = [
+  'Dual Capacitor',
+  'Single Run Capacitor',
+  'Contactor — 1 pole',
+  'Contactor — 2 pole',
+  'Filter Drier',
+  'Air Filter',
+  'Drain Flush',
+  'R-410a — per lb',
+  'R-22 — per lb',
+  'Miscellaneous Electrical Parts',
+];
+
+// ═══════════════════════
+// STATE
+// ═══════════════════════
+let currentJob = null;
+let readyToInvoice = false;
+let selectedPhotos = [];
+let followupSelected = 'no';
+
+// ═══════════════════════
+// INIT
+// ═══════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  setGreeting();
+  buildPartsGrid();
+  loadTodaysJobs();
+});
+
+function setGreeting() {
+  const now = new Date();
+  const hour = now.getHours();
+  let greet = 'Good morning';
+  if (hour >= 12 && hour < 17) greet = 'Good afternoon';
+  else if (hour >= 17) greet = 'Good evening';
+  document.getElementById('greeting-text').textContent = `${greet}, Cornell`;
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('greeting-date').textContent =
+    `${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+}
+
+// ═══════════════════════
+// NAVIGATION
+// ═══════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(`screen-${name}`).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+// ═══════════════════════
+// API HELPERS
+// ═══════════════════════
+async function apiGet(table, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${PROXY}/${encodeURIComponent(table)}${qs ? '?' + qs : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+async function apiPatch(table, recordId, fields) {
+  const url = `${PROXY}/${encodeURIComponent(table)}/${recordId}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+// ═══════════════════════
+// LOAD TODAY'S JOBS
+// ═══════════════════════
+async function loadTodaysJobs() {
+  const listEl = document.getElementById('jobs-list');
+  const badgeEl = document.getElementById('jobs-badge');
+  const errorEl = document.getElementById('home-error');
+
+  try {
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+
+    const data = await apiGet('Work Orders', {
+      filterByFormula: `AND(
+        IS_SAME({Scheduled Date}, '${dateStr}', 'day'),
+        {Status} != 'Cancelled',
+        {Status} != 'Paid'
+      )`,
+      sort: '[{"field":"Scheduled Date","direction":"asc"}]',
+    });
+
+    const records = data.records || [];
+
+    if (records.length === 0) {
+      badgeEl.textContent = 'No jobs today';
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon" aria-hidden="true">☀️</div>
+          <h3>No jobs scheduled today</h3>
+          <p>Enjoy the downtime or check with Bridgett for any new bookings.</p>
+        </div>`;
+      return;
+    }
+
+    badgeEl.textContent = `${records.length} job${records.length !== 1 ? 's' : ''} today`;
+    listEl.innerHTML = records.map(r => buildJobCard(r)).join('');
+
+  } catch (err) {
+    console.error(err);
+    badgeEl.textContent = 'Error loading';
+    errorEl.style.display = 'block';
+    errorEl.textContent = '⚠ Could not load jobs. Check your connection and try again.';
+    listEl.innerHTML = '';
+  }
+}
+
+function buildJobCard(record) {
+  const f = record.fields;
+  const rawStatus = f['Status'] || 'Scheduled';
+  const statusClass = rawStatus.toLowerCase().replace(/\s+/g, '-');
+
+  const pillClass = {
+    'scheduled': 'pill-scheduled',
+    'in-progress': 'pill-in-progress',
+    'complete': 'pill-complete',
+    'invoiced': 'pill-complete',
+  }[statusClass] || 'pill-scheduled';
+
+  let timeDisplay = '—';
+  let ampm = '';
+  if (f['Scheduled Date']) {
+    const d = new Date(f['Scheduled Date']);
+    let h = d.getHours();
+    const m = d.getMinutes();
+    ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    timeDisplay = `${h}:${String(m).padStart(2,'0')}`;
+  }
+
+  const customer = escHtml(f['Customer Name'] || 'Unknown Customer');
+  const address = f['Service Address'] || '';
+  const city = f['City'] || '';
+  const jobType = escHtml(f['Work Order Type'] || f['Job Type'] || 'Service');
+  const addressFull = [address, city].filter(Boolean).join(', ');
+
+  return `
+  <article class="job-card ${statusClass}"
+    onclick="openJob('${record.id}')"
+    role="button"
+    tabindex="0"
+    aria-label="Job: ${customer}, ${rawStatus}, ${timeDisplay} ${ampm}"
+    onkeydown="if(event.key==='Enter'||event.key===' ')openJob('${record.id}')">
+
+    <div class="job-card-top">
+      <div>
+        <div class="job-time">${timeDisplay}<span class="job-time-ampm">${ampm}</span></div>
+      </div>
+      <span class="status-pill ${pillClass}" aria-label="Status: ${rawStatus}">${rawStatus}</span>
+    </div>
+
+    <div class="job-card-body">
+      <div class="job-customer">${customer}</div>
+      <span class="job-type-tag">${jobType}</span>
+      ${addressFull ? `
+      <div class="job-address-row">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span>${escHtml(addressFull)}</span>
+      </div>` : ''}
+    </div>
+
+    <div class="job-card-actions">
+      ${addressFull ? `
+      <button class="btn btn-outline"
+        onclick="event.stopPropagation(); openMaps('${escAttr(addressFull)}')"
+        aria-label="Get directions to ${escAttr(addressFull)}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+        Directions
+      </button>` : ''}
+      <button class="btn btn-red"
+        onclick="event.stopPropagation(); openJob('${record.id}')"
+        aria-label="Open job for ${customer}">
+        Open Job
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+  </article>`;
+}
+
+// ═══════════════════════
+// JOB DETAIL
+// ═══════════════════════
+async function openJob(recordId) {
+  showScreen('detail');
+  const content = document.getElementById('detail-content');
+  content.innerHTML = '<div class="loading-state" role="status"><div class="spinner" aria-hidden="true"></div><div>Loading job...</div></div>';
+
+  try {
+    const data = await apiGet(`Work Orders/${recordId}`);
+    currentJob = data;
+    renderJobDetail(data);
+  } catch (err) {
+    content.innerHTML = `<div class="empty-state"><h3>Could not load job</h3><p>${escHtml(err.message)}</p></div>`;
+  }
+}
+
+function renderJobDetail(record) {
+  const f = record.fields;
+  const content = document.getElementById('detail-content');
+  const status = f['Status'] || 'Scheduled';
+  const customer = f['Customer Name'] || 'Unknown Customer';
+  const address = f['Service Address'] || '';
+  const city = f['City'] || '';
+  const addressFull = [address, city].filter(Boolean).join(', ');
+  const jobType = f['Work Order Type'] || 'Service';
+  const notes = f['Notes'] || '';
+  const equipment = f['Equipment Name'] || '';
+  const contact = f['Contact Name'] || f['Primary Contact Name'] || '';
+  const contactPhone = f['Contact Phone'] || '';
+  const woId = f['Work Order ID'] || record.id;
+
+  let statusBtn = '';
+  if (status === 'Scheduled') {
+    statusBtn = `<button class="btn btn-red btn-full" onclick="updateStatus('${record.id}', 'In Progress')" aria-label="Start job and mark as In Progress">
+      ▶ Start Job — Mark In Progress
+    </button>`;
+  } else if (status === 'In Progress') {
+    statusBtn = `<button class="btn btn-success btn-full" onclick="openCompleteForm('${record.id}')" aria-label="Open job completion form">
+      ✓ Complete This Job
+    </button>`;
+  } else {
+    statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
+      ✓ Job Complete
+    </div>`;
+  }
+
+  content.innerHTML = `
+    <div class="error-banner" id="detail-error" role="alert"></div>
+
+    <div class="status-action-bar" role="region" aria-label="Job status actions">
+      <div class="status-action-title">Job Status: <strong>${escHtml(status)}</strong></div>
+      ${statusBtn}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-header">Customer</div>
+      <div class="detail-row">
+        <span class="detail-label">Name</span>
+        <span class="detail-value big">${escHtml(customer)}</span>
+      </div>
+      ${addressFull ? `
+      <div class="detail-row">
+        <span class="detail-label">Address</span>
+        <span class="detail-value">
+          <a href="https://maps.apple.com/?q=${encodeURIComponent(addressFull)}"
+             target="_blank"
+             rel="noopener"
+             aria-label="Open ${escHtml(addressFull)} in Maps">
+            ${escHtml(addressFull)}
+          </a>
+        </span>
+      </div>` : ''}
+      ${contact ? `
+      <div class="detail-row">
+        <span class="detail-label">On-Site Contact</span>
+        <span class="detail-value">
+          ${escHtml(contact)}
+          ${contactPhone ? `<br><a href="tel:${escAttr(contactPhone)}" aria-label="Call ${escHtml(contact)}">${escHtml(contactPhone)}</a>` : ''}
+        </span>
+      </div>` : ''}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-header">Job Info</div>
+      <div class="detail-row">
+        <span class="detail-label">Type</span>
+        <span class="detail-value">${escHtml(jobType)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Work Order</span>
+        <span class="detail-value">${escHtml(woId)}</span>
+      </div>
+      ${notes ? `
+      <div class="detail-row">
+        <span class="detail-label">Dispatch Notes</span>
+        <span class="detail-value">${escHtml(notes)}</span>
+      </div>` : ''}
+    </div>
+
+    ${equipment ? `
+    <div class="detail-section">
+      <div class="detail-section-header">Equipment</div>
+      <div class="detail-row">
+        <span class="detail-label">Unit</span>
+        <div class="equipment-chip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          ${escHtml(equipment)}
+        </div>
+      </div>
+    </div>` : ''}
+
+    <div class="bottom-pad"></div>
+  `;
+}
+
+// ═══════════════════════
+// UPDATE STATUS
+// ═══════════════════════
+async function updateStatus(recordId, newStatus) {
+  try {
+    showToast('Updating...');
+    const updateFields = { 'Status': newStatus };
+    if (newStatus === 'In Progress') {
+      updateFields['Actual Start'] = new Date().toISOString();
+    }
+    await apiPatch('Work Orders', recordId, updateFields);
+    showToast(`✓ Marked: ${newStatus}`, 'success');
+    const data = await apiGet(`Work Orders/${recordId}`);
+    currentJob = data;
+    renderJobDetail(data);
+  } catch (err) {
+    showToast('⚠ Could not update status', 'error');
+  }
+}
+
+// ═══════════════════════
+// COMPLETE FORM
+// ═══════════════════════
+function openCompleteForm() {
+  if (!currentJob) return;
+  const f = currentJob.fields;
+  document.getElementById('complete-job-summary').textContent = f['Customer Name'] || 'Unknown Customer';
+  document.getElementById('complete-job-sub').textContent = f['Work Order Type'] || 'Service';
+
+  // Reset
+  ['field-work','field-diagnosis','field-recommendations','field-parts-other','field-followup-notes']
+    .forEach(id => document.getElementById(id).value = '');
+  document.getElementById('followup-notes-wrap').style.display = 'none';
+  document.getElementById('photos-preview').innerHTML = '';
+  selectedPhotos = [];
+  readyToInvoice = false;
+  updateInvoiceToggle();
+  selectFollowup('no');
+  document.querySelectorAll('.part-chip').forEach(c => c.classList.remove('selected'));
+
+  showScreen('complete');
+}
+
+function buildPartsGrid() {
+  const grid = document.getElementById('parts-grid');
+  grid.innerHTML = COMMON_PARTS.map(part => `
+    <label class="part-chip" onclick="togglePart(this)" tabindex="0"
+      role="checkbox" aria-checked="false"
+      aria-label="${escHtml(part)}"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePart(this)}">
+      <input type="checkbox" value="${escAttr(part)}" tabindex="-1">
+      <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      ${escHtml(part)}
+    </label>
+  `).join('');
+}
+
+function togglePart(el) {
+  const isSelected = !el.classList.contains('selected');
+  el.classList.toggle('selected', isSelected);
+  el.querySelector('input').checked = isSelected;
+  el.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+}
+
+function selectFollowup(val) {
+  followupSelected = val;
+  document.getElementById('followup-no').checked = val === 'no';
+  document.getElementById('followup-yes').checked = val === 'yes';
+  document.getElementById('followup-notes-wrap').style.display = val === 'yes' ? 'block' : 'none';
+
+  const noEl = document.getElementById('radio-no-label');
+  const yesEl = document.getElementById('radio-yes-label');
+  noEl.classList.toggle('selected', val === 'no');
+  yesEl.classList.toggle('selected', val === 'yes');
+}
+
+function toggleReadyInvoice() {
+  readyToInvoice = !readyToInvoice;
+  updateInvoiceToggle();
+}
+
+function updateInvoiceToggle() {
+  const sw = document.getElementById('invoice-switch');
+  const toggle = document.getElementById('ready-invoice-toggle');
+  const label = document.getElementById('toggle-label-text');
+  sw.classList.toggle('on', readyToInvoice);
+  toggle.classList.toggle('active', readyToInvoice);
+  toggle.setAttribute('aria-checked', readyToInvoice ? 'true' : 'false');
+  label.textContent = readyToInvoice ? 'ON' : 'OFF';
+}
+
+function handlePhotos(input) {
+  const preview = document.getElementById('photos-preview');
+  Array.from(input.files).forEach(file => {
+    selectedPhotos.push(file);
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = document.createElement('img');
+      img.src = e.target.result;
+      img.className = 'photo-thumb';
+      img.setAttribute('alt', `Job photo: ${file.name}`);
+      img.setAttribute('role', 'listitem');
+      preview.appendChild(img);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ═══════════════════════
+// SUBMIT COMPLETE
+// ═══════════════════════
+async function submitComplete() {
+  if (!currentJob) return;
+
+  const workPerformed = document.getElementById('field-work').value.trim();
+  if (!workPerformed) {
+    showToast('⚠ Work performed is required', 'error');
+    document.getElementById('field-work').focus();
+    return;
+  }
+
+  const btn = document.getElementById('submit-complete-btn');
+  btn.textContent = 'Saving...';
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+
+  try {
+    const selectedParts = Array.from(document.querySelectorAll('.part-chip.selected input'))
+      .map(i => i.value);
+    const otherParts = document.getElementById('field-parts-other').value.trim();
+    const allParts = [...selectedParts, otherParts].filter(Boolean).join(', ');
+    const followupRequired = followupSelected === 'yes';
+    const followupNotes = document.getElementById('field-followup-notes').value.trim();
+    const diagnosis = document.getElementById('field-diagnosis').value.trim();
+    const recommendations = document.getElementById('field-recommendations').value.trim();
+
+    const fields = {
+      'Status': 'Complete',
+      'Work Performed': workPerformed,
+      'Actual End': new Date().toISOString(),
+    };
+
+    if (diagnosis)     fields['Diagnosis'] = diagnosis;
+    if (recommendations) fields['Recommendations'] = recommendations;
+    if (allParts)      fields['Parts Used'] = allParts;
+    if (followupRequired) {
+      fields['Follow Up Required'] = true;
+      if (followupNotes) fields['Follow Up Notes'] = followupNotes;
+    }
+    if (readyToInvoice) fields['Status'] = 'Complete';
+
+    await apiPatch('Work Orders', currentJob.id, fields);
+
+    showToast('✓ Job marked complete!', 'success');
+    setTimeout(() => {
+      showScreen('home');
+      loadTodaysJobs();
+    }, 1400);
+
+  } catch (err) {
+    showToast('⚠ Could not save. Try again.', 'error');
+    btn.textContent = 'Mark Job Complete';
+    btn.disabled = false;
+    btn.setAttribute('aria-busy', 'false');
+  }
+}
+
+// ═══════════════════════
+// UTILITIES
+// ═══════════════════════
+function openMaps(address) {
+  window.open(`https://maps.apple.com/?q=${encodeURIComponent(address)}`, '_blank');
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escAttr(str) {
+  if (!str) return '';
+  return String(str).replace(/'/g,"\\'").replace(/"/g,'&quot;');
+}
+
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
