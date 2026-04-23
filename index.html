@@ -67,11 +67,10 @@
   }
 
   /* Fan blade SVG */
-  .logo-icon {
-    width: 30px;
-    height: 30px;
-    color: var(--gold);
-    flex-shrink: 0;
+  .logo-img {
+    height: 28px;
+    width: auto;
+    display: block;
   }
 
   .logo-text {
@@ -740,15 +739,7 @@
 
   <header class="header" role="banner">
     <div class="logo" aria-label="CJB Comfort">
-      <!-- Fan blade / HVAC spinner icon matching CJB logo -->
-      <svg class="logo-icon" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
-        <path d="M16 14.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5z"/>
-        <path d="M16 2c1.1 0 2 .45 2 1s-.9 1-2 1c-3.5 0-6 2.8-6 6.5 0 1.2.3 2.3.8 3.2-.6-.1-1.1-.2-1.8-.2C6.3 13.5 4 11.2 4 8.5 4 4.9 7.6 2 16 2z" opacity=".9"/>
-        <path d="M30 16c0 1.1-.45 2-1 2s-1-.9-1-2c0-3.5-2.8-6-6.5-6-1.2 0-2.3.3-3.2.8.1-.6.2-1.1.2-1.8 0-2.7 2.3-5 5-5C27.1 4 30 7.6 30 16z" opacity=".9"/>
-        <path d="M16 30c-1.1 0-2-.45-2-1s.9-1 2-1c3.5 0 6-2.8 6-6.5 0-1.2-.3-2.3-.8-3.2.6.1 1.1.2 1.8.2 2.7 0 5 2.3 5 5C28 27.1 24.4 30 16 30z" opacity=".9"/>
-        <path d="M2 16c0-1.1.45-2 1-2s1 .9 1 2c0 3.5 2.8 6 6.5 6 1.2 0 2.3-.3 3.2-.8-.1.6-.2 1.1-.2 1.8 0 2.7-2.3 5-5 5C4.9 28 2 24.4 2 16z" opacity=".9"/>
-      </svg>
-      <div class="logo-text"><span>CJB</span> Comfort</div>
+      <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
     <div class="header-name" aria-label="Logged in as Cornell Hart">Cornell Hart</div>
   </header>
@@ -787,7 +778,7 @@
       Today
     </button>
     <div class="logo" aria-hidden="true">
-      <div class="logo-text"><span>CJB</span> Comfort</div>
+      <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
   </header>
 
@@ -812,7 +803,7 @@
       Job
     </button>
     <div class="logo" aria-hidden="true">
-      <div class="logo-text"><span>CJB</span> Comfort</div>
+      <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
   </header>
 
@@ -1020,18 +1011,23 @@ async function loadTodaysJobs() {
 
   try {
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    const todayStr = today.toISOString().split('T')[0];
 
     const data = await apiGet('Work Orders', {
-      filterByFormula: `AND(
-        IS_SAME({Scheduled Date}, '${dateStr}', 'day'),
-        {Status} != 'Cancelled',
-        {Status} != 'Paid'
-      )`,
-      sort: '[{"field":"Scheduled Date","direction":"asc"}]',
+      maxRecords: '100',
     });
 
-    const records = data.records || [];
+    const allRecords = data.records || [];
+
+    // Filter by today's date in JS — avoids Airtable formula issues
+    const records = allRecords.filter(r => {
+      const f = r.fields;
+      const status = (f['Status'] || '').toLowerCase();
+      if (status === 'cancelled' || status === 'paid') return false;
+      const scheduled = f['Scheduled Date'];
+      if (!scheduled) return false;
+      return scheduled.startsWith(todayStr);
+    });
 
     if (records.length === 0) {
       badgeEl.textContent = 'No jobs today';
