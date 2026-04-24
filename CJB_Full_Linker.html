@@ -109,7 +109,7 @@ const CONTACTS_TO_CREATE = [
   { customerEmail: 'jiji.sam@voya.com', first: 'Jiji', last: 'Sam', email: 'jiji.sam@voya.com', phone: '', title: 'Contact' },
   { customerEmail: 'amy@gesherdr.org', first: 'Amy', last: 'Hummell', email: 'amy@gesherdr.org', phone: '', title: 'Contact' },
   { customerEmail: 'gregg@cerebrumcorp.com', first: 'Gregg', last: 'Lahti', email: 'gregg@cerebrumcorp.com', phone: '', title: 'Contact' },
-  { customerEmail: 'reedcw@hotmail.com', first: 'Chadwick', last: 'Reed', email: 'reedcw@hotmail.com', phone: '', title: 'Contact', note: 'Goes by Chad' },
+  { customerEmail: 'cwickr@gmail.com', first: 'Chadwick', last: 'Reed', email: 'cwickr@gmail.com', phone: '', title: 'Contact', note: 'Goes by Chad' },
   { customerEmail: 'muru100@gmail.com', first: 'Murugesh', last: 'Ramanujam', email: 'muru100@gmail.com', phone: '', title: 'Contact', note: 'Goes by Muru' },
 ];
 
@@ -138,16 +138,25 @@ async function throttle() {
 }
 
 async function fetchAll(table) {
-  let records = [], offset = null;
+  let records = [];
+  let offset = null;
+  let page = 0;
   do {
-    const params = new URLSearchParams({ maxRecords: '100' });
+    page++;
+    const params = new URLSearchParams({ pageSize: '100' });
     if (offset) params.set('offset', offset);
-    const res = await fetch(`${PROXY}/${table.replace(/ /g,'%20')}?${params}`);
-    if (!res.ok) throw new Error(`API ${res.status} fetching ${table}`);
+    const url = `${PROXY}/${table.replace(/ /g,'%20')}?${params}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`API ${res.status} fetching ${table} page ${page}`);
     const data = await res.json();
-    records = records.concat(data.records || []);
+    const batch = data.records || [];
+    records = records.concat(batch);
     offset = data.offset || null;
+    log(`  ${table}: page ${page}, ${batch.length} records (total so far: ${records.length})`, 'info');
+    // Small pause between pages to respect rate limits
+    if (offset) await sleep(300);
   } while (offset);
+  log(`  ${table}: fully loaded ${records.length} total records`, 'ok');
   return records;
 }
 
