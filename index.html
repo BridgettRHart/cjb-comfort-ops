@@ -813,6 +813,155 @@
   }
 
   .bottom-pad { height: 32px; }
+
+  /* Equipment cards on job detail */
+  .equipment-card {
+    background: var(--gray-light);
+    border: 1.5px solid var(--gray-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+
+  .equipment-card-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--charcoal);
+    margin-bottom: 4px;
+  }
+
+  .equipment-card-meta {
+    font-size: 12px;
+    color: var(--gray-text);
+    line-height: 1.6;
+  }
+
+  .equipment-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .btn-small {
+    flex: 1;
+    border: none;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    min-height: 36px;
+  }
+
+  .btn-small-outline {
+    background: var(--white);
+    color: var(--charcoal);
+    border: 1.5px solid var(--gray-border);
+  }
+
+  .btn-small-red {
+    background: var(--red);
+    color: var(--white);
+  }
+
+  /* Part quantity row */
+  .selected-part-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--charcoal);
+    color: var(--white);
+    border-radius: 20px;
+    padding: 5px 10px 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 6px;
+  }
+
+  .selected-part-remove {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    min-width: 20px;
+    min-height: 20px;
+    justify-content: center;
+  }
+
+  .part-qty-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--charcoal);
+    color: var(--white);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+  }
+
+  .part-qty-name {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .part-qty-price {
+    font-size: 12px;
+    color: var(--gold);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .part-qty-input {
+    width: 52px;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    background: rgba(255,255,255,0.15);
+    color: var(--white);
+    -webkit-appearance: none;
+  }
+
+  .part-qty-input:focus {
+    outline: 2px solid var(--gold);
+    background: rgba(255,255,255,0.25);
+  }
+
+  .part-qty-remove {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 2px;
+    min-width: 24px;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Add equipment form */
+  .add-equipment-form {
+    background: var(--white);
+    border: 2px solid var(--gold);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 10px;
+    display: none;
+  }
 </style>
 </head>
 <body>
@@ -901,6 +1050,11 @@
     </div>
 
     <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+
+      <div class="form-field" id="problem-desc-wrap" style="display:none;">
+        <label class="form-label">Problem Reported by Customer</label>
+        <div id="problem-desc-display" style="background:var(--warning-bg);border:1px solid #e8d44d;border-radius:8px;padding:10px 12px;font-size:14px;color:var(--charcoal);line-height:1.5;margin-bottom:4px;"></div>
+      </div>
 
       <div class="form-field">
         <label class="form-label" for="field-work">Work Performed <span aria-label="required" style="color:var(--red);">*</span></label>
@@ -1272,11 +1426,11 @@ function renderJobDetail(record) {
   const city = f['City'] || '';
   const addressFull = [address, city].filter(Boolean).join(', ');
   const jobType = f['Work Order Type'] || 'Service';
-  const notes = f['Notes'] || '';
-  const equipment = f['Equipment Name'] || '';
+  const notes = f['Notes'] || f['Problem Description'] || '';
   const contact = f['Contact Name'] || f['Primary Contact Name'] || '';
   const contactPhone = f['Contact Phone'] || '';
   const woId = f['Work Order ID'] || record.id;
+  const priority = f['Priority'] || '';
 
   let statusBtn = '';
   if (status === 'Scheduled') {
@@ -1297,7 +1451,10 @@ function renderJobDetail(record) {
     <div class="error-banner" id="detail-error" role="alert"></div>
 
     <div class="status-action-bar" role="region" aria-label="Job status actions">
-      <div class="status-action-title">Job Status: <strong>${escHtml(status)}</strong></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="status-action-title">Status: <strong>${escHtml(status)}</strong></div>
+        ${priority ? `<span class="status-pill ${priority === 'Emergency' ? 'pill-in-progress' : priority === 'Urgent' ? 'pill-scheduled' : 'pill-complete'}" style="border-radius:4px;">${escHtml(priority)}</span>` : ''}
+      </div>
       ${statusBtn}
     </div>
 
@@ -1311,9 +1468,8 @@ function renderJobDetail(record) {
       <div class="detail-row">
         <span class="detail-label">Address</span>
         <span class="detail-value">
-          <a href="https://maps.apple.com/?q=${encodeURIComponent(addressFull)}"
-             target="_blank"
-             rel="noopener"
+          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressFull)}"
+             target="_blank" rel="noopener"
              aria-label="Open ${escHtml(addressFull)} in Maps">
             ${escHtml(addressFull)}
           </a>
@@ -1341,25 +1497,211 @@ function renderJobDetail(record) {
       </div>
       ${notes ? `
       <div class="detail-row">
-        <span class="detail-label">Dispatch Notes</span>
+        <span class="detail-label">Problem / Dispatch Notes</span>
         <span class="detail-value">${escHtml(notes)}</span>
       </div>` : ''}
     </div>
 
-    ${equipment ? `
-    <div class="detail-section">
-      <div class="detail-section-header">Equipment</div>
-      <div class="detail-row">
-        <span class="detail-label">Unit</span>
-        <div class="equipment-chip">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-          ${escHtml(equipment)}
+    <div class="detail-section" id="equipment-section">
+      <div class="detail-section-header" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Equipment</span>
+        <button class="btn-small btn-small-outline" style="flex:none;padding:4px 10px;font-size:11px;border-radius:6px;" onclick="toggleAddEquipment()">+ Add Unit</button>
+      </div>
+      <div style="padding:12px 16px;" id="equipment-list">
+        <div style="color:var(--gray-text);font-size:13px;">Loading equipment...</div>
+      </div>
+      <div class="add-equipment-form" id="add-equipment-form" style="margin:0 16px 16px;">
+        <div class="form-label" style="margin-bottom:12px;">Add Equipment — New Unit</div>
+        <div class="form-field">
+          <label class="form-label" for="eq-type">Type</label>
+          <select class="form-input" id="eq-type" style="-webkit-appearance:none;">
+            <option value="">Select type...</option>
+            <option>Split System</option>
+            <option>Package Unit</option>
+            <option>Heat Pump</option>
+            <option>Mini Split</option>
+            <option>WSHP</option>
+            <option>Air Handler</option>
+            <option>Condenser</option>
+            <option>Furnace</option>
+            <option>Evaporative Cooler</option>
+            <option>RTU</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="form-field" style="flex:1;margin-bottom:10px;">
+            <label class="form-label" for="eq-tons">Tons</label>
+            <input type="number" class="form-input" id="eq-tons" placeholder="e.g. 3.5" step="0.5" min="0.5" max="25">
+          </div>
+          <div class="form-field" style="flex:1;margin-bottom:10px;">
+            <label class="form-label" for="eq-refrigerant">Refrigerant</label>
+            <select class="form-input" id="eq-refrigerant" style="-webkit-appearance:none;">
+              <option value="">Unknown</option>
+              <option>R-410A</option>
+              <option>R-22</option>
+              <option>R-32</option>
+              <option>R-454B</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-field" style="margin-bottom:10px;">
+          <label class="form-label" for="eq-brand">Brand</label>
+          <input type="text" class="form-input" id="eq-brand" placeholder="Carrier, Goodman, Lennox...">
+        </div>
+        <div class="form-field" style="margin-bottom:10px;">
+          <label class="form-label" for="eq-model">Model / Serial</label>
+          <input type="text" class="form-input" id="eq-model" placeholder="From nameplate or control board">
+        </div>
+        <div class="form-field" style="margin-bottom:12px;">
+          <label class="form-label" for="eq-location">Location in Building</label>
+          <input type="text" class="form-input" id="eq-location" placeholder="e.g. Rooftop Zone 1, Hallway end unit">
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-dark" style="flex:1;padding:10px;" onclick="saveNewEquipment()">Save Unit</button>
+          <button class="btn btn-outline" style="flex:1;padding:10px;" onclick="toggleAddEquipment()">Cancel</button>
         </div>
       </div>
-    </div>` : ''}
+    </div>
 
     <div class="bottom-pad"></div>
   `;
+
+  // Load equipment for this property
+  loadPropertyEquipment(record);
+}
+
+async function loadPropertyEquipment(record) {
+  const f = record.fields;
+  const listEl = document.getElementById('equipment-list');
+  if (!listEl) return;
+
+  // Get property ID from Work Order
+  const propLinks = f['Property'];
+  if (!propLinks || propLinks.length === 0) {
+    listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;padding:4px 0;">No property linked — add equipment manually.</div>';
+    return;
+  }
+
+  const propId = propLinks[0];
+
+  try {
+    // Fetch equipment linked to this property
+    const data = await apiGet('Equipment', {
+      filterByFormula: `FIND('${propId}', ARRAYJOIN({Property}))`,
+      maxRecords: '20',
+    });
+
+    const equipment = data.records || [];
+
+    if (equipment.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;padding:4px 0;">No equipment on file for this property. Tap + Add Unit to add.</div>';
+      return;
+    }
+
+    listEl.innerHTML = equipment.map(eq => {
+      const ef = eq.fields;
+      const name = ef['Equipment Name'] || 'Unknown Unit';
+      const type = ef['Equipment Type'] || '';
+      const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
+      const brand = ef['Brand'] || '';
+      const model = ef['Model Number'] || '';
+      const refrig = ef['Refrigerant Type'] || '';
+      const installDate = ef['Install Date'] ? new Date(ef['Install Date']).getFullYear() : '';
+      const condition = ef['Condition'] || '';
+      const location = ef['Location in Building'] || '';
+
+      const meta = [brand, model, tons, refrig, installDate ? 'Installed ' + installDate : '', location, condition]
+        .filter(Boolean).join(' · ');
+
+      return `
+      <div class="equipment-card">
+        <div class="equipment-card-name">${escHtml(name)}</div>
+        ${meta ? `<div class="equipment-card-meta">${escHtml(meta)}</div>` : ''}
+        <div class="equipment-card-actions">
+          <button class="btn-small btn-small-outline" onclick="selectEquipmentForJob('${eq.id}', '${escAttr(name)}')">
+            Use for This Job
+          </button>
+          <button class="btn-small btn-small-red" onclick="openEditEquipment('${eq.id}')">
+            Update Info
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+
+  } catch(err) {
+    listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;">Could not load equipment.</div>';
+  }
+}
+
+let selectedEquipmentId = null;
+let selectedEquipmentName = '';
+
+function selectEquipmentForJob(eqId, eqName) {
+  selectedEquipmentId = eqId;
+  selectedEquipmentName = eqName;
+  showToast(`✓ Using: ${eqName}`, 'success');
+  // Highlight selected card
+  document.querySelectorAll('.equipment-card').forEach(c => {
+    c.style.borderColor = 'var(--gray-border)';
+    c.style.background = 'var(--gray-light)';
+  });
+  event.currentTarget.closest('.equipment-card').style.borderColor = 'var(--red)';
+  event.currentTarget.closest('.equipment-card').style.background = '#fdecea';
+}
+
+function toggleAddEquipment() {
+  const form = document.getElementById('add-equipment-form');
+  form.style.display = form.style.display === 'block' ? 'none' : 'block';
+}
+
+async function saveNewEquipment() {
+  const type = document.getElementById('eq-type').value;
+  if (!type) { showToast('⚠ Select equipment type', 'error'); return; }
+
+  const f = currentJob.fields;
+  const custLinks = f['Customer'];
+  const propLinks = f['Property'];
+
+  // Auto-generate equipment name
+  const tons = document.getElementById('eq-tons').value;
+  const tonsStr = tons ? tons + ' Ton ' : '';
+  const eqName = tonsStr + type + ' — Unit 1';
+
+  const fields = {
+    'Equipment Name': eqName,
+    'Equipment Type': type,
+    'Active': true,
+  };
+
+  if (tons) fields['Capacity (Tons)'] = parseFloat(tons);
+  const refrig = document.getElementById('eq-refrigerant').value;
+  if (refrig) fields['Refrigerant Type'] = refrig;
+  const brand = document.getElementById('eq-brand').value.trim();
+  if (brand) fields['Brand'] = brand;
+  const model = document.getElementById('eq-model').value.trim();
+  if (model) fields['Model Number'] = model;
+  const location = document.getElementById('eq-location').value.trim();
+  if (location) fields['Location in Building'] = location;
+  if (custLinks && custLinks.length > 0) fields['Customer'] = [custLinks[0]];
+  if (propLinks && propLinks.length > 0) fields['Property'] = [propLinks[0]];
+
+  try {
+    const result = await apiPost('Equipment', fields);
+    selectedEquipmentId = result.id;
+    selectedEquipmentName = eqName;
+    showToast('✓ Equipment saved', 'success');
+    toggleAddEquipment();
+    loadPropertyEquipment(currentJob);
+  } catch(err) {
+    showToast('⚠ Could not save equipment', 'error');
+  }
+}
+
+async function openEditEquipment(eqId) {
+  // For now just flag for follow-up — full edit screen in next version
+  showToast('Equipment editing coming soon', 'info');
 }
 
 // ═══════════════════════
@@ -1391,7 +1733,18 @@ function openCompleteForm() {
   document.getElementById('complete-job-summary').textContent = f['Customer Name'] || 'Unknown Customer';
   document.getElementById('complete-job-sub').textContent = f['Work Order Type'] || 'Service';
 
-  // Reset
+  // Show problem description from Work Order if it exists
+  const problemDesc = f['Problem Description'] || '';
+  const problemWrap = document.getElementById('problem-desc-wrap');
+  const problemDisplay = document.getElementById('problem-desc-display');
+  if (problemDesc) {
+    if (problemDisplay) problemDisplay.textContent = problemDesc;
+    if (problemWrap) problemWrap.style.display = 'block';
+  } else {
+    if (problemWrap) problemWrap.style.display = 'none';
+  }
+
+  // Reset all fields
   ['field-work','field-diagnosis','field-recommendations','field-parts-other','field-followup-notes']
     .forEach(id => document.getElementById(id).value = '');
   document.getElementById('followup-notes-wrap').style.display = 'none';
@@ -1407,6 +1760,8 @@ function openCompleteForm() {
     c.setAttribute('aria-checked', 'false');
   });
   selectedParts = [];
+  selectedEquipmentId = null;
+  selectedEquipmentName = '';
   renderSelectedParts();
   document.getElementById('parts-search').value = '';
   document.getElementById('parts-search-results').style.display = 'none';
@@ -1471,12 +1826,27 @@ function renderSelectedParts() {
     return;
   }
   wrapper.style.display = 'block';
-  container.innerHTML = selectedParts.map(p => `
-    <div class="selected-part-chip">
-      <span>${escHtml(p.name)}${p.price ? ' — $' + p.price.toFixed(2) : ''}</span>
-      <button class="selected-part-remove" onclick="removeSelectedPart('${escAttr(p.name)}')" aria-label="Remove ${escHtml(p.name)}">×</button>
+  container.innerHTML = selectedParts.map((p, i) => `
+    <div class="part-qty-row">
+      <div class="part-qty-name">${escHtml(p.name)}</div>
+      ${p.price ? `<div class="part-qty-price">$${p.price.toFixed(2)}</div>` : ''}
+      <input type="number"
+        class="part-qty-input"
+        value="${p.qty || 1}"
+        min="1" max="99" step="1"
+        aria-label="Quantity for ${escHtml(p.name)}"
+        onchange="updatePartQty('${escAttr(p.name)}', this.value)"
+        onclick="this.select()">
+      <button class="part-qty-remove" onclick="removeSelectedPart('${escAttr(p.name)}')" aria-label="Remove ${escHtml(p.name)}">×</button>
     </div>
   `).join('');
+}
+
+function updatePartQty(name, qty) {
+  const part = selectedParts.find(p => p.name === name);
+  if (part) {
+    part.qty = Math.max(1, parseInt(qty) || 1);
+  }
 }
 
 async function searchProducts(query) {
@@ -1602,10 +1972,14 @@ async function submitComplete() {
   btn.setAttribute('aria-busy', 'true');
 
   try {
-    // Build parts string: "Name | $price" per line
+    // Build parts string: "Qty x Name | $price" per line
     const otherParts = document.getElementById('field-parts-other').value.trim();
-    const partLines = selectedParts.map(p => p.price ? `${p.name} | $${p.price.toFixed(2)}` : p.name);
-    if (otherParts) partLines.push(`Custom: ${otherParts} | no price`);
+    const partLines = selectedParts.map(p => {
+      const qty = p.qty && p.qty > 1 ? `${p.qty}x ` : '';
+      const price = p.price ? ` | $${p.price.toFixed(2)}` : '';
+      return `${qty}${p.name}${price}`;
+    });
+    if (otherParts) partLines.push(`Custom: ${otherParts}`);
     const allParts = partLines.join('\n');
     const followupRequired = followupSelected === 'yes';
     const followupNotes = document.getElementById('field-followup-notes').value.trim();
@@ -1614,24 +1988,57 @@ async function submitComplete() {
     const woId = currentJob.id;
     const woFields = currentJob.fields;
 
+    // Auto-generate job name
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const customerName = woFields['Customer Name'] || 'Customer';
+    const jobTypeName = woFields['Work Order Type'] || 'Service';
+    const autoJobName = `${customerName} — ${jobTypeName} — ${dateStr}`;
+
     // Step 1: Create a Job record with all completion data
     const jobFields = {
+      'Job Name': autoJobName,
       'Work Order': [woId],
       'Job Type': woFields['Work Order Type'] || 'Maintenance',
       'Status': 'Complete',
       'Work Performed': workPerformed,
-      'Actual Start': woFields['Actual Start'] || new Date().toISOString(),
-      'Actual End': new Date().toISOString(),
+      'Actual Start': woFields['Actual Start'] || now.toISOString(),
+      'Actual End': now.toISOString(),
     };
 
-    // Link customer if available
+    // Pass scheduled times from Work Order
+    if (woFields['Scheduled Date']) {
+      jobFields['Scheduled Start'] = woFields['Scheduled Date'];
+    }
+
+    // Link customer
     if (woFields['Customer'] && woFields['Customer'].length > 0) {
       jobFields['Customer'] = woFields['Customer'];
     }
 
-    // Link technician if available  
+    // Link technician
     if (woFields['Technician'] && woFields['Technician'].length > 0) {
       jobFields['Technician'] = woFields['Technician'];
+    }
+
+    // Link property
+    if (woFields['Property'] && woFields['Property'].length > 0) {
+      jobFields['Property'] = woFields['Property'];
+    }
+
+    // Link equipment if Cornell selected one
+    if (selectedEquipmentId) {
+      jobFields['Equipment'] = [selectedEquipmentId];
+    }
+
+    // Priority from Work Order
+    if (woFields['Priority']) {
+      jobFields['Priority'] = woFields['Priority'];
+    }
+
+    // Problem description from Work Order
+    if (woFields['Problem Description']) {
+      jobFields['Problem Description'] = woFields['Problem Description'];
     }
 
     if (diagnosis)       jobFields['Diagnosis'] = diagnosis;
@@ -1677,7 +2084,7 @@ async function submitComplete() {
 // UTILITIES
 // ═══════════════════════
 function openMaps(address) {
-  window.open(`https://maps.apple.com/?q=${encodeURIComponent(address)}`, '_blank');
+  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
 }
 
 function escHtml(str) {
