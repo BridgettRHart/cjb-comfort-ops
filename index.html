@@ -1670,7 +1670,7 @@ function buildJobCard(record) {
     <div class="job-card-body">
       <div class="job-customer">${customer}</div>
       <span class="job-type-tag">${jobType}</span>
-      ${f['Service Mode'] ? `<span class="job-type-tag" style="background:var(--charcoal);color:var(--gold);margin-left:4px;">${escHtml(f['Service Mode'])}</span>` : ''}
+      ${(f['Service Mode'] && f['Service Mode'] !== 'Diagnostic') ? `<span class="job-type-tag" style="background:var(--charcoal);color:var(--gold);margin-left:4px;">${escHtml(f['Service Mode'])}</span>` : ''}
       ${addressFull ? `
       <div class="job-address-row">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -1734,8 +1734,8 @@ function renderJobDetail(record) {
       ▶ Start Job — Mark In Progress
     </button>`;
   } else if (status === 'In Progress') {
-    statusBtn = `<button class="btn btn-success btn-full" onclick="openCompleteForm('${record.id}')" aria-label="Open job completion form">
-      ✓ Complete This Job
+    statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="Continue working on this job">
+      ▶ Continue Job — View Units
     </button>`;
   } else {
     statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
@@ -2220,9 +2220,10 @@ async function activateJobScreen(record) {
 
     const count = currentWorkOrderEquipment.length;
     let badge = '';
-    if (serviceMode === 'All Units') badge = count > 0 ? `All ${count} Units` : 'All Units';
+    // Always show count if we have equipment
+    if (count > 0) badge = `${count} Unit${count !== 1 ? 's' : ''}`;
     else if (serviceMode === 'Specific Unit') badge = '1 Unit';
-    else badge = count > 0 ? `${count} Unit${count !== 1 ? 's' : ''}` : 'Diagnostic';
+    else badge = 'Diagnostic';
     document.getElementById('active-unit-badge').textContent = badge;
 
     renderActiveEquipmentList();
@@ -2335,6 +2336,21 @@ async function saveNewEquipmentActive() {
   } catch(err) {
     showToast('⚠ Could not save unit', 'error');
   }
+}
+
+// ═══════════════════════
+// RESUME ACTIVE JOB
+// ═══════════════════════
+async function resumeActiveJob() {
+  if (!currentJob) return;
+  // If we have equipment loaded already just go back to active screen
+  if (currentWorkOrderEquipment.length > 0) {
+    showScreen('active');
+    renderActiveEquipmentList();
+    return;
+  }
+  // Otherwise re-activate
+  await activateJobScreen(currentJob);
 }
 
 // ═══════════════════════
