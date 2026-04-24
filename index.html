@@ -1007,6 +1007,17 @@ async function apiPatch(table, recordId, fields) {
   return res.json();
 }
 
+async function apiPost(table, fields) {
+  const url = `${PROXY}/${table.replace(/ /g, '%20')}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
 // ═══════════════════════
 // LOAD TODAY'S JOBS
 // ═══════════════════════
@@ -1380,31 +1391,61 @@ async function submitComplete() {
     const followupNotes = document.getElementById('field-followup-notes').value.trim();
     const diagnosis = document.getElementById('field-diagnosis').value.trim();
     const recommendations = document.getElementById('field-recommendations').value.trim();
+    const woId = currentJob.id;
+    const woFields = currentJob.fields;
 
-    const fields = {
+    // Step 1: Create a Job record with all completion data
+    const jobFields = {
+      'Work Order': [woId],
+      'Job Type': woFields['Work Order Type'] || 'Maintenance',
       'Status': 'Complete',
       'Work Performed': workPerformed,
+      'Actual Start': woFields['Actual Start'] || new Date().toISOString(),
       'Actual End': new Date().toISOString(),
     };
 
-    if (diagnosis)     fields['Diagnosis'] = diagnosis;
-    if (recommendations) fields['Recommendations'] = recommendations;
-    if (allParts)      fields['Parts Used'] = allParts;
-    if (followupRequired) {
-      fields['Follow Up Required'] = true;
-      if (followupNotes) fields['Follow Up Notes'] = followupNotes;
+    // Link customer if available
+    if (woFields['Customer'] && woFields['Customer'].length > 0) {
+      jobFields['Customer'] = woFields['Customer'];
     }
-    if (readyToInvoice) fields['Status'] = 'Complete';
 
-    await apiPatch('Work Orders', currentJob.id, fields);
+    // Link technician if available  
+    if (woFields['Technician'] && woFields['Technician'].length > 0) {
+      jobFields['Technician'] = woFields['Technician'];
+    }
 
-    showToast('✓ Job marked complete!', 'success');
+    if (diagnosis)       jobFields['Diagnosis'] = diagnosis;
+    if (recommendations) jobFields['Recommendations'] = recommendations;
+    if (allParts)        jobFields['Parts Used'] = allParts;
+    if (followupRequired) {
+      jobFields['Follow Up Required'] = true;
+      if (followupNotes) jobFields['Follow Up Notes'] = followupNotes;
+    }
+
+    const jobRes = await apiPost('Jobs', jobFields);
+
+    // Step 2: Update the Work Order status and link the new Job
+    const woUpdate = {
+      'Status': 'Complete',
+      'Actual End': new Date().toISOString(),
+    };
+    if (readyToInvoice) woUpdate['Status'] = 'Complete';
+    if (jobRes && jobRes.id) {
+      // Link the new job back to the work order
+      const existingJobs = woFields['Jobs'] || [];
+      woUpdate['Jobs'] = [...existingJobs, jobRes.id];
+    }
+
+    await apiPatch('Work Orders', woId, woUpdate);
+
+    showToast('✓ Job saved and complete!', 'success');
     setTimeout(() => {
       showScreen('home');
       loadTodaysJobs();
     }, 1400);
 
   } catch (err) {
+    console.error(err);
     showToast('⚠ Could not save. Try again.', 'error');
     btn.textContent = 'Mark Job Complete';
     btn.disabled = false;
