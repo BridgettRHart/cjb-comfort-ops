@@ -962,6 +962,159 @@
     margin-top: 10px;
     display: none;
   }
+
+  /* Unit action cards on job detail */
+  .unit-action-card {
+    background: var(--white);
+    border: 2px solid var(--gray-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    transition: border-color 0.15s;
+  }
+
+  .unit-action-card.complete {
+    border-color: var(--success);
+    background: var(--success-bg);
+  }
+
+  .unit-action-card.not-this-visit {
+    border-color: var(--gray-mid);
+    background: var(--gray-light);
+    opacity: 0.7;
+  }
+
+  .unit-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .unit-status-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--gray-border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--white);
+  }
+
+  .unit-status-dot.complete { background: var(--success); border-color: var(--success); }
+  .unit-status-dot.pending  { background: var(--white); border-color: var(--gray-border); }
+  .unit-status-dot.skipped  { background: var(--gray-text); border-color: var(--gray-text); }
+
+  .unit-card-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--charcoal);
+    flex: 1;
+    line-height: 1.2;
+  }
+
+  .unit-card-meta {
+    font-size: 11px;
+    color: var(--gray-text);
+    margin-bottom: 8px;
+    padding-left: 30px;
+    line-height: 1.5;
+  }
+
+  .unit-card-actions {
+    display: flex;
+    gap: 6px;
+    padding-left: 30px;
+  }
+
+  .unit-complete-summary {
+    font-size: 12px;
+    color: var(--success);
+    font-weight: 600;
+    padding-left: 30px;
+    margin-top: 4px;
+  }
+
+  /* Work order progress bar */
+  .wo-progress {
+    background: var(--white);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .wo-progress-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-text);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+  }
+
+  .wo-progress-bar-wrap {
+    background: var(--gray-mid);
+    border-radius: 10px;
+    height: 8px;
+    margin-bottom: 6px;
+  }
+
+  .wo-progress-bar-fill {
+    background: var(--success);
+    border-radius: 10px;
+    height: 8px;
+    transition: width 0.4s;
+  }
+
+  .wo-progress-counts {
+    font-size: 12px;
+    color: var(--gray-text);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Summary screen */
+  .summary-line-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--gray-light);
+    gap: 8px;
+  }
+
+  .summary-line-item:last-child { border-bottom: none; }
+
+  .summary-item-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--charcoal);
+    flex: 1;
+    line-height: 1.3;
+  }
+
+  .summary-item-price {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--charcoal);
+    white-space: nowrap;
+  }
+
+  .summary-unit-header {
+    background: var(--charcoal);
+    color: var(--gold);
+    padding: 8px 16px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }
 </style>
 </head>
 <body>
@@ -1045,8 +1198,9 @@
     <h2 class="section-label">Complete Job</h2>
 
     <div class="detail-section" style="padding:16px; margin-bottom:12px;">
-      <div id="complete-job-summary" style="font-size:16px; font-weight:700; color:var(--charcoal); margin-bottom:3px;"></div>
-      <div id="complete-job-sub" style="font-size:13px; color:var(--gray-text);"></div>
+      <div id="complete-job-summary" style="font-size:16px; font-weight:700; color:var(--charcoal); margin-bottom:2px;"></div>
+      <div id="complete-job-sub" style="font-size:12px; color:var(--gray-text); margin-bottom:6px;"></div>
+      <div id="complete-equipment-name" style="display:none; background:var(--charcoal); color:var(--gold); border-radius:8px; padding:8px 12px; font-size:14px; font-weight:700;"></div>
     </div>
 
     <div class="detail-section" style="padding:16px; margin-bottom:12px;">
@@ -1176,6 +1330,62 @@
 
 </div>
 
+
+<!-- ═══════════════════════════════
+     SCREEN 4 — WORK ORDER SUMMARY
+═══════════════════════════════ -->
+<div id="screen-summary" class="screen" role="main">
+
+  <header class="header">
+    <button class="back-btn" onclick="showScreen('detail')" aria-label="Back to job detail">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M5 12l7 7M5 12l7-7"/></svg>
+      Job
+    </button>
+    <div class="logo" aria-hidden="true">
+      <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
+    </div>
+  </header>
+
+  <div class="scroll-content">
+    <h2 class="section-label">Visit Summary</h2>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+      <div id="summary-customer" style="font-size:17px; font-weight:700; color:var(--charcoal); margin-bottom:2px;"></div>
+      <div id="summary-wo-id" style="font-size:13px; color:var(--gray-text);"></div>
+    </div>
+
+    <div id="summary-jobs-list" style="margin-bottom:12px;"></div>
+
+    <div class="detail-section" style="padding:16px; margin-bottom:16px;">
+      <div class="ready-toggle"
+        id="summary-invoice-toggle"
+        onclick="toggleSummaryInvoice()"
+        role="checkbox"
+        aria-checked="false"
+        tabindex="0"
+        onkeydown="if(event.key==='Enter'||event.key===' ')toggleSummaryInvoice()"
+        aria-label="Mark visit as ready to invoice">
+        <div>
+          <div class="ready-toggle-label">Ready to Invoice</div>
+          <div class="ready-toggle-sub">Bridgett will review and send</div>
+        </div>
+        <div class="toggle-wrap">
+          <span class="toggle-label-text" id="summary-toggle-label" aria-hidden="true">OFF</span>
+          <div class="toggle-switch" id="summary-invoice-switch" aria-hidden="true">
+            <div class="toggle-knob"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-dark btn-full" id="summary-submit-btn" onclick="submitWorkOrderComplete()">
+      Finish Visit
+    </button>
+
+    <div class="bottom-pad"></div>
+  </div>
+
+</div>
 
 <!-- TOAST -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -1602,35 +1812,9 @@ async function loadPropertyEquipment(record) {
       return;
     }
 
-    listEl.innerHTML = equipment.map(eq => {
-      const ef = eq.fields;
-      const name = ef['Equipment Name'] || 'Unknown Unit';
-      const type = ef['Equipment Type'] || '';
-      const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
-      const brand = ef['Brand'] || '';
-      const model = ef['Model Number'] || '';
-      const refrig = ef['Refrigerant Type'] || '';
-      const installDate = ef['Install Date'] ? new Date(ef['Install Date']).getFullYear() : '';
-      const condition = ef['Condition'] || '';
-      const location = ef['Location in Building'] || '';
-
-      const meta = [brand, model, tons, refrig, installDate ? 'Installed ' + installDate : '', location, condition]
-        .filter(Boolean).join(' · ');
-
-      return `
-      <div class="equipment-card">
-        <div class="equipment-card-name">${escHtml(name)}</div>
-        ${meta ? `<div class="equipment-card-meta">${escHtml(meta)}</div>` : ''}
-        <div class="equipment-card-actions">
-          <button class="btn-small btn-small-outline" onclick="selectEquipmentForJob('${eq.id}', '${escAttr(name)}')">
-            Use for This Job
-          </button>
-          <button class="btn-small btn-small-red" onclick="openEditEquipment('${eq.id}')">
-            Update Info
-          </button>
-        </div>
-      </div>`;
-    }).join('');
+    // Store equipment list globally for this Work Order
+    currentWorkOrderEquipment = equipment;
+    renderUnitActionCards();
 
   } catch(err) {
     listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;">Could not load equipment.</div>';
@@ -1639,18 +1823,208 @@ async function loadPropertyEquipment(record) {
 
 let selectedEquipmentId = null;
 let selectedEquipmentName = '';
+let currentWorkOrderEquipment = [];
+let completedUnits = {}; // eqId -> { jobId, workPerformed, parts }
+let summaryReadyToInvoice = false;
 
-function selectEquipmentForJob(eqId, eqName) {
+function renderUnitActionCards() {
+  const listEl = document.getElementById('equipment-list');
+  if (!listEl) return;
+
+  const f = currentJob ? currentJob.fields : {};
+  const serviceMode = f['Service Mode'] || 'Diagnostic';
+  const totalUnits = currentWorkOrderEquipment.length;
+  const completedCount = Object.keys(completedUnits).length;
+  const skippedCount = Object.values(completedUnits).filter(u => u.skipped).length;
+  const doneCount = completedCount - skippedCount;
+
+  // Progress bar
+  let progressHtml = '';
+  if (totalUnits > 0) {
+    const pct = Math.round((completedCount / totalUnits) * 100);
+    progressHtml = `
+    <div style="margin-bottom:12px;">
+      <div class="wo-progress-label">Progress: ${doneCount} completed, ${skippedCount} skipped, ${totalUnits - completedCount} remaining</div>
+      <div class="wo-progress-bar-wrap">
+        <div class="wo-progress-bar-fill" style="width:${pct}%"></div>
+      </div>
+    </div>`;
+  }
+
+  const cardsHtml = currentWorkOrderEquipment.map(eq => {
+    const ef = eq.fields;
+    const name = ef['Equipment Name'] || 'Unknown Unit';
+    const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
+    const brand = ef['Brand'] || '';
+    const refrig = ef['Refrigerant Type'] || '';
+    const location = ef['Location in Building'] || '';
+    const serial = ef['Serial Number'] !== 'SN-PENDING' ? ef['Serial Number'] : '';
+    const meta = [brand, tons, refrig, location, serial].filter(Boolean).join(' · ');
+
+    const unitData = completedUnits[eq.id];
+    const isComplete = unitData && !unitData.skipped;
+    const isSkipped = unitData && unitData.skipped;
+
+    let statusDot = '<div class="unit-status-dot pending"></div>';
+    let cardClass = 'unit-action-card';
+    let actionsHtml = '';
+    let summaryHtml = '';
+
+    if (isComplete) {
+      cardClass += ' complete';
+      statusDot = '<div class="unit-status-dot complete">✓</div>';
+      summaryHtml = `<div class="unit-complete-summary">✓ Complete — ${unitData.workPerformed ? unitData.workPerformed.substring(0, 60) + (unitData.workPerformed.length > 60 ? '...' : '') : 'Notes saved'}</div>`;
+      actionsHtml = `<div class="unit-card-actions">
+        <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="editCompletedUnit('${eq.id}')">Edit Notes</button>
+      </div>`;
+    } else if (isSkipped) {
+      cardClass += ' not-this-visit';
+      statusDot = '<div class="unit-status-dot skipped">—</div>';
+      actionsHtml = `<div class="unit-card-actions">
+        <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit('${eq.id}')">Undo Skip</button>
+      </div>`;
+    } else {
+      actionsHtml = `<div class="unit-card-actions">
+        <button class="btn-small btn-small-red" onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Complete This Unit</button>
+        <button class="btn-small btn-small-outline" onclick="skipUnit('${eq.id}')">Not This Visit</button>
+      </div>`;
+    }
+
+    return `
+    <div class="${cardClass}" id="unit-card-${eq.id}">
+      <div class="unit-card-header">
+        ${statusDot}
+        <div class="unit-card-name">${escHtml(name)}</div>
+      </div>
+      ${meta ? `<div class="unit-card-meta">${escHtml(meta)}</div>` : ''}
+      ${actionsHtml}
+      ${summaryHtml}
+    </div>`;
+  }).join('');
+
+  // Show summary button when all units addressed
+  let summaryBtn = '';
+  if (totalUnits > 0 && completedCount === totalUnits) {
+    summaryBtn = `
+    <button class="btn btn-success btn-full" style="margin-top:8px;" onclick="showWorkOrderSummary()">
+      ✓ All Units Done — View Summary & Invoice
+    </button>`;
+  }
+
+  listEl.innerHTML = progressHtml + cardsHtml + summaryBtn;
+}
+
+function startUnitComplete(eqId, eqName) {
   selectedEquipmentId = eqId;
   selectedEquipmentName = eqName;
-  showToast(`✓ Using: ${eqName}`, 'success');
-  // Highlight selected card
-  document.querySelectorAll('.equipment-card').forEach(c => {
-    c.style.borderColor = 'var(--gray-border)';
-    c.style.background = 'var(--gray-light)';
+  openCompleteForm();
+}
+
+function skipUnit(eqId) {
+  completedUnits[eqId] = { skipped: true };
+  renderUnitActionCards();
+}
+
+function unskipUnit(eqId) {
+  delete completedUnits[eqId];
+  renderUnitActionCards();
+}
+
+function editCompletedUnit(eqId) {
+  selectedEquipmentId = eqId;
+  selectedEquipmentName = completedUnits[eqId]?.equipmentName || '';
+  openCompleteForm();
+}
+
+function showWorkOrderSummary() {
+  if (!currentJob) return;
+  const f = currentJob.fields;
+
+  document.getElementById('summary-customer').textContent = f['Customer Name'] || 'Customer';
+  document.getElementById('summary-wo-id').textContent = f['Work Order ID'] || '';
+
+  // Build summary jobs list
+  const jobsListEl = document.getElementById('summary-jobs-list');
+  let html = '';
+
+  Object.entries(completedUnits).forEach(([eqId, unitData]) => {
+    if (unitData.skipped) return;
+    const eq = currentWorkOrderEquipment.find(e => e.id === eqId);
+    const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
+
+    html += `<div class="detail-section" style="margin-bottom:8px; overflow:hidden;">
+      <div class="summary-unit-header">${escHtml(unitName)}</div>`;
+
+    if (unitData.workPerformed) {
+      html += `<div class="summary-line-item">
+        <div class="summary-item-name">${escHtml(unitData.workPerformed)}</div>
+      </div>`;
+    }
+
+    if (unitData.parts && unitData.parts.length > 0) {
+      unitData.parts.forEach(p => {
+        const qty = p.qty && p.qty > 1 ? `${p.qty}x ` : '';
+        const price = p.price ? ` $${(p.price * (p.qty || 1)).toFixed(2)}` : '';
+        html += `<div class="summary-line-item">
+          <div class="summary-item-name">${escHtml(qty + p.name)}</div>
+          <div class="summary-item-price">${price}</div>
+        </div>`;
+      });
+    }
+
+    html += '</div>';
   });
-  event.currentTarget.closest('.equipment-card').style.borderColor = 'var(--red)';
-  event.currentTarget.closest('.equipment-card').style.background = '#fdecea';
+
+  if (!html) {
+    html = '<div style="text-align:center;padding:24px;color:var(--gray-text);font-size:14px;">No completed units to summarize.</div>';
+  }
+
+  jobsListEl.innerHTML = html;
+
+  summaryReadyToInvoice = false;
+  updateSummaryInvoiceToggle();
+  showScreen('summary');
+}
+
+function toggleSummaryInvoice() {
+  summaryReadyToInvoice = !summaryReadyToInvoice;
+  updateSummaryInvoiceToggle();
+}
+
+function updateSummaryInvoiceToggle() {
+  const sw = document.getElementById('summary-invoice-switch');
+  const toggle = document.getElementById('summary-invoice-toggle');
+  const label = document.getElementById('summary-toggle-label');
+  sw.classList.toggle('on', summaryReadyToInvoice);
+  toggle.classList.toggle('active', summaryReadyToInvoice);
+  toggle.setAttribute('aria-checked', summaryReadyToInvoice ? 'true' : 'false');
+  label.textContent = summaryReadyToInvoice ? 'ON' : 'OFF';
+}
+
+async function submitWorkOrderComplete() {
+  if (!currentJob) return;
+  const btn = document.getElementById('summary-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    // Update Work Order status
+    const woUpdate = { 'Status': 'Complete', 'Actual End': new Date().toISOString() };
+    if (summaryReadyToInvoice) woUpdate['Status'] = 'Complete';
+    await apiPatch('Work Orders', currentJob.id, woUpdate);
+
+    showToast('✓ Visit complete!', 'success');
+    setTimeout(() => {
+      completedUnits = {};
+      currentWorkOrderEquipment = [];
+      showScreen('home');
+      loadTodaysJobs();
+    }, 1400);
+  } catch(err) {
+    showToast('⚠ Could not save. Try again.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Finish Visit';
+  }
 }
 
 function toggleAddEquipment() {
@@ -1734,6 +2108,17 @@ function openCompleteForm() {
   const f = currentJob.fields;
   document.getElementById('complete-job-summary').textContent = f['Customer Name'] || 'Unknown Customer';
   document.getElementById('complete-job-sub').textContent = f['Work Order Type'] || 'Service';
+
+  // Show equipment name prominently
+  const eqNameEl = document.getElementById('complete-equipment-name');
+  if (eqNameEl) {
+    if (selectedEquipmentName) {
+      eqNameEl.textContent = '🔧 ' + selectedEquipmentName;
+      eqNameEl.style.display = 'block';
+    } else {
+      eqNameEl.style.display = 'none';
+    }
+  }
 
   // Show problem description from Work Order if it exists
   const problemDesc = f['Problem Description'] || '';
@@ -1974,7 +2359,6 @@ async function submitComplete() {
   btn.setAttribute('aria-busy', 'true');
 
   try {
-    // Build parts string: "Qty x Name | $price" per line
     const otherParts = document.getElementById('field-parts-other').value.trim();
     const partLines = selectedParts.map(p => {
       const qty = p.qty && p.qty > 1 ? `${p.qty}x ` : '';
@@ -1983,6 +2367,7 @@ async function submitComplete() {
     });
     if (otherParts) partLines.push(`Custom: ${otherParts}`);
     const allParts = partLines.join('\n');
+
     const followupRequired = followupSelected === 'yes';
     const followupNotes = document.getElementById('field-followup-notes').value.trim();
     const diagnosis = document.getElementById('field-diagnosis').value.trim();
@@ -1990,14 +2375,15 @@ async function submitComplete() {
     const woId = currentJob.id;
     const woFields = currentJob.fields;
 
-    // Auto-generate job name
+    // Auto-generate job name including unit
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const customerName = woFields['Customer Name'] || 'Customer';
     const jobTypeName = woFields['Work Order Type'] || 'Service';
-    const autoJobName = `${customerName} — ${jobTypeName} — ${dateStr}`;
+    const unitLabel = selectedEquipmentName ? ` — ${selectedEquipmentName}` : '';
+    const autoJobName = `${customerName}${unitLabel} — ${jobTypeName} — ${dateStr}`;
 
-    // Step 1: Create a Job record with all completion data
+    // Create Job record in Airtable
     const jobFields = {
       'Job Name': autoJobName,
       'Work Order': [woId],
@@ -2008,44 +2394,16 @@ async function submitComplete() {
       'Actual End': now.toISOString(),
     };
 
-    // Pass scheduled times from Work Order
-    if (woFields['Scheduled Date']) {
-      jobFields['Scheduled Start'] = woFields['Scheduled Date'];
-    }
-
-    // Link customer
-    if (woFields['Customer'] && woFields['Customer'].length > 0) {
-      jobFields['Customer'] = woFields['Customer'];
-    }
-
-    // Link technician
-    if (woFields['Technician'] && woFields['Technician'].length > 0) {
-      jobFields['Technician'] = woFields['Technician'];
-    }
-
-    // Link property
-    if (woFields['Property'] && woFields['Property'].length > 0) {
-      jobFields['Property'] = woFields['Property'];
-    }
-
-    // Link equipment if Cornell selected one
-    if (selectedEquipmentId) {
-      jobFields['Equipment'] = [selectedEquipmentId];
-    }
-
-    // Priority from Work Order
-    if (woFields['Priority']) {
-      jobFields['Priority'] = woFields['Priority'];
-    }
-
-    // Problem description from Work Order
-    if (woFields['Problem Description']) {
-      jobFields['Problem Description'] = woFields['Problem Description'];
-    }
-
-    if (diagnosis)       jobFields['Diagnosis'] = diagnosis;
+    if (woFields['Scheduled Date']) jobFields['Scheduled Start'] = woFields['Scheduled Date'];
+    if (woFields['Customer'] && woFields['Customer'].length > 0) jobFields['Customer'] = woFields['Customer'];
+    if (woFields['Technician'] && woFields['Technician'].length > 0) jobFields['Technician'] = woFields['Technician'];
+    if (woFields['Property'] && woFields['Property'].length > 0) jobFields['Property'] = woFields['Property'];
+    if (selectedEquipmentId) jobFields['Equipment'] = [selectedEquipmentId];
+    if (woFields['Priority']) jobFields['Priority'] = woFields['Priority'];
+    if (woFields['Problem Description']) jobFields['Problem Description'] = woFields['Problem Description'];
+    if (diagnosis) jobFields['Diagnosis'] = diagnosis;
     if (recommendations) jobFields['Recommendations'] = recommendations;
-    if (allParts)        jobFields['Parts Used'] = allParts;
+    if (allParts) jobFields['Parts Used'] = allParts;
     if (followupRequired) {
       jobFields['Follow Up Required'] = true;
       if (followupNotes) jobFields['Follow Up Notes'] = followupNotes;
@@ -2053,25 +2411,30 @@ async function submitComplete() {
 
     const jobRes = await apiPost('Jobs', jobFields);
 
-    // Step 2: Update the Work Order status and link the new Job
-    const woUpdate = {
-      'Status': 'Complete',
-      'Actual End': new Date().toISOString(),
-    };
-    if (readyToInvoice) woUpdate['Status'] = 'Complete';
-    if (jobRes && jobRes.id) {
-      // Link the new job back to the work order
-      const existingJobs = woFields['Jobs'] || [];
-      woUpdate['Jobs'] = [...existingJobs, jobRes.id];
+    // Save unit to completedUnits for summary screen
+    if (selectedEquipmentId) {
+      completedUnits[selectedEquipmentId] = {
+        jobId: jobRes ? jobRes.id : null,
+        equipmentName: selectedEquipmentName,
+        workPerformed,
+        parts: [...selectedParts],
+        skipped: false,
+      };
     }
 
-    await apiPatch('Work Orders', woId, woUpdate);
+    // Update Work Order to In Progress (summary screen finalizes it)
+    await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
 
-    showToast('✓ Job saved and complete!', 'success');
+    showToast('✓ Unit saved!', 'success');
+
+    // Return to job detail to handle next unit
     setTimeout(() => {
-      showScreen('home');
-      loadTodaysJobs();
-    }, 1400);
+      showScreen('detail');
+      renderUnitActionCards();
+      btn.textContent = 'Mark Job Complete';
+      btn.disabled = false;
+      btn.setAttribute('aria-busy', 'false');
+    }, 800);
 
   } catch (err) {
     console.error(err);
