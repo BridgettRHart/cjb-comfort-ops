@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Equipment Importer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f4f4; color: #2e2e2e; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 660px; margin: 0 auto; box-shadow: 0 2px 12px rgba(0,0,0,0.09); }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+  .stat { flex: 1; background: #f4f4f4; border-radius: 8px; padding: 12px; text-align: center; }
+  .stat-num { font-size: 24px; font-weight: 700; color: #c81f25; }
+  .stat-label { font-size: 12px; color: #888; margin-top: 2px; }
+  .btn { background: #c81f25; color: #fff; border: none; border-radius: 8px; padding: 13px 24px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-success { background: #1a6b35 !important; }
+  .progress { margin-top: 16px; display: none; }
+  .progress-bar-wrap { background: #e0e0e0; border-radius: 20px; height: 10px; margin-top: 6px; }
+  .progress-bar { background: #c81f25; border-radius: 20px; height: 10px; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #666; margin-top: 6px; }
+  .log { margin-top: 16px; background: #f4f4f4; border-radius: 8px; padding: 16px; max-height: 380px; overflow-y: auto; font-size: 12px; font-family: monospace; line-height: 1.9; display: none; }
+  .ok { color: #1a6b35; } .err { color: #c81f25; } .info { color: #999; } .warn { color: #8a6d00; }
+  .section-head { color: #2e2e2e; font-weight: 700; margin-top: 4px; }
+  .summary { background: #e2f0e7; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 14px; display: none; }
+  .summary h3 { font-weight: 700; margin-bottom: 10px; color: #1a6b35; }
+  .summary-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(0,0,0,0.07); }
+  .summary-row:last-child { border-bottom: none; }
+  .warn-box { background: #fffbea; border: 1px solid #e8d44d; border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 12px; color: #5c4700; }
+  .warn-box strong { display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>CJB Comfort — Equipment Importer</h1>
+  <p class="sub">Imports 158 equipment records extracted from Wave invoice history. Matches each to a Customer and Property in Airtable, then creates the Equipment record with install date, type, tonnage, and refrigerant.</p>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-num">158</div><div class="stat-label">Equipment Records</div></div>
+    <div class="stat"><div class="stat-num">108</div><div class="stat-label">Customers</div></div>
+    <div class="stat"><div class="stat-num">2019</div><div class="stat-label">Earliest Record</div></div>
+  </div>
+  <button class="btn" id="start-btn" onclick="startImport()">Import Equipment Records</button>
+  <div class="progress" id="progress-wrap">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">Starting...</div>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="log" id="log"></div>
+</div>
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+const EQUIPMENT = [
+  { name: 'Split System — Unit 1', customer: 'Charles  Vignettes', type: 'Split System', tons: '', refrigerant: '', installDate: '2019-03-16', notes: 'New A/C system' },
+  { name: 'Package Unit — Unit 1', customer: 'Gary & Lorette', type: 'Package Unit', tons: '', refrigerant: '', installDate: '2021-03-26', notes: 'Day/Night 15 seer 2 stage package heat pump' },
+  { name: '5 Ton Air Handler — Unit 1', customer: 'Jo Shindler', type: 'Air Handler', tons: '5', refrigerant: '', installDate: '2021-03-26', notes: '5 Ton Air Handler Replacement' },
+  { name: '5 Ton Compressor — Unit 1', customer: 'Verrado Community Association', type: 'Compressor', tons: '5', refrigerant: 'R-410A', installDate: '2021-05-20', notes: '5 ton, 3ph, r-410a compressor replacement' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Dennis Wynn', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2021-06-22', notes: '5 ton Gas package' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Anderson  Appliance', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2021-07-12', notes: 'Evap Cooler' },
+  { name: 'Water Heater — Unit 1', customer: 'Shawn Jordan', type: 'Water Heater', tons: '', refrigerant: '', installDate: '2021-08-20', notes: 'Water Heater replacement' },
+  { name: '5 Ton Split System — Unit 1', customer: 'James Leach', type: 'Split System', tons: '5', refrigerant: '', installDate: '2021-09-16', notes: 'Day/Night 15 seer 5 ton split gas system replacement' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Vikki Seamans', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2021-12-29', notes: 'Evap Cooler' },
+  { name: 'Split System — Unit 1', customer: 'Angel Gonzalez', type: 'Split System', tons: '', refrigerant: '', installDate: '2022-01-27', notes: '4-ton Split gas system replacement' },
+  { name: '4 Ton Split System — Unit 1', customer: 'Dennis  Jewett', type: 'Split System', tons: '4', refrigerant: '', installDate: '2022-02-23', notes: 'Day/Night 4 ton split Heat Pump system' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Steve Shuss', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-02-25', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Nancy Stevens', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-02-25', notes: 'Evap Cooler' },
+  { name: 'Split System — Unit 1', customer: 'Kristy La Croix', type: 'Split System', tons: '', refrigerant: '', installDate: '2022-03-02', notes: '4-ton Split gas system replacement' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Bruce Frick', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-03-10', notes: '230v evap cooler motor' },
+  { name: '1.5 Ton Split System — Unit 1', customer: 'Tella Rea', type: 'Split System', tons: '1.5', refrigerant: '', installDate: '2022-03-11', notes: 'Day & Night 1.5 ton  split system w/ first company air handler and heat strips' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Rose  Whitehall', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-03-29', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Nicole Mcdonald', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-03-30', notes: '115v Evaporative cooler pump' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Thelma Rea from ANGI leads', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-03-31', notes: 'Evap Cooler' },
+  { name: 'Water Heater — Unit 1', customer: 'Mike Jones', type: 'Water Heater', tons: '', refrigerant: '', installDate: '2022-04-07', notes: 'Water Heater replacement' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'JR Davis from ANGI leads', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-04-13', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Bill Hagen', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-04-16', notes: 'Evap Cooler' },
+  { name: 'Compressor — Unit 1', customer: 'Sanctuary on Broadway', type: 'Compressor', tons: '', refrigerant: 'R-22', installDate: '2022-04-21', notes: '2-ton R-22 compressor replacement' },
+  { name: 'Split System — Unit 1', customer: 'Fabian Rice', type: 'Split System', tons: '', refrigerant: '', installDate: '2022-04-29', notes: '4-ton Split gas system replacement' },
+  { name: '3 Ton Split System — Unit 1', customer: 'Helen Gonzalez', type: 'Split System', tons: '3', refrigerant: '', installDate: '2022-05-05', notes: 'Day & Night 3 ton split Heat Pump system' },
+  { name: 'Split System — Unit 1', customer: 'Verrado Community Association', type: 'Split System', tons: '', refrigerant: '', installDate: '2022-05-06', notes: '14 seer 5-ton Split Heat pump system' },
+  { name: 'Evaporator Coil — Unit 1', customer: 'Chad', type: 'Evaporator Coil', tons: '', refrigerant: '', installDate: '2022-05-11', notes: 'Evaporator coil replacement' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Pecan Promenade', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2022-05-12', notes: '5 ton, 3ph, Commecial Package Heat Pump' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Miller Edge', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-05-13', notes: 'Evaporative cooler pump' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Robert’s Catering', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-06-14', notes: 'Evaporative cooler belt' },
+  { name: '3 Ton Package Unit — Unit 1', customer: 'Pete Gutierrez', type: 'Package Unit', tons: '3', refrigerant: '', installDate: '2022-06-18', notes: '3 ton package heat pump replacement' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Kimberly Tipps', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-06-21', notes: 'Evaporative cooler motor' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Tony Conrad', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2022-06-24', notes: '5 ton Gas package' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'John Scott', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-06-28', notes: 'Evaporative cooler motor' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'JB Henderson', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2022-06-28', notes: 'Evaporative cooler belt' },
+  { name: '3.5 Ton Package Unit — Unit 1', customer: 'Leonie Kahn', type: 'Package Unit', tons: '3.5', refrigerant: '', installDate: '2022-07-05', notes: 'Comfortmaker 3.5 ton 16 seer package heat unit replacement' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Lindsey David', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2022-07-22', notes: '5 ton Package Heatpump' },
+  { name: '4 Ton Split System — Unit 1', customer: 'Wes Sossaman', type: 'Split System', tons: '4', refrigerant: '', installDate: '2022-07-26', notes: 'Ruud 4 ton Split Heat Pump system replacement' },
+  { name: 'Split System — Unit 1', customer: 'Jocelyn Rollins', type: 'Split System', tons: '', refrigerant: '', installDate: '2022-07-29', notes: '16 seer 5-ton split heat pump replacement' },
+  { name: '3 Ton Heat Pump — Unit 1', customer: 'Parker Young', type: 'Heat Pump', tons: '3', refrigerant: '', installDate: '2022-08-05', notes: 'Ruud 3 ton heat pump condenser replacement' },
+  { name: 'Furnace — Unit 1', customer: 'Ryan & Linda Kelly', type: 'Furnace', tons: '', refrigerant: '', installDate: '2022-08-17', notes: 'Furnace control board' },
+  { name: '3.5 Ton Compressor — Unit 2', customer: 'Verrado Community Association', type: 'Compressor', tons: '3.5', refrigerant: 'R-410A', installDate: '2022-08-18', notes: '3.5 ton 208/230v, 3ph, R-410a compressor replacement' },
+  { name: 'WSHP — Unit 1', customer: 'Bella Vista Senior Living', type: 'WSHP', tons: '', refrigerant: '', installDate: '2022-08-22', notes: 'Braided hoses for water source heat pump' },
+  { name: 'Mini Split — Unit 1', customer: 'Alamar community  association', type: 'Mini Split', tons: '', refrigerant: '', installDate: '2022-08-30', notes: 'Mini Split install' },
+  { name: '2 Ton Mini Split — Unit 1', customer: 'Dick Tuey', type: 'Mini Split', tons: '2', refrigerant: '', installDate: '2022-10-21', notes: '2 ton LG mini split heat pump system' },
+  { name: 'Evaporator Coil — Unit 1', customer: 'KRC Remodeling', type: 'Evaporator Coil', tons: '', refrigerant: '', installDate: '2022-10-24', notes: 'Evaporator coil replacement' },
+  { name: '3 Ton Package Unit — Unit 1', customer: 'Karen Kemper', type: 'Package Unit', tons: '3', refrigerant: '', installDate: '2022-12-19', notes: 'Remaining balance for 3 ton package heat pump and ductwork installation.' },
+  { name: '15 Ton Package Unit — Unit 1', customer: 'Val Vista Towne Center', type: 'Package Unit', tons: '15', refrigerant: '', installDate: '2022-12-22', notes: '15 ton Gas Package Unit' },
+  { name: '3 Ton Package Unit — Unit 2', customer: 'Karen Kemper', type: 'Package Unit', tons: '3', refrigerant: '', installDate: '2023-01-10', notes: 'Remaining balance for 3 ton package heat pump and ductwork installation.' },
+  { name: '4 Ton Split System — Unit 1', customer: 'Eric Raucci', type: 'Split System', tons: '4', refrigerant: '', installDate: '2023-02-03', notes: '4 ton Split Heat Pump System Replacement' },
+  { name: '2 Ton WSHP — Unit 2', customer: 'Bella Vista Senior Living', type: 'WSHP', tons: '2', refrigerant: '', installDate: '2023-02-22', notes: '1-2 ton WSHP installation' },
+  { name: '5 Ton Split System — Unit 2', customer: 'Angel Gonzalez', type: 'Split System', tons: '5', refrigerant: '', installDate: '2023-03-16', notes: '5 ton Split Gas System Replacement (2 stage)' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Robert’s Catering', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-03-23', notes: 'Evaporative cooler pad replacement' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Miller Edge', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-03-27', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Steve Shuss', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-03-28', notes: 'Evap Cooler' },
+  { name: 'Water Heater — Unit 1', customer: 'Bobby Gurrola', type: 'Water Heater', tons: '', refrigerant: '', installDate: '2023-04-03', notes: 'Miscellaneous items for water heater install' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Robyn David', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-04-06', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Rose  Whitehall', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-04-07', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'JB Henderson', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-04-10', notes: 'Evap Cooler' },
+  { name: '3.5 Ton Split System — Unit 1', customer: 'Tina Mei', type: 'Split System', tons: '3.5', refrigerant: '', installDate: '2023-04-11', notes: '3.5 ton Split Gas system replacement' },
+  { name: 'Furnace — Unit 1', customer: 'Tina Mei', type: 'Furnace', tons: '', refrigerant: '', installDate: '2023-04-11', notes: 'Miscellaneous parts needed for install of gas furnace and condensing unit.' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Bill Hagen', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-04-13', notes: 'Evaporative cooler pad replacement' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Nancy Stevens', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-04-25', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Malyn Martin', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-05-02', notes: 'Evaporative cooler rigid (cell deck) pad replacement' },
+  { name: '3.5 Ton Split System — Unit 1', customer: 'Ron Erickson', type: 'Split System', tons: '3.5', refrigerant: '', installDate: '2023-05-25', notes: '3.5 ton Split Gas system replacement' },
+  { name: '2.5 Ton Compressor — Unit 1', customer: 'Lucent Scottsdale', type: 'Compressor', tons: '2.5', refrigerant: 'R-410A', installDate: '2023-05-26', notes: '2.5 ton R-410a compressor replacement' },
+  { name: '2 Ton Mini Split — Unit 1', customer: 'Mesa Station Apartments', type: 'Mini Split', tons: '2', refrigerant: '', installDate: '2023-06-01', notes: '2 ton LG mini split heat pump system' },
+  { name: '5 Ton Condenser — Unit 1', customer: 'Gesher Disability Resources', type: 'Condenser', tons: '5', refrigerant: '', installDate: '2023-06-02', notes: '5 ton Condenser Replacement' },
+  { name: 'Mini Split — Unit 1', customer: 'Gainey financial', type: 'Mini Split', tons: '', refrigerant: '', installDate: '2023-06-10', notes: 'Mini Split install' },
+  { name: '5 Ton Compressor — Unit 1', customer: 'Glendale REH, LLC', type: 'Compressor', tons: '5', refrigerant: 'R-410A', installDate: '2023-07-18', notes: '5 ton, 3ph, r-410a compressor replacement' },
+  { name: '3 Ton Heat Pump — Unit 1', customer: 'Elisa Snader', type: 'Heat Pump', tons: '3', refrigerant: '', installDate: '2023-07-22', notes: '3 ton heat pump TXV replacement' },
+  { name: '3 Ton Split System — Unit 1', customer: 'Voya', type: 'Split System', tons: '3', refrigerant: '', installDate: '2023-07-26', notes: '3 Ton Split Heat Pump System' },
+  { name: '2.5 Ton Heat Pump — Unit 1', customer: 'Dusk', type: 'Heat Pump', tons: '2.5', refrigerant: 'R-410A', installDate: '2023-08-02', notes: '2.5 ton R-410a heat pump condenser replacement' },
+  { name: '2 Ton Split System — Unit 2', customer: 'Verrado Community Association', type: 'Split System', tons: '2', refrigerant: '', installDate: '2023-08-09', notes: '2 ton Split Heat Pump System Replacement' },
+  { name: '2.5 Ton Air Handler — Unit 1', customer: 'Larry King', type: 'Air Handler', tons: '2.5', refrigerant: '', installDate: '2023-08-11', notes: '2.5 ton air handler replacement' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Bella Vista Senior Living', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2023-08-18', notes: 'Evaporative cooler water line repair' },
+  { name: 'Split System — Unit 1', customer: 'Patty Vieth', type: 'Split System', tons: '', refrigerant: '', installDate: '2023-09-05', notes: '4-ton Split gas system replacement' },
+  { name: '2 Ton WSHP — Unit 1', customer: 'Bella Vista Renovations', type: 'WSHP', tons: '2', refrigerant: '', installDate: '2023-09-22', notes: '1-2 ton WSHP installation' },
+  { name: '3.5 Ton Split System — Unit 1', customer: 'Jaime and Reagan Guzman', type: 'Split System', tons: '3.5', refrigerant: '', installDate: '2023-10-10', notes: '3.5 ton Split Heat Pump system replacement' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Debra Speakes', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2023-10-31', notes: '5 ton Package Heatpump' },
+  { name: '5 Ton Split System — Unit 1', customer: 'Derek Repp', type: 'Split System', tons: '5', refrigerant: '', installDate: '2023-12-20', notes: '5 ton Split Gas System Replacement (2 stage)' },
+  { name: 'Split System — Unit 1', customer: 'Dennis and Denise Biggane', type: 'Split System', tons: '', refrigerant: '', installDate: '2023-12-27', notes: '4-ton Split gas system replacement' },
+  { name: '1.5 Ton Heat Pump — Unit 1', customer: 'Bella Vista Senior Living', type: 'Heat Pump', tons: '1.5', refrigerant: '', installDate: '2024-01-05', notes: '1.5 ton Heat Pump Condenser Replacement' },
+  { name: '2 Ton Mini Split — Unit 2', customer: 'Mesa Station Apartments', type: 'Mini Split', tons: '2', refrigerant: '', installDate: '2024-01-07', notes: '2 ton LG mini split heat pump system' },
+  { name: 'Furnace — Unit 1', customer: 'Chris & Deanne Schafer', type: 'Furnace', tons: '', refrigerant: '', installDate: '2024-01-15', notes: 'Furnace control board' },
+  { name: 'Furnace — Unit 1', customer: 'Peter Jonovich', type: 'Furnace', tons: '', refrigerant: '', installDate: '2024-01-16', notes: 'Furnace gas valve replacement' },
+  { name: 'Split System — Unit 1', customer: 'Shawn Jordan', type: 'Split System', tons: '', refrigerant: '', installDate: '2024-02-22', notes: '4-ton Split gas system replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Rose  Whitehall', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-03-04', notes: 'Evap Cooler' },
+  { name: 'Split System — Unit 1', customer: 'Latriscia Briley', type: 'Split System', tons: '', refrigerant: '', installDate: '2024-03-07', notes: '4-ton Split gas system replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Robert’s Catering', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-03-12', notes: 'Evaporative cooler pad replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'JB Henderson', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-03-12', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Miller Edge', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-03-22', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Elaine Johnston', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-04-09', notes: 'Evaporative cooler motor' },
+  { name: '4 Ton Package Unit — Unit 1', customer: 'Andrew Feight', type: 'Package Unit', tons: '4', refrigerant: '', installDate: '2024-04-17', notes: '4 ton gas package unit' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Robyn David', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-04-25', notes: 'Evap Cooler' },
+  { name: '4 Ton Split System — Unit 1', customer: 'Jeff Lawson', type: 'Split System', tons: '4', refrigerant: '', installDate: '2024-04-26', notes: '4 ton Split Heat Pump System Replacement' },
+  { name: '10 Ton Package Unit — Unit 1', customer: 'First Electronics', type: 'Package Unit', tons: '10', refrigerant: '', installDate: '2024-05-01', notes: '10 ton, 460v, 3ph package heat pump system installation' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Bruce Frick', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-05-07', notes: '230v evap cooler motor' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Oxford Cleaners (Chandler)', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-05-31', notes: 'Evaporative cooler pump' },
+  { name: '3.5 Ton Compressor — Unit 1', customer: 'Ryan & Linda Kelly', type: 'Compressor', tons: '3.5', refrigerant: 'R-410A', installDate: '2024-06-28', notes: '3.5 ton R-410a compressor replacement' },
+  { name: '3.5 Ton Package Unit — Unit 1', customer: 'Ryan & Linda Kelly', type: 'Package Unit', tons: '3.5', refrigerant: '', installDate: '2024-07-02', notes: '3.5 ton package heat pump replacement' },
+  { name: '1 Ton Mini Split — Unit 1', customer: 'Blue House Coffee', type: 'Mini Split', tons: '1', refrigerant: '', installDate: '2024-07-03', notes: '1 ton LG mini split heat pump system' },
+  { name: '5 Ton Condenser — Unit 1', customer: 'Verrado Community Association', type: 'Condenser', tons: '5', refrigerant: '', installDate: '2024-08-08', notes: '5 ton Condenser Replacement' },
+  { name: '3 Ton Package Unit — Unit 1', customer: 'Merci’s Mailboxes and  More', type: 'Package Unit', tons: '3', refrigerant: '', installDate: '2024-08-14', notes: '3 ton, 3 phase, 208/230v commercial package heat pump replacement' },
+  { name: '2 Ton WSHP — Unit 3', customer: 'Bella Vista Senior Living', type: 'WSHP', tons: '2', refrigerant: '', installDate: '2024-08-22', notes: '1-2 ton WSHP installation' },
+  { name: '7.5 Ton Compressor — Unit 1', customer: 'JB Henderson', type: 'Compressor', tons: '7.5', refrigerant: 'R-410A', installDate: '2024-08-27', notes: '7.5 ton R-410a compressor replacement' },
+  { name: '2.5 Ton Condenser — Unit 1', customer: 'Tressa’s Hair Designs', type: 'Condenser', tons: '2.5', refrigerant: '', installDate: '2024-09-11', notes: '2.5 ton Evaporator coil and Condenser unit replacement' },
+  { name: '1.5 Ton Compressor — Unit 1', customer: 'Bella Vista Senior Living', type: 'Compressor', tons: '1.5', refrigerant: 'R-410A', installDate: '2024-09-20', notes: '1.5 ton R-410a compressor replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Nancy Stevens', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2024-11-06', notes: 'Evap Cooler' },
+  { name: '4 Ton Split System — Unit 1', customer: 'Anita Monteverde', type: 'Split System', tons: '4', refrigerant: '', installDate: '2024-11-27', notes: 'Day/Night 4 ton split Heat Pump system' },
+  { name: 'Furnace — Unit 1', customer: 'Dinesh Suresh', type: 'Furnace', tons: '', refrigerant: '', installDate: '2024-12-26', notes: 'Furnace control board' },
+  { name: '1.5 Ton WSHP — Unit 4', customer: 'Bella Vista Senior Living', type: 'WSHP', tons: '1.5', refrigerant: '', installDate: '2025-01-08', notes: '1.0 - 1.5 ton WSHP' },
+  { name: 'Evaporative Cooler — Unit 1', customer: 'Deanna Freund', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-01-09', notes: 'Evaporative cooler spider bearing' },
+  { name: '1.5 Ton Compressor — Unit 2', customer: 'Bella Vista Senior Living', type: 'Compressor', tons: '1.5', refrigerant: 'R-410A', installDate: '2025-01-16', notes: '1.5 ton R-410a compressor replacement' },
+  { name: '4 Ton Package Unit — Unit 1', customer: 'Judy DeBolt', type: 'Package Unit', tons: '4', refrigerant: '', installDate: '2025-01-22', notes: '4 ton package heat pump replacement' },
+  { name: 'Compressor — Unit 1', customer: 'Fraser Elliott', type: 'Compressor', tons: '', refrigerant: 'R-22', installDate: '2025-02-28', notes: '5-ton R-22 compressor replacement' },
+  { name: '2.5 Ton Package Unit — Unit 1', customer: 'Lai-Ting Torres', type: 'Package Unit', tons: '2.5', refrigerant: '', installDate: '2025-03-05', notes: '2.5 ton Heat Pump Package Unit' },
+  { name: '4 Ton Package Unit — Unit 1', customer: 'Jasmine Lok', type: 'Package Unit', tons: '4', refrigerant: '', installDate: '2025-03-12', notes: '4 ton gas package unit' },
+  { name: 'Evaporative Cooler — Unit 4', customer: 'Rose  Whitehall', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-03-26', notes: '115v Evaporative cooler pump' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Malyn Martin', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-03-27', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 4', customer: 'Nancy Stevens', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-03-31', notes: 'Evap Cooler' },
+  { name: '5 Ton Heat Pump — Unit 1', customer: 'David Treisman', type: 'Heat Pump', tons: '5', refrigerant: '', installDate: '2025-04-05', notes: 'Day/Night 5 ton heat pump condenser' },
+  { name: '3 Ton Package Unit — Unit 1', customer: 'Prescott Perez-Fox', type: 'Package Unit', tons: '3', refrigerant: '', installDate: '2025-04-07', notes: '3 ton package heat pump replacement' },
+  { name: 'Evaporative Cooler — Unit 4', customer: 'Miller Edge', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-04-08', notes: 'Evaporative cooler rigid (cell deck) pad replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Bruce Frick', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-04-21', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Steve Shuss', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-05-13', notes: 'Evap Cooler' },
+  { name: '2.5 Ton Split System — Unit 1', customer: 'Rachael Weber', type: 'Split System', tons: '2.5', refrigerant: '', installDate: '2025-05-15', notes: '2.5 ton Split Heat Pump System Replacement' },
+  { name: '3 Ton Compressor — Unit 1', customer: 'Lindsey Smidlein', type: 'Compressor', tons: '3', refrigerant: 'R-410A', installDate: '2025-05-16', notes: '3 ton R-410a 2-stage compressor replacement' },
+  { name: '4 Ton Package Unit — Unit 1', customer: 'Angela Troge', type: 'Package Unit', tons: '4', refrigerant: '', installDate: '2025-05-24', notes: '4 ton package heat pump replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Robyn David', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-06-19', notes: 'Evap Cooler' },
+  { name: '5 Ton Split System — Unit 1', customer: 'Maura Dorch', type: 'Split System', tons: '5', refrigerant: '', installDate: '2025-07-03', notes: '5 ton Split Gas System Replacement' },
+  { name: 'Compressor — Unit 1', customer: 'Kevin Weisbrod', type: 'Compressor', tons: '', refrigerant: 'R-22', installDate: '2025-07-03', notes: '5-ton R-22 compressor replacement' },
+  { name: '2 Ton Split System — Unit 1', customer: 'Diane and Wonil Gregg', type: 'Split System', tons: '2', refrigerant: '', installDate: '2025-07-10', notes: '2 ton Split Heat Pump System Replacement' },
+  { name: '3 Ton Package Unit — Unit 1', customer: 'Daria Hardin', type: 'Package Unit', tons: '3', refrigerant: '', installDate: '2025-07-12', notes: '3 ton package heat pump replacement' },
+  { name: '4 Ton Compressor — Unit 1', customer: 'EXP Realty', type: 'Compressor', tons: '4', refrigerant: 'R-410A', installDate: '2025-08-12', notes: '4 ton, R-410a compressor replacement' },
+  { name: 'Mini Split — Unit 1', customer: 'Omar Hajee', type: 'Mini Split', tons: '', refrigerant: '', installDate: '2025-08-14', notes: 'Mini Split install' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Judy May', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2025-09-10', notes: '5 ton Package Heatpump' },
+  { name: '5 Ton Package Unit — Unit 2', customer: 'First Electronics', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2025-10-15', notes: '5 ton, 3ph, Commecial Package Heat Pump' },
+  { name: 'Evaporative Cooler — Unit 2', customer: 'Oxford Cleaners (Chandler)', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-10-17', notes: 'Evap Cooler' },
+  { name: '3 Ton Heat Pump — Unit 1', customer: 'Mark Jones', type: 'Heat Pump', tons: '3', refrigerant: '', installDate: '2025-10-27', notes: '3 ton heat pump TXV replacement' },
+  { name: '20 Ton Compressor — Unit 2', customer: 'Glendale REH, LLC', type: 'Compressor', tons: '20', refrigerant: '', installDate: '2025-10-31', notes: '1st stage compressor replacement for 20 ton RTU' },
+  { name: 'Furnace — Unit 1', customer: 'Zohar Raj', type: 'Furnace', tons: '', refrigerant: '', installDate: '2025-12-05', notes: 'Furnace gas valve replacement' },
+  { name: 'Furnace — Unit 1', customer: 'Cher Weiss', type: 'Furnace', tons: '', refrigerant: '', installDate: '2025-12-10', notes: 'Furnace gas valve replacement' },
+  { name: '2 Ton Compressor — Unit 1', customer: 'Diana Kilber', type: 'Compressor', tons: '2', refrigerant: 'R-410A', installDate: '2025-12-17', notes: '2 ton R-410a compressor replacement' },
+  { name: '5 Ton Package Unit — Unit 1', customer: 'Elaine Gillam', type: 'Package Unit', tons: '5', refrigerant: '', installDate: '2025-12-17', notes: '5 ton Package Heatpump' },
+  { name: 'Evaporative Cooler — Unit 4', customer: 'JB Henderson', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2025-12-17', notes: 'Evaporative cooler motor' },
+  { name: '3.5 Ton Split System — Unit 1', customer: 'Earl Tubbs', type: 'Split System', tons: '3.5', refrigerant: '', installDate: '2025-12-23', notes: '3.5 ton Split Heat Pump system replacement' },
+  { name: 'Furnace — Unit 1', customer: 'Cereus Dental Care', type: 'Furnace', tons: '', refrigerant: '', installDate: '2026-02-23', notes: 'Furnace control board' },
+  { name: 'Compressor — Unit 1', customer: 'Michael Boozer', type: 'Compressor', tons: '', refrigerant: 'R-22', installDate: '2026-02-27', notes: '4-ton R-22 compressor replacement' },
+  { name: 'Evaporative Cooler — Unit 5', customer: 'Rose  Whitehall', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2026-03-02', notes: 'Evaporative cooler belt' },
+  { name: '5 Ton Split System — Unit 1', customer: 'Jonathon Ciampa', type: 'Split System', tons: '5', refrigerant: '', installDate: '2026-03-03', notes: '5 ton Split Gas System Replacement' },
+  { name: 'Evaporative Cooler — Unit 4', customer: 'Steve Shuss', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2026-03-09', notes: 'Evap Cooler' },
+  { name: 'Evaporative Cooler — Unit 4', customer: 'Robyn David', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2026-03-09', notes: 'Evaporative cooler belt' },
+  { name: 'Split System — Unit 1', customer: 'Ryan & Linda Kelly', type: 'Split System', tons: '', refrigerant: '', installDate: '2026-03-12', notes: '4-ton Split gas system replacement' },
+  { name: '2 Ton WSHP — Unit 5', customer: 'Bella Vista Senior Living', type: 'WSHP', tons: '2', refrigerant: '', installDate: '2026-03-16', notes: '1-2 ton WSHP installation' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Bill Hagen', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2026-03-18', notes: '115v Evaporative cooler pump' },
+  { name: '4 Ton Split System — Unit 1', customer: 'Andy Gregg', type: 'Split System', tons: '4', refrigerant: '', installDate: '2026-03-20', notes: '4 ton Split Heat Pump System Replacement' },
+  { name: 'Evaporative Cooler — Unit 3', customer: 'Malyn Martin', type: 'Evaporative Cooler', tons: '', refrigerant: '', installDate: '2026-04-06', notes: '2400 sqft Champion Evaporative Cooler Replacement' }
+];
+
+function log(msg, type='info') {
+  const el = document.getElementById('log');
+  el.style.display = 'block';
+  const line = document.createElement('div');
+  line.className = type;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setProgress(pct, text) {
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = text;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+let writeCount = 0;
+async function throttle() {
+  writeCount++;
+  if (writeCount % 4 === 0) await sleep(1050);
+}
+
+async function fetchAll(table) {
+  let records = [], offset = null, page = 0;
+  do {
+    page++;
+    const params = new URLSearchParams({ pageSize: '100' });
+    if (offset) params.set('offset', offset);
+    const res = await fetch(`${PROXY}/${table.replace(/ /g,'%20')}?${params}`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    records = records.concat(data.records || []);
+    offset = data.offset || null;
+    if (offset) await sleep(300);
+  } while (offset);
+  return records;
+}
+
+async function postRecord(table, fields) {
+  const res = await fetch(`${PROXY}/${table.replace(/ /g,'%20')}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) throw new Error(`POST ${res.status}`);
+  await throttle();
+  return res.json();
+}
+
+function norm(s) { return (s || '').toLowerCase().replace(/\s+/g,' ').trim(); }
+
+async function startImport() {
+  const btn = document.getElementById('start-btn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  document.getElementById('progress-wrap').style.display = 'block';
+  const stats = { created: 0, skipped: 0, noCustomer: 0, warnings: [] };
+
+  try {
+    log('── Loading Customers ──', 'section-head');
+    setProgress(5, 'Loading customers...');
+    const customers = await fetchAll('Customers');
+    log(`Loaded ${customers.length} customers`, 'info');
+
+    const nameToCustomer = {};
+    for (const c of customers) {
+      const name = norm(c.fields['Customer Name'] || '');
+      if (name) nameToCustomer[name] = c.id;
+    }
+
+    log('── Loading Properties ──', 'section-head');
+    setProgress(15, 'Loading properties...');
+    const properties = await fetchAll('Properties');
+    log(`Loaded ${properties.length} properties`, 'info');
+
+    const customerToProperty = {};
+    for (const p of properties) {
+      const links = p.fields['Customer'];
+      if (links && links.length > 0 && !customerToProperty[links[0]]) {
+        customerToProperty[links[0]] = p.id;
+      }
+    }
+
+    log('── Loading Existing Equipment ──', 'section-head');
+    setProgress(25, 'Checking existing equipment...');
+    const existing = await fetchAll('Equipment');
+    const existingNames = new Set(existing.map(e => norm(e.fields['Equipment Name'] || '')));
+    log(`Found ${existing.length} existing equipment records`, 'info');
+
+    log('── Importing Equipment ──', 'section-head');
+    setProgress(35, 'Importing...');
+
+    for (let i = 0; i < EQUIPMENT.length; i++) {
+      const eq = EQUIPMENT[i];
+      setProgress(35 + Math.round((i / EQUIPMENT.length) * 60), `Processing ${i+1} of ${EQUIPMENT.length}...`);
+
+      if (existingNames.has(norm(eq.name))) {
+        log(`Already exists: ${eq.name}`, 'info');
+        stats.skipped++;
+        continue;
+      }
+
+      const custId = nameToCustomer[norm(eq.customer)];
+      if (!custId) {
+        log(`No customer match: ${eq.customer}`, 'warn');
+        stats.noCustomer++;
+        stats.warnings.push(eq.customer);
+        continue;
+      }
+
+      const propId = customerToProperty[custId];
+      const fields = {
+        'Equipment Name': eq.name,
+        'Equipment Type': eq.type,
+        'Install Date': eq.installDate,
+        'Notes': 'From Wave invoice history: ' + eq.notes,
+        'Active': true,
+        'Customer': [custId],
+      };
+      if (eq.tons) fields['Capacity (Tons)'] = parseFloat(eq.tons);
+      if (eq.refrigerant) fields['Refrigerant Type'] = eq.refrigerant;
+      if (propId) fields['Property'] = [propId];
+
+      try {
+        await postRecord('Equipment', fields);
+        log(`✓ ${eq.name} — ${eq.customer}`, 'ok');
+        stats.created++;
+      } catch(err) {
+        log(`Failed: ${eq.name}: ${err.message}`, 'err');
+      }
+    }
+
+    setProgress(100, 'Complete');
+    const summaryEl = document.getElementById('summary');
+    summaryEl.style.display = 'block';
+    summaryEl.innerHTML = `
+      <h3>Equipment Import Complete</h3>
+      <div class="summary-row"><span>Records created</span><strong>${stats.created}</strong></div>
+      <div class="summary-row"><span>Already existed (skipped)</span><strong>${stats.skipped}</strong></div>
+      <div class="summary-row"><span>No customer match</span><strong>${stats.noCustomer}</strong></div>
+      ${stats.warnings.length > 0 ? '<div class="warn-box"><strong>No customer match for:</strong>' + stats.warnings.map(w => '<div>' + w + '</div>').join('') + '</div>' : ''}
+    `;
+    btn.textContent = 'Done';
+    btn.className = 'btn btn-success';
+
+  } catch(err) {
+    log('Fatal: ' + err.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+</script>
+</body>
+</html>
