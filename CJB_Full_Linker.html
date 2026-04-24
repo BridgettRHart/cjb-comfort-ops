@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Full Data Linker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f4f4; color: #2e2e2e; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 660px; margin: 0 auto; box-shadow: 0 2px 12px rgba(0,0,0,0.09); }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .steps { margin-bottom: 20px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+  .step { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .step:last-child { border-bottom: none; }
+  .step-num { background: #2e2e2e; color: #e5ba05; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; flex-shrink: 0; margin-top: 1px; }
+  .step-text { color: #444; line-height: 1.5; }
+  .btn { background: #c81f25; color: #fff; border: none; border-radius: 8px; padding: 13px 24px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-success { background: #1a6b35 !important; }
+  .progress { margin-top: 16px; display: none; }
+  .progress-bar-wrap { background: #e0e0e0; border-radius: 20px; height: 10px; margin-top: 6px; }
+  .progress-bar { background: #c81f25; border-radius: 20px; height: 10px; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #666; margin-top: 6px; }
+  .log { margin-top: 16px; background: #f4f4f4; border-radius: 8px; padding: 16px; max-height: 380px; overflow-y: auto; font-size: 12px; font-family: monospace; line-height: 1.9; display: none; }
+  .ok   { color: #1a6b35; }
+  .err  { color: #c81f25; }
+  .info { color: #999; }
+  .warn { color: #8a6d00; }
+  .section-head { color: #2e2e2e; font-weight: 700; margin-top: 4px; }
+  .summary { background: #e2f0e7; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 14px; display: none; }
+  .summary h3 { font-weight: 700; margin-bottom: 10px; color: #1a6b35; font-size: 15px; }
+  .summary-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(0,0,0,0.07); }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-label { color: #444; }
+  .summary-val { font-weight: 700; }
+  .warn-box { background: #fffbea; border: 1px solid #e8d44d; border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 12px; color: #5c4700; }
+  .warn-box strong { display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>CJB Comfort — Full Data Linker</h1>
+  <p class="sub">Run this once after importing Customers and Properties. It links everything together and creates Contact records for commercial accounts. Safe to re-run — it skips records that are already linked.</p>
+
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><strong>Load all Customers</strong> — builds an email index for matching</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><strong>Link Properties to Customers</strong> — matches each Property to its Customer by email, skips already-linked records</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><strong>Create Contact records</strong> — for the 49 customers where the contact person is distinct from the billing entity (commercial accounts and residential businesses)</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><strong>Link Contacts to Customers and Properties</strong> — two-way links so Cornell can tap-to-call from any job</div></div>
+  </div>
+
+  <button class="btn" id="start-btn" onclick="startLinking()">Run Full Linker</button>
+
+  <div class="progress" id="progress-wrap">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">Starting...</div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+// ── CONTACT DATA ──────────────────────────────────────────────────────────
+// 49 records where contact is distinct from customer
+// Format: { customerEmail, contactFirst, contactLast, contactEmail, contactPhone, title }
+const CONTACTS_TO_CREATE = [
+  // Commercial
+  { customerEmail: 'manager@tollesonanimalclinic.com', first: 'Rachel', last: 'Grainger', email: 'manager@tollesonanimalclinic.com', phone: '6239367387', title: 'Manager' },
+  { customerEmail: 'kbrewer@cbiaz.org', first: 'Kathy', last: 'Brewer', email: 'kbrewer@cbiaz.org', phone: '', title: 'Contact' },
+  { customerEmail: 'ap@spectrumaz.com', first: 'Accounts', last: 'Payable', email: 'ap@spectrumaz.com', phone: '', title: 'Accounts Payable' },
+  { customerEmail: 'hr@desertfoothillscounseling.com', first: 'Danielle', last: 'Foard', email: 'hr@desertfoothillscounseling.com', phone: '', title: 'HR' },
+  { customerEmail: 'socorro.gomez@assuredpartners.com', first: 'Socorro', last: 'Gomez', email: 'socorro.gomez@assuredpartners.com', phone: '', title: 'Contact' },
+  { customerEmail: 'hclark@jbhenderson.com', first: 'Harold', last: 'Clark', email: 'hclark@jbhenderson.com', phone: '', title: 'Contact' },
+  { customerEmail: 'awaken1home@outlook.com', first: 'Siddiqah', last: 'Ali-Verrett', email: 'awaken1home@outlook.com', phone: '', title: 'Owner' },
+  { customerEmail: 'joshg@ccdiusa.com', first: 'Josh', last: 'Goins', email: 'joshg@ccdiusa.com', phone: '', title: 'Contact' },
+  { customerEmail: 'tom@codystaffing.com', first: 'Tom', last: 'Cody', email: 'tom@codystaffing.com', phone: '', title: 'Owner' },
+  { customerEmail: 'cbaldi@dalacaz.com', first: 'Chris', last: 'Baldi', email: 'cbaldi@dalacaz.com', phone: '', title: 'Contact' },
+  { customerEmail: 'info@tri-statetitleservicesllc.com', first: 'Gabriel', last: 'Henderson', email: 'info@tri-statetitleservicesllc.com', phone: '', title: 'Contact', note: 'Oxford Cleaners — email may need updating' },
+  { customerEmail: 'rita.arriaga@cielseniorliving.com', first: 'Rita', last: 'Arriaga', email: 'rita.arriaga@cielseniorliving.com', phone: '', title: 'Facilities Manager', note: 'Bella Vista Senior Living — ownership changes frequently' },
+  { customerEmail: 'transactions@adamprather.com', first: 'Sam', last: 'Padua', email: 'transactions@adamprather.com', phone: '', title: 'Contact' },
+  { customerEmail: 'troycampbell@azsaints.com', first: 'Troy', last: 'Campbell', email: 'troycampbell@azsaints.com', phone: '', title: 'Contact' },
+  { customerEmail: 'antonsiladance@gmail.com', first: 'Anton', last: 'Silantev', email: 'antonsiladance@gmail.com', phone: '', title: 'Contact' },
+  { customerEmail: 'chong@firstelectronicsaz.com', first: 'Su', last: 'Cho', email: 'chong@firstelectronicsaz.com', phone: '', title: 'Facilities Contact', note: 'FEI — key commercial contact' },
+  { customerEmail: 'info@landmarknorthllc.com', first: 'Jon', last: 'Morrison', email: 'info@landmarknorthllc.com', phone: '', title: 'Contact' },
+  { customerEmail: 'cereusdentalcare@gmail.com', first: 'Daniel', last: 'Lyu', email: 'cereusdentalcare@gmail.com', phone: '', title: 'Contact' },
+  // Residential businesses
+  { customerEmail: 'krcremodeling@gmail.com', first: 'Kathy', last: 'Cameron', email: 'krcremodeling@gmail.com', phone: '', title: 'Owner' },
+  { customerEmail: 'lisa.mayhue@cushwake.com', first: 'Lisa', last: 'Mayhue', email: 'lisa.mayhue@cushwake.com', phone: '', title: 'Property Manager' },
+  { customerEmail: 'brent@houseofdiamondsaz.com', first: 'Brent', last: 'Taubman', email: 'brent@houseofdiamondsaz.com', phone: '', title: 'Owner' },
+  { customerEmail: 'lworks@goliathmechanical.com', first: 'Larvelle', last: 'Works', email: 'lworks@goliathmechanical.com', phone: '', title: 'Contact' },
+  { customerEmail: 'mermailboxes@gmail.com', first: 'Mercedes', last: 'Vankoten', email: 'mermailboxes@gmail.com', phone: '', title: 'Owner' },
+  { customerEmail: 'anne@phoenixgraphix.com', first: 'Anne', last: 'Kotarski', email: 'anne@phoenixgraphix.com', phone: '', title: 'Contact' },
+  { customerEmail: 'gregg@cerebrumcorp.com', first: 'Gregg', last: 'Lahti', email: 'gregg@cerebrumcorp.com', phone: '', title: 'Contact' },
+  { customerEmail: 'khedegard@milleredge.com', first: 'Kelly', last: 'Hedegard', email: 'khedegard@milleredge.com', phone: '', title: 'Contact' },
+  { customerEmail: 'dustinallenrobinson@gmail.com', first: 'Dustin', last: 'Robinson', email: 'dustinallenrobinson@gmail.com', phone: '', title: 'Contact' },
+  { customerEmail: 'mahmdi@cox.net', first: 'Najibullah', last: 'Aghmadi', email: 'mahmdi@cox.net', phone: '', title: 'Owner' },
+  { customerEmail: 'chinnasamyk@gmail.com', first: 'Chinnasamy', last: 'Kathamuthu', email: 'chinnasamyk@gmail.com', phone: '', title: 'Contact' },
+  { customerEmail: 'rurydelgado@yahoo.com', first: 'Rury', last: 'Delgado', email: 'rurydelgado@yahoo.com', phone: '', title: 'Owner' },
+  { customerEmail: 'ilavant92@yahoo.com', first: 'Isaac', last: 'LaVant', email: 'ilavant92@yahoo.com', phone: '', title: 'Owner' },
+  { customerEmail: 'hoyooajdq@yahoo.com', first: 'Ho', last: 'Yoo', email: 'hoyooajdq@yahoo.com', phone: '', title: 'Owner' },
+  { customerEmail: 'shiggy@melphoenix.com', first: 'Shiggy', last: 'Yamada', email: 'shiggy@melphoenix.com', phone: '', title: 'Manager' },
+  { customerEmail: 'michelle@catalystven.com', first: 'Michelle', last: 'Peck', email: 'michelle@catalystven.com', phone: '', title: 'Contact' },
+  { customerEmail: 'atlwingsavondale@gmail.com', first: 'John', last: 'McGuire', email: 'atlwingsavondale@gmail.com', phone: '', title: 'Manager' },
+  { customerEmail: 'wayne.pmarizona@gmail.com', first: 'Wayne', last: 'Goldman', email: 'wayne.pmarizona@gmail.com', phone: '', title: 'Owner' },
+  { customerEmail: 'jiji.sam@voya.com', first: 'Jiji', last: 'Sam', email: 'jiji.sam@voya.com', phone: '', title: 'Contact' },
+  { customerEmail: 'amy@gesherdr.org', first: 'Amy', last: 'Hummell', email: 'amy@gesherdr.org', phone: '', title: 'Contact' },
+  { customerEmail: 'gregg@cerebrumcorp.com', first: 'Gregg', last: 'Lahti', email: 'gregg@cerebrumcorp.com', phone: '', title: 'Contact' },
+  { customerEmail: 'reedcw@hotmail.com', first: 'Chadwick', last: 'Reed', email: 'reedcw@hotmail.com', phone: '', title: 'Contact', note: 'Goes by Chad' },
+  { customerEmail: 'muru100@gmail.com', first: 'Murugesh', last: 'Ramanujam', email: 'muru100@gmail.com', phone: '', title: 'Contact', note: 'Goes by Muru' },
+];
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function log(msg, type='info') {
+  const el = document.getElementById('log');
+  el.style.display = 'block';
+  const line = document.createElement('div');
+  line.className = type;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setProgress(pct, text) {
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = text;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+let writeCount = 0;
+async function throttle() {
+  writeCount++;
+  if (writeCount % 4 === 0) await sleep(1050);
+}
+
+async function fetchAll(table) {
+  let records = [], offset = null;
+  do {
+    const params = new URLSearchParams({ maxRecords: '100' });
+    if (offset) params.set('offset', offset);
+    const res = await fetch(`${PROXY}/${table.replace(/ /g,'%20')}?${params}`);
+    if (!res.ok) throw new Error(`API ${res.status} fetching ${table}`);
+    const data = await res.json();
+    records = records.concat(data.records || []);
+    offset = data.offset || null;
+  } while (offset);
+  return records;
+}
+
+async function patchRecord(table, id, fields) {
+  const res = await fetch(`${PROXY}/${table.replace(/ /g,'%20')}/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) throw new Error(`PATCH ${res.status}`);
+  await throttle();
+  return res.json();
+}
+
+async function postRecord(table, fields) {
+  const res = await fetch(`${PROXY}/${table.replace(/ /g,'%20')}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) throw new Error(`POST ${res.status}`);
+  await throttle();
+  return res.json();
+}
+
+// ── MAIN ──────────────────────────────────────────────────────────────────
+async function startLinking() {
+  const btn = document.getElementById('start-btn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  document.getElementById('progress-wrap').style.display = 'block';
+
+  const stats = {
+    propsLinked: 0, propsAlready: 0, propsNoMatch: 0,
+    contactsCreated: 0, contactsSkipped: 0,
+    contactsLinkedToCustomer: 0, contactsLinkedToProp: 0,
+    warnings: []
+  };
+
+  try {
+    // ── STEP 1: Load customers ──────────────────────────────────────────
+    log('── STEP 1: Loading Customers ──', 'section-head');
+    setProgress(5, 'Loading customers...');
+    const customers = await fetchAll('Customers');
+    log(`Loaded ${customers.length} customer records`, 'info');
+
+    const emailToCustomerId = {};
+    const emailToCustomerRecord = {};
+    for (const c of customers) {
+      const email = (c.fields['Email'] || '').trim().toLowerCase();
+      if (email) {
+        emailToCustomerId[email] = c.id;
+        emailToCustomerRecord[email] = c;
+      }
+    }
+    log(`Email index built: ${Object.keys(emailToCustomerId).length} emails`, 'info');
+
+    // ── STEP 2: Load and link properties ───────────────────────────────
+    log('── STEP 2: Linking Properties to Customers ──', 'section-head');
+    setProgress(15, 'Loading properties...');
+    const properties = await fetchAll('Properties');
+    log(`Loaded ${properties.length} property records`, 'info');
+
+    const emailToPropertyId = {};
+
+    for (let i = 0; i < properties.length; i++) {
+      const prop = properties[i];
+      const f = prop.fields;
+      const email = (f['Customer Email'] || '').trim().toLowerCase();
+      setProgress(15 + Math.round((i / properties.length) * 25), `Linking property ${i+1} of ${properties.length}...`);
+
+      // Store property id by email for contact linking later
+      if (email) emailToPropertyId[email] = prop.id;
+
+      // Skip if already linked
+      if (f['Customer'] && f['Customer'].length > 0) {
+        stats.propsAlready++;
+        continue;
+      }
+
+      if (!email) {
+        log(`⚠ No email on property: ${f['Property Name'] || prop.id}`, 'warn');
+        stats.warnings.push(`No email: ${f['Property Name']}`);
+        continue;
+      }
+
+      const custId = emailToCustomerId[email];
+      if (!custId) {
+        log(`✗ No customer match for: ${email}`, 'err');
+        stats.propsNoMatch++;
+        stats.warnings.push(`No customer match: ${email}`);
+        continue;
+      }
+
+      try {
+        await patchRecord('Properties', prop.id, { 'Customer': [custId] });
+        log(`✓ Property linked: ${f['Property Name'] || email}`, 'ok');
+        stats.propsLinked++;
+      } catch(err) {
+        log(`✗ Failed: ${f['Property Name']}: ${err.message}`, 'err');
+      }
+    }
+
+    log(`Properties linked: ${stats.propsLinked} | Already linked: ${stats.propsAlready} | No match: ${stats.propsNoMatch}`, 'info');
+
+    // ── STEP 3: Create contact records ─────────────────────────────────
+    log('── STEP 3: Creating Contact Records ──', 'section-head');
+    setProgress(42, 'Loading existing contacts...');
+
+    // Load existing contacts to avoid duplicates
+    const existingContacts = await fetchAll('Contacts');
+    const existingContactEmails = new Set(
+      existingContacts.map(c => (c.fields['Email'] || '').trim().toLowerCase())
+    );
+    log(`Found ${existingContacts.length} existing contact records`, 'info');
+
+    // Track newly created contacts: email -> record id
+    const contactEmailToId = {};
+    for (const c of existingContacts) {
+      const email = (c.fields['Email'] || '').trim().toLowerCase();
+      if (email) contactEmailToId[email] = c.id;
+    }
+
+    for (let i = 0; i < CONTACTS_TO_CREATE.length; i++) {
+      const c = CONTACTS_TO_CREATE[i];
+      const contactEmail = (c.email || '').toLowerCase();
+      setProgress(42 + Math.round((i / CONTACTS_TO_CREATE.length) * 25), `Creating contact ${i+1} of ${CONTACTS_TO_CREATE.length}...`);
+
+      if (existingContactEmails.has(contactEmail)) {
+        log(`↷ Already exists: ${c.first} ${c.last}`, 'info');
+        stats.contactsSkipped++;
+        continue;
+      }
+
+      const custId = emailToCustomerId[c.customerEmail];
+      if (!custId) {
+        log(`⚠ No customer found for contact ${c.first} ${c.last} (${c.customerEmail})`, 'warn');
+        stats.warnings.push(`Contact customer not found: ${c.customerEmail}`);
+        continue;
+      }
+
+      try {
+        const fields = {
+          'Contact Name': `${c.first} ${c.last}`.trim(),
+          'First Name': c.first,
+          'Last Name': c.last,
+          'Email': c.email,
+          'Title': c.title || '',
+          'Customers': [custId],
+          'Active': true,
+          'Is Primary Contact': true,
+        };
+        if (c.phone) fields['Phone'] = c.phone;
+        if (c.note) fields['Notes'] = c.note;
+
+        const result = await postRecord('Contacts', fields);
+        contactEmailToId[contactEmail] = result.id;
+        log(`✓ Contact created: ${c.first} ${c.last} (${c.title})`, 'ok');
+        stats.contactsCreated++;
+      } catch(err) {
+        log(`✗ Failed to create contact ${c.first} ${c.last}: ${err.message}`, 'err');
+      }
+    }
+
+    // ── STEP 4: Link contacts to properties ────────────────────────────
+    log('── STEP 4: Linking Contacts to Properties ──', 'section-head');
+    setProgress(70, 'Linking contacts to properties...');
+
+    for (let i = 0; i < CONTACTS_TO_CREATE.length; i++) {
+      const c = CONTACTS_TO_CREATE[i];
+      const contactEmail = (c.email || '').toLowerCase();
+      setProgress(70 + Math.round((i / CONTACTS_TO_CREATE.length) * 25), `Linking contact ${i+1} of ${CONTACTS_TO_CREATE.length} to property...`);
+
+      const contactId = contactEmailToId[contactEmail];
+      const propId = emailToPropertyId[c.customerEmail];
+
+      if (!contactId) continue;
+      if (!propId) {
+        log(`⚠ No property found for contact ${c.first} ${c.last}`, 'warn');
+        continue;
+      }
+
+      try {
+        // Link contact to property
+        await patchRecord('Properties', propId, { 'Contacts': [contactId] });
+        log(`✓ Contact linked to property: ${c.first} ${c.last}`, 'ok');
+        stats.contactsLinkedToProp++;
+      } catch(err) {
+        log(`✗ Failed to link ${c.first} ${c.last} to property: ${err.message}`, 'err');
+      }
+    }
+
+    setProgress(100, 'Complete');
+
+    // ── SUMMARY ────────────────────────────────────────────────────────
+    const summaryEl = document.getElementById('summary');
+    summaryEl.style.display = 'block';
+    summaryEl.innerHTML = `
+      <h3>✓ Linking Complete</h3>
+      <div class="summary-row"><span class="summary-label">Properties linked to customers</span><span class="summary-val">${stats.propsLinked}</span></div>
+      <div class="summary-row"><span class="summary-label">Properties already linked (skipped)</span><span class="summary-val">${stats.propsAlready}</span></div>
+      <div class="summary-row"><span class="summary-label">Properties with no customer match</span><span class="summary-val">${stats.propsNoMatch}</span></div>
+      <div class="summary-row"><span class="summary-label">Contact records created</span><span class="summary-val">${stats.contactsCreated}</span></div>
+      <div class="summary-row"><span class="summary-label">Contacts already existed (skipped)</span><span class="summary-val">${stats.contactsSkipped}</span></div>
+      <div class="summary-row"><span class="summary-label">Contacts linked to properties</span><span class="summary-val">${stats.contactsLinkedToProp}</span></div>
+      ${stats.warnings.length > 0 ? `
+      <div class="warn-box">
+        <strong>⚠ Items needing manual review (${stats.warnings.length}):</strong>
+        ${stats.warnings.map(w => `<div>${w}</div>`).join('')}
+      </div>` : ''}
+    `;
+
+    btn.textContent = 'Done — Check Summary Above';
+    btn.className = 'btn btn-success';
+
+  } catch(err) {
+    log(`Fatal error: ${err.message}`, 'err');
+    setProgress(0, 'Error — check log above');
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+</script>
+</body>
+</html>
