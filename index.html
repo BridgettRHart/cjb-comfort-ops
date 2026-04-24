@@ -476,17 +476,17 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     border: 2px solid var(--gray-border);
     border-radius: 8px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     background: var(--white);
     transition: all 0.12s;
     -webkit-user-select: none;
     user-select: none;
-    min-height: 44px;
+    min-height: 52px;
     line-height: 1.3;
   }
 
@@ -494,18 +494,18 @@
     box-shadow: var(--focus-ring);
   }
 
-  /* Selected: bold border + checkmark prefix — not color alone */
+  /* Selected: red background so it is unmistakably active */
   .part-chip.selected {
-    border-color: var(--charcoal);
-    border-width: 2px;
-    background: var(--charcoal);
+    border-color: var(--red);
+    border-width: 3px;
+    background: var(--red);
     color: var(--white);
     font-weight: 700;
   }
 
   .part-chip .check-icon {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     flex-shrink: 0;
     opacity: 0;
     transition: opacity 0.1s;
@@ -513,7 +513,13 @@
 
   .part-chip.selected .check-icon { opacity: 1; }
 
-  .part-chip input { display: none; }
+  /* Hide the actual checkbox visually but keep it functional */
+  .part-chip input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
 
   /* Photo upload */
   .photo-upload-area {
@@ -984,14 +990,14 @@ function showScreen(name) {
 // ═══════════════════════
 async function apiGet(table, params = {}) {
   const qs = new URLSearchParams(params).toString();
-  const url = `${PROXY}/${encodeURIComponent(table)}${qs ? '?' + qs : ''}`;
+  const url = `${PROXY}/${table.replace(/ /g, '%20')}${qs ? '?' + qs : ''}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }
 
 async function apiPatch(table, recordId, fields) {
-  const url = `${PROXY}/${encodeURIComponent(table)}/${recordId}`;
+  const url = `${PROXY}/${table.replace(/ /g, '%20')}/${recordId}`;
   const res = await fetch(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -1286,12 +1292,11 @@ function openCompleteForm() {
 function buildPartsGrid() {
   const grid = document.getElementById('parts-grid');
   grid.innerHTML = COMMON_PARTS.map(part => `
-    <label class="part-chip" onclick="togglePart(this)" tabindex="0"
+    <label class="part-chip" tabindex="0"
       role="checkbox" aria-checked="false"
-      aria-label="${escHtml(part)}"
-      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePart(this)}">
-      <input type="checkbox" value="${escAttr(part)}" tabindex="-1">
-      <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      aria-label="${escHtml(part)}">
+      <input type="checkbox" value="${escAttr(part)}" onchange="togglePart(this.parentElement)">
+      <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="true" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
       ${escHtml(part)}
     </label>
   `).join('');
