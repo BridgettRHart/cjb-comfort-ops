@@ -1587,13 +1587,15 @@ async function loadPropertyEquipment(record) {
   const propId = propLinks[0];
 
   try {
-    // Fetch equipment linked to this property
-    const data = await apiGet('Equipment', {
-      filterByFormula: `FIND('${propId}', ARRAYJOIN({Property}))`,
-      maxRecords: '20',
-    });
+    // Fetch all equipment and filter by property in JS
+    // (Airtable formula filtering on linked fields is unreliable)
+    const data = await apiGet('Equipment', { maxRecords: '200' });
+    const allEquipment = data.records || [];
 
-    const equipment = data.records || [];
+    const equipment = allEquipment.filter(eq => {
+      const propField = eq.fields['Property'];
+      return propField && propField.includes(propId);
+    });
 
     if (equipment.length === 0) {
       listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;padding:4px 0;">No equipment on file for this property. Tap + Add Unit to add.</div>';
