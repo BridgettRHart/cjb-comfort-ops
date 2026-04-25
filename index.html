@@ -1453,6 +1453,19 @@
 <!-- TOAST -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<!-- SKIP REASON SHEET -->
+<div id="skip-reason-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;align-items:flex-end;justify-content:center;" role="dialog" aria-modal="true" aria-label="Skip reason required">
+  <div style="background:white;border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:4px;">Why is this unit being skipped?</div>
+    <div style="font-size:13px;color:var(--gray-text);margin-bottom:14px;">This will be logged on the work order. Tap the mic on your keyboard to speak.</div>
+    <textarea id="skip-reason-text" class="form-textarea" placeholder="e.g. Customer declined, unit inaccessible, parts needed first..." rows="3" style="margin-bottom:14px;" aria-label="Skip reason"></textarea>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-dark" style="flex:1;font-size:15px;" onclick="submitSkipWithReason()">Confirm Skip</button>
+      <button class="btn btn-outline" style="flex:1;font-size:15px;" onclick="cancelSkipReason()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 
 <script>
 // ═══════════════════════
@@ -1962,6 +1975,8 @@ let selectedEquipmentName = '';
 let currentWorkOrderEquipment = []; // Equipment records for this property
 let currentJobsByEquipment = {};    // equipmentId -> job record, kept in sync with Airtable
 let summaryReadyToInvoice = false;
+let pendingSkipEqId = null;
+let pendingSkipEqName = null;
 
 // ═══════════════════════
 // ACTIVATE JOB SCREEN
@@ -2155,15 +2170,47 @@ async function skipUnit(eqId, eqName, btn) {
       }, 4000);
       return;
     }
+    // Second tap on All Units — require a reason before skipping
+    pendingSkipEqId = eqId;
+    pendingSkipEqName = eqName;
+    document.getElementById('skip-reason-text').value = '';
+    const overlay = document.getElementById('skip-reason-overlay');
+    overlay.style.display = 'flex';
+    setTimeout(() => document.getElementById('skip-reason-text').focus(), 150);
+    return;
   }
-  const woId = currentJob.id;
+  // Non-All-Units skip — no reason required
+  await executeSkip(eqId, eqName, '');
+}
 
+function cancelSkipReason() {
+  pendingSkipEqId = null;
+  pendingSkipEqName = null;
+  document.getElementById('skip-reason-overlay').style.display = 'none';
+}
+
+async function submitSkipWithReason() {
+  const reason = document.getElementById('skip-reason-text').value.trim();
+  if (!reason) {
+    showToast('⚠ Please enter a reason for skipping', 'error');
+    document.getElementById('skip-reason-text').focus();
+    return;
+  }
+  document.getElementById('skip-reason-overlay').style.display = 'none';
+  await executeSkip(pendingSkipEqId, pendingSkipEqName, reason);
+  pendingSkipEqId = null;
+  pendingSkipEqName = null;
+}
+
+async function executeSkip(eqId, eqName, reason) {
+  if (!currentJob) return;
+  const woId = currentJob.id;
+  const woFields = currentJob.fields;
   try {
     showToast('Skipping unit...');
     const now = new Date();
     const customerName = woFields['Customer Name'] || 'Customer';
-    const jobName = '' + (customerName) + ' — ' + (eqName) + ' — Not This Visit';
-
+    const jobName = customerName + ' — ' + eqName + ' — Not This Visit';
     const jobFields = {
       'Job Name': jobName,
       'Work Order': [woId],
@@ -2173,10 +2220,10 @@ async function skipUnit(eqId, eqName, btn) {
       'Actual End': now.toISOString(),
       'Equipment': [eqId],
     };
+    if (reason) jobFields['Work Performed'] = 'Not serviced this visit — ' + reason;
     if (woFields['Customer'] && woFields['Customer'].length > 0) jobFields['Customer'] = woFields['Customer'];
     if (woFields['Property'] && woFields['Property'].length > 0) jobFields['Property'] = woFields['Property'];
     if (woFields['Technician'] && woFields['Technician'].length > 0) jobFields['Technician'] = woFields['Technician'];
-
     await apiPost('Jobs', jobFields);
     showToast('Unit skipped', 'success');
     await renderActiveEquipmentList();
