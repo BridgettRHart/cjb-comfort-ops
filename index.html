@@ -1949,10 +1949,11 @@ async function loadPropertyEquipmentPreview(record) {
       const installYear = ef['Install Date'] ? new Date(ef['Install Date']).getFullYear() : '';
       const serial = ef['Serial Number'] && ef['Serial Number'] !== 'SN-PENDING' ? 'SN: ' + ef['Serial Number'] : '';
       const meta = [brand, tons, refrig, location, installYear ? 'Installed ' + installYear : '', serial].filter(Boolean).join(' · ');
-      return `<div style="padding:10px 0;border-bottom:1px solid var(--gray-light);">
-        <div style="font-size:14px;font-weight:700;color:var(--charcoal);">${escHtml(name)}</div>
-        ${meta ? `<div style="font-size:12px;color:var(--gray-text);margin-top:2px;">${escHtml(meta)}</div>` : ''}
-      </div>`;
+      const metaHtml = meta ? '<div style="font-size:12px;color:var(--gray-text);margin-top:2px;">' + escHtml(meta) + '</div>' : '';
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--gray-light);">'
+        + '<div style="font-size:14px;font-weight:700;color:var(--charcoal);">' + escHtml(name) + '</div>'
+        + metaHtml
+        + '</div>';
     }).join('');
   } catch(err) {
     listEl.innerHTML = '<div style="color:var(--gray-text);font-size:12px;">Could not load equipment.</div>';
