@@ -2006,10 +2006,19 @@ async function activateJobScreen(record) {
   try {
     const data = await apiGet('Equipment', { maxRecords: '200' });
     const all = data.records || [];
-    currentWorkOrderEquipment = all.filter(eq => {
+    const allPropertyEquipment = all.filter(eq => {
       const pf = eq.fields['Property'];
       return pf && pf.includes(propId);
     });
+
+    // Specific Unit mode: show only the linked unit if one is set
+    const serviceMode = (f['Service Mode'] || '').toLowerCase().trim();
+    const specificEqLinks = f['Specific Equipment'];
+    if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
+      currentWorkOrderEquipment = allPropertyEquipment.filter(eq => specificEqLinks.includes(eq.id));
+    } else {
+      currentWorkOrderEquipment = allPropertyEquipment;
+    }
 
     const count = currentWorkOrderEquipment.length;
     const badgeText = count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
