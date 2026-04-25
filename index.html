@@ -1900,298 +1900,22 @@ async function loadPropertyEquipment(record) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// ACTIVE JOB STATE — Airtable-backed, survives navigation
+// ═══════════════════════════════════════════════════════════
+
 let selectedEquipmentId = null;
 let selectedEquipmentName = '';
-let currentWorkOrderEquipment = [];
-let completedUnits = {}; // eqId -> { jobId, workPerformed, parts }
+let currentWorkOrderEquipment = []; // Equipment records for this property
 let summaryReadyToInvoice = false;
 
-function renderUnitActionCards() {
-  const listEl = document.getElementById('equipment-list');
-  if (!listEl) return;
-
-  const f = currentJob ? currentJob.fields : {};
-  const serviceMode = f['Service Mode'] || 'Diagnostic';
-  const totalUnits = currentWorkOrderEquipment.length;
-  const completedCount = Object.keys(completedUnits).length;
-  const skippedCount = Object.values(completedUnits).filter(u => u.skipped).length;
-  const doneCount = completedCount - skippedCount;
-
-  // Progress bar
-  let progressHtml = '';
-  if (totalUnits > 0) {
-    const pct = Math.round((completedCount / totalUnits) * 100);
-    progressHtml = `
-    <div style="margin-bottom:12px;">
-      <div class="wo-progress-label">Progress: ${doneCount} completed, ${skippedCount} skipped, ${totalUnits - completedCount} remaining</div>
-      <div class="wo-progress-bar-wrap">
-        <div class="wo-progress-bar-fill" style="width:${pct}%"></div>
-      </div>
-    </div>`;
-  }
-
-  const cardsHtml = currentWorkOrderEquipment.map(eq => {
-    const ef = eq.fields;
-    const name = ef['Equipment Name'] || 'Unknown Unit';
-    const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
-    const brand = ef['Brand'] || '';
-    const refrig = ef['Refrigerant Type'] || '';
-    const location = ef['Location in Building'] || '';
-    const serial = ef['Serial Number'] !== 'SN-PENDING' ? ef['Serial Number'] : '';
-    const meta = [brand, tons, refrig, location, serial].filter(Boolean).join(' · ');
-
-    const unitData = completedUnits[eq.id];
-    const isComplete = unitData && !unitData.skipped;
-    const isSkipped = unitData && unitData.skipped;
-
-    let statusDot = '<div class="unit-status-dot pending"></div>';
-    let cardClass = 'unit-action-card';
-    let actionsHtml = '';
-    let summaryHtml = '';
-
-    if (isComplete) {
-      cardClass += ' complete';
-      statusDot = '<div class="unit-status-dot complete">✓</div>';
-      summaryHtml = `<div class="unit-complete-summary">✓ Complete — ${unitData.workPerformed ? unitData.workPerformed.substring(0, 60) + (unitData.workPerformed.length > 60 ? '...' : '') : 'Notes saved'}</div>`;
-      actionsHtml = `<div class="unit-card-actions">
-        <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="editCompletedUnit('${eq.id}')">Edit Notes</button>
-      </div>`;
-    } else if (isSkipped) {
-      cardClass += ' not-this-visit';
-      statusDot = '<div class="unit-status-dot skipped">—</div>';
-      actionsHtml = `<div class="unit-card-actions">
-        <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit('${eq.id}')">Undo Skip</button>
-      </div>`;
-    } else {
-      actionsHtml = `<div class="unit-card-actions">
-        <button class="btn-small btn-small-red" onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Complete This Unit</button>
-        <button class="btn-small btn-small-outline" onclick="skipUnit('${eq.id}')">Not This Visit</button>
-      </div>`;
-    }
-
-    return `
-    <div class="${cardClass}" id="unit-card-${eq.id}">
-      <div class="unit-card-header">
-        ${statusDot}
-        <div class="unit-card-name">${escHtml(name)}</div>
-      </div>
-      ${meta ? `<div class="unit-card-meta">${escHtml(meta)}</div>` : ''}
-      ${actionsHtml}
-      ${summaryHtml}
-    </div>`;
-  }).join('');
-
-  // Show summary button when all units addressed
-  let summaryBtn = '';
-  if (totalUnits > 0 && completedCount === totalUnits) {
-    summaryBtn = `
-    <button class="btn btn-success btn-full" style="margin-top:8px;" onclick="showWorkOrderSummary()">
-      ✓ All Units Done — View Summary & Invoice
-    </button>`;
-  }
-
-  listEl.innerHTML = progressHtml + cardsHtml + summaryBtn;
-}
-
-function startUnitComplete(eqId, eqName) {
-  selectedEquipmentId = eqId;
-  selectedEquipmentName = eqName;
-  openCompleteForm();
-}
-
-function skipUnit(eqId) {
-  completedUnits[eqId] = { skipped: true };
-  renderUnitActionCards();
-}
-
-function unskipUnit(eqId) {
-  delete completedUnits[eqId];
-  renderUnitActionCards();
-}
-
-function editCompletedUnit(eqId) {
-  selectedEquipmentId = eqId;
-  selectedEquipmentName = completedUnits[eqId]?.equipmentName || '';
-  openCompleteForm();
-}
-
-function showWorkOrderSummary() {
-  if (!currentJob) return;
-  const f = currentJob.fields;
-
-  document.getElementById('summary-customer').textContent = f['Customer Name'] || 'Customer';
-  document.getElementById('summary-wo-id').textContent = f['Work Order ID'] || '';
-
-  // Build summary jobs list
-  const jobsListEl = document.getElementById('summary-jobs-list');
-  let html = '';
-
-  Object.entries(completedUnits).forEach(([eqId, unitData]) => {
-    if (unitData.skipped) return;
-    const eq = currentWorkOrderEquipment.find(e => e.id === eqId);
-    const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
-
-    html += `<div class="detail-section" style="margin-bottom:8px; overflow:hidden;">
-      <div class="summary-unit-header">${escHtml(unitName)}</div>`;
-
-    if (unitData.workPerformed) {
-      html += `<div class="summary-line-item">
-        <div class="summary-item-name">${escHtml(unitData.workPerformed)}</div>
-      </div>`;
-    }
-
-    if (unitData.parts && unitData.parts.length > 0) {
-      unitData.parts.forEach(p => {
-        const qty = p.qty && p.qty > 1 ? `${p.qty}x ` : '';
-        const price = p.price ? ` $${(p.price * (p.qty || 1)).toFixed(2)}` : '';
-        html += `<div class="summary-line-item">
-          <div class="summary-item-name">${escHtml(qty + p.name)}</div>
-          <div class="summary-item-price">${price}</div>
-        </div>`;
-      });
-    }
-
-    html += '</div>';
-  });
-
-  if (!html) {
-    html = '<div style="text-align:center;padding:24px;color:var(--gray-text);font-size:14px;">No completed units to summarize.</div>';
-  }
-
-  jobsListEl.innerHTML = html;
-
-  summaryReadyToInvoice = false;
-  updateSummaryInvoiceToggle();
-  showScreen('summary');
-}
-
-function toggleSummaryInvoice() {
-  summaryReadyToInvoice = !summaryReadyToInvoice;
-  updateSummaryInvoiceToggle();
-}
-
-function updateSummaryInvoiceToggle() {
-  const sw = document.getElementById('summary-invoice-switch');
-  const toggle = document.getElementById('summary-invoice-toggle');
-  const label = document.getElementById('summary-toggle-label');
-  sw.classList.toggle('on', summaryReadyToInvoice);
-  toggle.classList.toggle('active', summaryReadyToInvoice);
-  toggle.setAttribute('aria-checked', summaryReadyToInvoice ? 'true' : 'false');
-  label.textContent = summaryReadyToInvoice ? 'ON' : 'OFF';
-}
-
-async function submitWorkOrderComplete() {
-  if (!currentJob) return;
-  const btn = document.getElementById('summary-submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-
-  try {
-    // Update Work Order status
-    const woUpdate = { 'Status': 'Complete', 'Actual End': new Date().toISOString() };
-    if (summaryReadyToInvoice) woUpdate['Status'] = 'Complete';
-    await apiPatch('Work Orders', currentJob.id, woUpdate);
-
-    showToast('✓ Visit complete!', 'success');
-    setTimeout(() => {
-      completedUnits = {};
-      currentWorkOrderEquipment = [];
-      showScreen('home');
-      loadTodaysJobs();
-    }, 1400);
-  } catch(err) {
-    showToast('⚠ Could not save. Try again.', 'error');
-    btn.disabled = false;
-    btn.textContent = 'Finish Visit';
-  }
-}
-
-function toggleAddEquipment() {
-  const form = document.getElementById('add-equipment-form');
-  form.style.display = form.style.display === 'block' ? 'none' : 'block';
-}
-
-async function saveNewEquipment() {
-  const type = document.getElementById('eq-type').value;
-  if (!type) { showToast('⚠ Select equipment type', 'error'); return; }
-
-  const f = currentJob.fields;
-  const custLinks = f['Customer'];
-  const propLinks = f['Property'];
-
-  // Auto-generate equipment name
-  const tons = document.getElementById('eq-tons').value;
-  const tonsStr = tons ? tons + ' Ton ' : '';
-  const eqName = tonsStr + type + ' — Unit 1';
-
-  const fields = {
-    'Equipment Name': eqName,
-    'Equipment Type': type,
-    'Active': true,
-  };
-
-  if (tons) fields['Capacity (Tons)'] = parseFloat(tons);
-  const refrig = document.getElementById('eq-refrigerant').value;
-  if (refrig) fields['Refrigerant Type'] = refrig;
-  const brand = document.getElementById('eq-brand').value.trim();
-  if (brand) fields['Brand'] = brand;
-  const model = document.getElementById('eq-model').value.trim();
-  if (model) fields['Model Number'] = model;
-  const location = document.getElementById('eq-location').value.trim();
-  if (location) fields['Location in Building'] = location;
-  if (custLinks && custLinks.length > 0) fields['Customer'] = [custLinks[0]];
-  if (propLinks && propLinks.length > 0) fields['Property'] = [propLinks[0]];
-
-  try {
-    const result = await apiPost('Equipment', fields);
-    selectedEquipmentId = result.id;
-    selectedEquipmentName = eqName;
-    showToast('✓ Equipment saved', 'success');
-    toggleAddEquipment();
-    loadPropertyEquipment(currentJob);
-  } catch(err) {
-    showToast('⚠ Could not save equipment', 'error');
-  }
-}
-
-async function openEditEquipment(eqId) {
-  // For now just flag for follow-up — full edit screen in next version
-  showToast('Equipment editing coming soon', 'info');
-}
-
 // ═══════════════════════
-// UPDATE STATUS
+// ACTIVATE JOB SCREEN
 // ═══════════════════════
-async function updateStatus(recordId, newStatus) {
-  try {
-    showToast('Updating...');
-    const updateFields = { 'Status': newStatus };
-    if (newStatus === 'In Progress') {
-      updateFields['Actual Start'] = new Date().toISOString();
-    }
-    await apiPatch('Work Orders', recordId, updateFields);
-    const data = await apiGet(`Work Orders/${recordId}`);
-    currentJob = data;
-    if (newStatus === 'In Progress') {
-      showToast('✓ Job started', 'success');
-      completedUnits = {};
-      currentWorkOrderEquipment = [];
-      renderJobDetail(data);
-      await activateJobScreen(data);
-    } else {
-      showToast(`✓ Marked: ${newStatus}`, 'success');
-      renderJobDetail(data);
-    }
-  } catch (err) {
-    showToast('⚠ Could not update status', 'error');
-  }
-}
-
 async function activateJobScreen(record) {
   const f = record.fields;
   const customer = f['Customer Name'] || 'Customer';
   const jobType = f['Work Order Type'] || 'Service';
-  const serviceMode = f['Service Mode'] || 'Diagnostic';
 
   document.getElementById('active-customer-name').textContent = customer;
   document.getElementById('active-job-type').textContent = jobType;
@@ -2203,7 +1927,7 @@ async function activateJobScreen(record) {
   if (!propLinks || propLinks.length === 0) {
     currentWorkOrderEquipment = [];
     document.getElementById('active-unit-badge').textContent = 'Diagnostic';
-    renderActiveEquipmentList();
+    await renderActiveEquipmentList();
     return;
   }
 
@@ -2219,87 +1943,206 @@ async function activateJobScreen(record) {
     });
 
     const count = currentWorkOrderEquipment.length;
-    let badge = '';
-    // Always show count if we have equipment
-    if (count > 0) badge = `${count} Unit${count !== 1 ? 's' : ''}`;
-    else if (serviceMode === 'Specific Unit') badge = '1 Unit';
-    else badge = 'Diagnostic';
-    document.getElementById('active-unit-badge').textContent = badge;
+    document.getElementById('active-unit-badge').textContent =
+      count > 0 ? `${count} Unit${count !== 1 ? 's' : ''}` : 'Diagnostic';
 
-    renderActiveEquipmentList();
+    await renderActiveEquipmentList();
   } catch(err) {
     activeList.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px;">Could not load equipment.</div>';
   }
 }
 
-function renderActiveEquipmentList() {
+async function resumeActiveJob() {
+  if (!currentJob) return;
+  showScreen('active');
+  await renderActiveEquipmentList();
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER ACTIVE EQUIPMENT LIST
+// Reads Job records from Airtable to determine unit status
+// No in-memory state — always reflects Airtable truth
+// ═══════════════════════════════════════════════════════════
+async function renderActiveEquipmentList() {
   const listEl = document.getElementById('active-equipment-list');
   if (!listEl) return;
 
+  const woId = currentJob ? currentJob.id : null;
   const totalUnits = currentWorkOrderEquipment.length;
-  const completedCount = Object.keys(completedUnits).length;
-  const skippedCount = Object.values(completedUnits).filter(u => u.skipped).length;
-  const doneCount = completedCount - skippedCount;
 
+  // Load existing Jobs for this Work Order from Airtable
+  let jobsByEquipment = {}; // equipmentId -> job record
+  if (woId) {
+    try {
+      const jobData = await apiGet('Jobs', { maxRecords: '50' });
+      const allJobs = jobData.records || [];
+      // Filter to jobs for this Work Order
+      const woJobs = allJobs.filter(j => {
+        const woLinks = j.fields['Work Order'];
+        return woLinks && woLinks.includes(woId);
+      });
+      // Map by equipment ID
+      woJobs.forEach(j => {
+        const eqLinks = j.fields['Equipment'];
+        if (eqLinks && eqLinks.length > 0) {
+          jobsByEquipment[eqLinks[0]] = j;
+        }
+      });
+    } catch(err) {
+      console.error('Could not load jobs:', err);
+    }
+  }
+
+  const completedCount = Object.values(jobsByEquipment).filter(j =>
+    j.fields['Status'] === 'Complete').length;
+  const skippedCount = Object.values(jobsByEquipment).filter(j =>
+    j.fields['Status'] === 'Cancelled').length;
+  const doneCount = completedCount + skippedCount;
+
+  // Progress bar
   let progressHtml = '';
   if (totalUnits > 0) {
-    const pct = Math.round((completedCount / totalUnits) * 100);
+    const pct = Math.round((doneCount / totalUnits) * 100);
     progressHtml = `<div class="wo-progress" style="margin-bottom:12px;">
-      <div class="wo-progress-bar-wrap"><div class="wo-progress-bar-fill" style="width:${pct}%"></div></div>
-      <div class="wo-progress-counts"><span>${doneCount} complete, ${skippedCount} skipped</span><span>${totalUnits - completedCount} remaining</span></div>
+      <div class="wo-progress-bar-wrap">
+        <div class="wo-progress-bar-fill" style="width:${pct}%"></div>
+      </div>
+      <div class="wo-progress-counts">
+        <span>${completedCount} complete, ${skippedCount} skipped</span>
+        <span>${totalUnits - doneCount} remaining</span>
+      </div>
     </div>`;
   }
 
-  let cardsHtml = totalUnits === 0
-    ? '<div style="color:var(--gray-text);font-size:14px;padding:8px 0;">No equipment on file for this property. Tap + Add Unlisted Unit below.</div>'
-    : currentWorkOrderEquipment.map(eq => {
-        const ef = eq.fields;
-        const name = ef['Equipment Name'] || 'Unknown Unit';
-        const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
-        const brand = ef['Brand'] || '';
-        const refrig = ef['Refrigerant Type'] || '';
-        const location = ef['Location in Building'] || '';
-        const serial = ef['Serial Number'] && ef['Serial Number'] !== 'SN-PENDING' ? ef['Serial Number'] : '';
-        const meta = [brand, tons, refrig, location, serial].filter(Boolean).join(' · ');
-        const unitData = completedUnits[eq.id];
-        const isComplete = unitData && !unitData.skipped;
-        const isSkipped = unitData && unitData.skipped;
-        let cardClass = 'unit-action-card';
-        let dot = '<div class="unit-status-dot pending"></div>';
-        let actions = '';
-        let summary = '';
-        if (isComplete) {
-          cardClass += ' complete';
-          dot = '<div class="unit-status-dot complete">✓</div>';
-          summary = `<div class="unit-complete-summary">✓ ${escHtml(unitData.workPerformed ? unitData.workPerformed.substring(0,60) : 'Saved')}</div>`;
-          actions = `<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="editCompletedUnit('${eq.id}')">Edit Notes</button></div>`;
-        } else if (isSkipped) {
-          cardClass += ' not-this-visit';
-          dot = '<div class="unit-status-dot skipped">—</div>';
-          actions = `<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit('${eq.id}')">Undo Skip</button></div>`;
-        } else {
-          actions = `<div class="unit-card-actions">
-            <button class="btn-small btn-small-red" onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Complete This Unit</button>
-            <button class="btn-small btn-small-outline" onclick="skipUnit('${eq.id}')">Not This Visit</button>
-          </div>`;
-        }
-        return `<div class="${cardClass}">
-          <div class="unit-card-header">${dot}<div class="unit-card-name">${escHtml(name)}</div></div>
-          ${meta ? `<div class="unit-card-meta">${escHtml(meta)}</div>` : ''}
-          ${actions}${summary}
-        </div>`;
-      }).join('');
+  // Unit cards
+  let cardsHtml = '';
+  if (totalUnits === 0) {
+    cardsHtml = '<div style="color:var(--gray-text);font-size:14px;padding:8px 0;">No equipment on file for this property. Tap + Add Unlisted Unit below.</div>';
+  } else {
+    cardsHtml = currentWorkOrderEquipment.map(eq => {
+      const ef = eq.fields;
+      const name = ef['Equipment Name'] || 'Unknown Unit';
+      const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
+      const brand = ef['Brand'] || '';
+      const refrig = ef['Refrigerant Type'] || '';
+      const location = ef['Location in Building'] || '';
+      const serial = ef['Serial Number'] && ef['Serial Number'] !== 'SN-PENDING' ? ef['Serial Number'] : '';
+      const meta = [brand, tons, refrig, location, serial].filter(Boolean).join(' · ');
 
+      const jobRecord = jobsByEquipment[eq.id];
+      const isComplete = jobRecord && jobRecord.fields['Status'] === 'Complete';
+      const isSkipped = jobRecord && jobRecord.fields['Status'] === 'Cancelled';
+
+      let cardClass = 'unit-action-card';
+      let dot = '<div class="unit-status-dot pending"></div>';
+      let actions = '';
+      let summary = '';
+
+      if (isComplete) {
+        cardClass += ' complete';
+        dot = '<div class="unit-status-dot complete">✓</div>';
+        const wp = jobRecord.fields['Work Performed'] || '';
+        summary = `<div class="unit-complete-summary">✓ ${escHtml(wp.substring(0, 60))}${wp.length > 60 ? '...' : ''}</div>`;
+        actions = `<div class="unit-card-actions">
+          <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;"
+            onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Edit Notes</button>
+        </div>`;
+      } else if (isSkipped) {
+        cardClass += ' not-this-visit';
+        dot = '<div class="unit-status-dot skipped">—</div>';
+        actions = `<div class="unit-card-actions">
+          <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;"
+            onclick="unskipUnit('${eq.id}', '${escAttr(jobRecord.id)}')">Undo Skip</button>
+        </div>`;
+      } else {
+        actions = `<div class="unit-card-actions">
+          <button class="btn-small btn-small-red"
+            onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Complete This Unit</button>
+          <button class="btn-small btn-small-outline"
+            onclick="skipUnit('${eq.id}', '${escAttr(name)}')">Not This Visit</button>
+        </div>`;
+      }
+
+      return `<div class="${cardClass}">
+        <div class="unit-card-header">${dot}<div class="unit-card-name">${escHtml(name)}</div></div>
+        ${meta ? `<div class="unit-card-meta">${escHtml(meta)}</div>` : ''}
+        ${actions}${summary}
+      </div>`;
+    }).join('');
+  }
+
+  // Show summary button when all units addressed
   let summaryBtn = '';
-  if (totalUnits > 0 && completedCount === totalUnits) {
-    summaryBtn = `<button class="btn btn-success btn-full" style="margin-top:12px;" onclick="showWorkOrderSummary()">✓ All Units Done — View Summary & Invoice</button>`;
+  if (totalUnits > 0 && doneCount === totalUnits) {
+    summaryBtn = `<button class="btn btn-success btn-full" style="margin-top:12px;"
+      onclick="showWorkOrderSummary(jobsByEquipment)">
+      ✓ All Units Done — View Summary & Invoice
+    </button>`;
   } else if (totalUnits === 0) {
-    summaryBtn = `<button class="btn btn-dark btn-full" style="margin-top:12px;" onclick="showWorkOrderSummary()">Complete Visit</button>`;
+    summaryBtn = `<button class="btn btn-dark btn-full" style="margin-top:12px;"
+      onclick="showWorkOrderSummary({})">Complete Visit</button>`;
   }
 
   listEl.innerHTML = progressHtml + cardsHtml + summaryBtn;
 }
 
+// ═══════════════════════
+// UNIT ACTIONS
+// ═══════════════════════
+function startUnitComplete(eqId, eqName) {
+  selectedEquipmentId = eqId;
+  selectedEquipmentName = eqName;
+  openCompleteForm();
+}
+
+async function skipUnit(eqId, eqName) {
+  if (!currentJob) return;
+  const woId = currentJob.id;
+  const woFields = currentJob.fields;
+
+  try {
+    showToast('Skipping unit...');
+    const now = new Date();
+    const customerName = woFields['Customer Name'] || 'Customer';
+    const jobName = `${customerName} — ${eqName} — Not This Visit`;
+
+    const jobFields = {
+      'Job Name': jobName,
+      'Work Order': [woId],
+      'Job Type': woFields['Work Order Type'] || 'Maintenance',
+      'Status': 'Cancelled',
+      'Actual Start': now.toISOString(),
+      'Actual End': now.toISOString(),
+      'Equipment': [eqId],
+    };
+    if (woFields['Customer'] && woFields['Customer'].length > 0) jobFields['Customer'] = woFields['Customer'];
+    if (woFields['Property'] && woFields['Property'].length > 0) jobFields['Property'] = woFields['Property'];
+    if (woFields['Technician'] && woFields['Technician'].length > 0) jobFields['Technician'] = woFields['Technician'];
+
+    await apiPost('Jobs', jobFields);
+    showToast('Unit skipped', 'success');
+    await renderActiveEquipmentList();
+  } catch(err) {
+    showToast('⚠ Could not skip unit', 'error');
+  }
+}
+
+async function unskipUnit(eqId, jobId) {
+  try {
+    showToast('Undoing skip...');
+    // Delete the skipped job record
+    const res = await fetch(`${PROXY}/Jobs/${jobId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('DELETE failed');
+    showToast('✓ Unskipped', 'success');
+    await renderActiveEquipmentList();
+  } catch(err) {
+    showToast('⚠ Could not undo skip', 'error');
+  }
+}
+
+// ═══════════════════════
+// ADD EQUIPMENT ON SITE
+// ═══════════════════════
 function toggleAddEquipmentActive() {
   const form = document.getElementById('add-equipment-form-active');
   if (form) form.style.display = form.style.display === 'block' ? 'none' : 'block';
@@ -2308,6 +2151,7 @@ function toggleAddEquipmentActive() {
 async function saveNewEquipmentActive() {
   const type = document.getElementById('eq-type-active').value;
   if (!type) { showToast('⚠ Select equipment type', 'error'); return; }
+
   const f = currentJob.fields;
   const custLinks = f['Customer'];
   const propLinks = f['Property'];
@@ -2315,7 +2159,13 @@ async function saveNewEquipmentActive() {
   const tonsStr = tons ? tons + ' Ton ' : '';
   const sameType = currentWorkOrderEquipment.filter(e => e.fields['Equipment Type'] === type).length;
   const eqName = `${tonsStr}${type} — Unit ${sameType + 1}`;
-  const fields = { 'Equipment Name': eqName, 'Equipment Type': type, 'Serial Number': 'SN-PENDING', 'Active': true };
+
+  const fields = {
+    'Equipment Name': eqName,
+    'Equipment Type': type,
+    'Serial Number': 'SN-PENDING',
+    'Active': true,
+  };
   if (tons) fields['Capacity (Tons)'] = parseFloat(tons);
   const refrig = document.getElementById('eq-refrigerant-active').value;
   if (refrig) fields['Refrigerant Type'] = refrig;
@@ -2327,30 +2177,119 @@ async function saveNewEquipmentActive() {
   if (location) fields['Location in Building'] = location;
   if (custLinks && custLinks.length > 0) fields['Customer'] = [custLinks[0]];
   if (propLinks && propLinks.length > 0) fields['Property'] = [propLinks[0]];
+
   try {
     const result = await apiPost('Equipment', fields);
     currentWorkOrderEquipment.push({ id: result.id, fields: { ...fields, 'Equipment Name': eqName } });
     showToast('✓ Unit added', 'success');
     toggleAddEquipmentActive();
-    renderActiveEquipmentList();
+    await renderActiveEquipmentList();
   } catch(err) {
     showToast('⚠ Could not save unit', 'error');
   }
 }
 
 // ═══════════════════════
-// RESUME ACTIVE JOB
+// WORK ORDER SUMMARY
 // ═══════════════════════
-async function resumeActiveJob() {
+async function showWorkOrderSummary(jobsByEquipment) {
   if (!currentJob) return;
-  // If we have equipment loaded already just go back to active screen
-  if (currentWorkOrderEquipment.length > 0) {
-    showScreen('active');
-    renderActiveEquipmentList();
-    return;
+  const f = currentJob.fields;
+
+  document.getElementById('summary-customer').textContent = f['Customer Name'] || 'Customer';
+  document.getElementById('summary-wo-id').textContent = f['Work Order ID'] || '';
+
+  // Build summary from completed jobs
+  const jobsListEl = document.getElementById('summary-jobs-list');
+  let html = '';
+
+  const completedJobs = Object.entries(jobsByEquipment || {})
+    .filter(([, j]) => j.fields['Status'] === 'Complete');
+
+  if (completedJobs.length === 0) {
+    html = '<div style="text-align:center;padding:24px;color:var(--gray-text);font-size:14px;">No completed units.</div>';
+  } else {
+    completedJobs.forEach(([eqId, job]) => {
+      const eq = currentWorkOrderEquipment.find(e => e.id === eqId);
+      const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
+      const jf = job.fields;
+
+      html += `<div class="detail-section" style="margin-bottom:8px;overflow:hidden;">
+        <div class="summary-unit-header">${escHtml(unitName)}</div>`;
+
+      if (jf['Work Performed']) {
+        html += `<div class="summary-line-item">
+          <div class="summary-item-name"><strong>Work:</strong> ${escHtml(jf['Work Performed'])}</div>
+        </div>`;
+      }
+      if (jf['Diagnosis']) {
+        html += `<div class="summary-line-item">
+          <div class="summary-item-name"><strong>Diagnosis:</strong> ${escHtml(jf['Diagnosis'])}</div>
+        </div>`;
+      }
+      if (jf['Parts Used']) {
+        const parts = jf['Parts Used'].split('\n').filter(Boolean);
+        parts.forEach(p => {
+          const [name, price] = p.split(' | ');
+          html += `<div class="summary-line-item">
+            <div class="summary-item-name">${escHtml(name)}</div>
+            ${price ? `<div class="summary-item-price">${escHtml(price)}</div>` : ''}
+          </div>`;
+        });
+      }
+      html += '</div>';
+    });
   }
-  // Otherwise re-activate
-  await activateJobScreen(currentJob);
+
+  jobsListEl.innerHTML = html;
+  summaryReadyToInvoice = false;
+  updateSummaryInvoiceToggle();
+  showScreen('summary');
+}
+
+function toggleSummaryInvoice() {
+  summaryReadyToInvoice = !summaryReadyToInvoice;
+  updateSummaryInvoiceToggle();
+}
+
+function updateSummaryInvoiceToggle() {
+  const sw = document.getElementById('summary-invoice-switch');
+  const toggle = document.getElementById('summary-invoice-toggle');
+  const label = document.getElementById('summary-toggle-label');
+  if (!sw) return;
+  sw.classList.toggle('on', summaryReadyToInvoice);
+  if (toggle) {
+    toggle.classList.toggle('active', summaryReadyToInvoice);
+    toggle.setAttribute('aria-checked', summaryReadyToInvoice ? 'true' : 'false');
+  }
+  if (label) label.textContent = summaryReadyToInvoice ? 'ON' : 'OFF';
+}
+
+async function submitWorkOrderComplete() {
+  if (!currentJob) return;
+  const btn = document.getElementById('summary-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const woUpdate = {
+      'Status': summaryReadyToInvoice ? 'Complete' : 'Complete',
+      'Actual End': new Date().toISOString(),
+    };
+    await apiPatch('Work Orders', currentJob.id, woUpdate);
+    showToast('✓ Visit complete!', 'success');
+    setTimeout(() => {
+      currentWorkOrderEquipment = [];
+      selectedEquipmentId = null;
+      selectedEquipmentName = '';
+      showScreen('home');
+      loadTodaysJobs();
+    }, 1400);
+  } catch(err) {
+    showToast('⚠ Could not save. Try again.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Finish Visit';
+  }
 }
 
 // ═══════════════════════
@@ -2662,32 +2601,19 @@ async function submitComplete() {
       if (followupNotes) jobFields['Follow Up Notes'] = followupNotes;
     }
 
-    const jobRes = await apiPost('Jobs', jobFields);
+    await apiPost('Jobs', jobFields);
 
-    // Save unit to completedUnits for summary screen
-    if (selectedEquipmentId) {
-      completedUnits[selectedEquipmentId] = {
-        jobId: jobRes ? jobRes.id : null,
-        equipmentName: selectedEquipmentName,
-        workPerformed,
-        parts: [...selectedParts],
-        skipped: false,
-      };
-    }
-
-    // Update Work Order to In Progress (summary screen finalizes it)
+    // Keep Work Order as In Progress — summary screen finalizes it
     await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
 
     showToast('✓ Unit saved!', 'success');
 
-    // Return to active job screen for next unit
-    setTimeout(() => {
-      showScreen('active');
-      renderActiveEquipmentList();
-      btn.textContent = 'Mark Job Complete';
-      btn.disabled = false;
-      btn.setAttribute('aria-busy', 'false');
-    }, 800);
+    // Return to active screen — re-reads Jobs from Airtable to show updated status
+    showScreen('active');
+    btn.textContent = 'Mark Job Complete';
+    btn.disabled = false;
+    btn.setAttribute('aria-busy', 'false');
+    await renderActiveEquipmentList();
 
   } catch (err) {
     console.error(err);
