@@ -1654,13 +1654,22 @@ function buildJobCard(record) {
   const city = f['City'] || '';
   const jobType = escHtml(f['Work Order Type'] || f['Job Type'] || 'Service');
   const addressFull = [address, city].filter(Boolean).join(', ');
+  const serviceMode = f['Service Mode'] || '';
+  const rawCount = f['Unit Count'];
+  const unitCount = Array.isArray(rawCount) ? rawCount[0] : rawCount;
+  let unitBadge = '';
+  if (unitCount && unitCount > 0) {
+    unitBadge = `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--charcoal);color:var(--gold);font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-left:6px;letter-spacing:0.3px;">
+      ${unitCount} UNIT${unitCount !== 1 ? 'S' : ''}
+    </span>`;
+  }
 
   return `
   <article class="job-card ${statusClass}"
     onclick="openJob('${record.id}')"
     role="button"
     tabindex="0"
-    aria-label="Job: ${customer}, ${rawStatus}, ${timeDisplay} ${ampm}"
+    aria-label="Job: ${customer}, ${rawStatus}, ${timeDisplay} ${ampm}${unitCount ? ', ' + unitCount + ' units' : ''}"
     onkeydown="if(event.key==='Enter'||event.key===' ')openJob('${record.id}')">
 
     <div class="job-card-top">
@@ -1672,7 +1681,10 @@ function buildJobCard(record) {
 
     <div class="job-card-body">
       <div class="job-customer">${customer}</div>
-      <span class="job-type-tag">${jobType}</span>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+        <span class="job-type-tag" style="margin-bottom:0;">${jobType}</span>
+        ${unitBadge}
+      </div>
 
       ${addressFull ? `
       <div class="job-address-row">
@@ -2145,8 +2157,12 @@ function startUnitComplete(eqId, eqName) {
 
 async function skipUnit(eqId, eqName) {
   if (!currentJob) return;
-  const woId = currentJob.id;
   const woFields = currentJob.fields;
+  if (woFields['Service Mode'] === 'All Units') {
+    const ok = confirm(`This job is scheduled for All Units.\n\nSkip "${eqName}" anyway?`);
+    if (!ok) return;
+  }
+  const woId = currentJob.id;
 
   try {
     showToast('Skipping unit...');
