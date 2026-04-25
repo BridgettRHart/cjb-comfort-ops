@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Wave Customer Importer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f4f4; color: #2e2e2e; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 680px; margin: 0 auto; box-shadow: 0 2px 12px rgba(0,0,0,0.09); }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .warn-box { background: #fffbea; border: 1px solid #e8d44d; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #5c4700; line-height: 1.6; }
+  .info-box { background: #e8f0fb; border: 1px solid #a0bdf0; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #1a3a6b; line-height: 1.6; }
+  .file-label { display: block; border: 2px dashed #ccc; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; font-size: 14px; color: #888; margin-bottom: 16px; transition: border-color 0.2s; }
+  .file-label:hover { border-color: #c81f25; color: #c81f25; }
+  .file-label.ready { border-color: #1a6b35; color: #1a6b35; background: #f0faf4; }
+  #csv-file { display: none; }
+  .stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+  .stat { flex: 1; background: #f4f4f4; border-radius: 8px; padding: 12px; text-align: center; }
+  .stat-num { font-size: 24px; font-weight: 700; color: #c81f25; }
+  .stat-label { font-size: 12px; color: #888; margin-top: 2px; }
+  .btn { background: #c81f25; color: #fff; border: none; border-radius: 8px; padding: 13px 24px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-success { background: #1a6b35 !important; }
+  .progress { margin-top: 16px; display: none; }
+  .progress-bar-wrap { background: #e0e0e0; border-radius: 20px; height: 10px; margin-top: 6px; }
+  .progress-bar { background: #c81f25; border-radius: 20px; height: 10px; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #666; margin-top: 6px; }
+  .log { margin-top: 16px; background: #f4f4f4; border-radius: 8px; padding: 16px; max-height: 420px; overflow-y: auto; font-size: 12px; font-family: monospace; line-height: 1.9; display: none; }
+  .ok { color: #1a6b35; } .err { color: #c81f25; } .info { color: #999; } .warn { color: #8a6d00; }
+  .section-head { color: #2e2e2e; font-weight: 700; margin-top: 6px; }
+  .summary { background: #e2f0e7; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 14px; display: none; }
+  .summary h3 { font-weight: 700; margin-bottom: 10px; color: #1a6b35; }
+  .summary-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(0,0,0,0.07); }
+  .summary-row:last-child { border-bottom: none; }
+  #preview-section { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>CJB Comfort — Wave Customer Importer</h1>
+  <p class="sub">Imports customers and their properties from a Wave CSV export into Airtable. Skips anyone already in Airtable by email. Safe to run multiple times.</p>
+
+  <div class="warn-box">
+    ⚠ <strong>Export from Wave first:</strong> Wave → Customers → Export CSV. Save the file and upload it below.
+  </div>
+
+  <div class="info-box">
+    ℹ <strong>What this tool does:</strong><br>
+    For each row in the CSV:<br>
+    1. Checks if a Customer with that email already exists in Airtable — skips if yes.<br>
+    2. Creates the Customer record (name, first/last name, email, phone, type = Residential).<br>
+    3. If the row has a service address, checks if a Property already exists for that email — skips if yes.<br>
+    4. Creates the Property record linked to the new Customer (address, city, state, zip).<br>
+    Rows with no email are imported by name match only.
+  </div>
+
+  <label class="file-label" id="file-label" for="csv-file">
+    📂 Click to choose your Wave customers.csv file
+  </label>
+  <input type="file" id="csv-file" accept=".csv" onchange="handleFile(this)">
+
+  <div id="preview-section">
+    <div class="stat-row" id="stat-row">
+      <div class="stat"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Total Rows</div></div>
+      <div class="stat"><div class="stat-num" id="stat-with-addr">—</div><div class="stat-label">Have Address</div></div>
+      <div class="stat"><div class="stat-num" id="stat-with-email">—</div><div class="stat-label">Have Email</div></div>
+    </div>
+
+    <button class="btn" id="start-btn" onclick="startImport()">Import Customers &amp; Properties</button>
+  </div>
+
+  <div class="progress" id="progress-wrap">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">Starting...</div>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+let parsedRows = [];
+
+// ── CSV parser (handles quoted fields with commas) ──────────────────────────
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines.length < 2) return [];
+  const headers = splitCSVLine(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const vals = splitCSVLine(line);
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim(); });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function splitCSVLine(line) {
+  const result = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i+1] === '"') { cur += '"'; i++; }
+      else { inQuote = !inQuote; }
+    } else if (ch === ',' && !inQuote) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    parsedRows = parseCSV(e.target.result);
+    const withEmail = parsedRows.filter(r => r.email || r.customer_email).length;
+    const withAddr  = parsedRows.filter(r => r.address_line_1 || r.address).length;
+    document.getElementById('stat-total').textContent = parsedRows.length;
+    document.getElementById('stat-with-email').textContent = withEmail;
+    document.getElementById('stat-with-addr').textContent = withAddr;
+    document.getElementById('preview-section').style.display = 'block';
+    const lbl = document.getElementById('file-label');
+    lbl.textContent = '✅ ' + file.name + ' — ' + parsedRows.length + ' rows loaded';
+    lbl.classList.add('ready');
+  };
+  reader.readAsText(file);
+}
+
+// ── Airtable helpers ────────────────────────────────────────────────────────
+async function atGet(table, formula) {
+  const url = `${PROXY}/${encodeURIComponent(table)}?filterByFormula=${encodeURIComponent(formula)}&maxRecords=5`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GET ${table} failed: ${res.status}`);
+  const data = await res.json();
+  return data.records || [];
+}
+
+async function atPost(table, fields) {
+  const res = await fetch(`${PROXY}/${encodeURIComponent(table)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields })
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`POST ${table} failed: ${res.status} — ${err}`);
+  }
+  return res.json();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Logging helpers ─────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+function log(msg, cls = '') {
+  logEl.style.display = 'block';
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = msg + '\n';
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setProgress(done, total, msg) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = msg || `${done} / ${total}`;
+}
+
+// ── Main import ─────────────────────────────────────────────────────────────
+async function startImport() {
+  if (!parsedRows.length) { alert('Please choose a CSV file first.'); return; }
+
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('progress-wrap').style.display = 'block';
+  logEl.innerHTML = '';
+
+  let custCreated = 0, custSkipped = 0, custFailed = 0;
+  let propCreated = 0, propSkipped = 0, propFailed = 0;
+  const failedNames = [];
+
+  const total = parsedRows.length;
+
+  for (let i = 0; i < parsedRows.length; i++) {
+    const row = parsedRows[i];
+
+    // Normalize column names — Wave exports vary slightly
+    const customerName = row.customer_name || row.name || '';
+    const email        = (row.email || row.customer_email || '').toLowerCase().trim();
+    const firstName    = row.contact_first_name || row.first_name || '';
+    const lastName     = row.contact_last_name  || row.last_name  || '';
+    const phone        = row.phone || row.mobile || '';
+    const address1     = row.address_line_1 || row.address || '';
+    const city         = row.city || '';
+    const state        = row.province || row.state || row['province/state'] || '';
+    const zip          = row.postal_code || row.zip_code || row['postal_code/zip_code'] || '';
+
+    if (!customerName) { log(`  Row ${i+1}: no customer name, skipping`, 'info'); continue; }
+
+    setProgress(i + 1, total, `(${i+1}/${total}) ${customerName}`);
+    log(`\n— ${customerName}`, 'section-head');
+
+    // ── 1. Check / create Customer ──────────────────────────────────────────
+    let customerId = null;
+    let customerAlreadyExisted = false;
+
+    try {
+      let existingCustomers = [];
+
+      if (email) {
+        existingCustomers = await atGet('Customers', `{Email}="${email}"`);
+        await sleep(120);
+      }
+
+      // fallback: search by name if no email or no email match
+      if (!existingCustomers.length) {
+        existingCustomers = await atGet('Customers', `{Customer Name}="${customerName}"`);
+        await sleep(120);
+      }
+
+      if (existingCustomers.length > 0) {
+        customerId = existingCustomers[0].id;
+        customerAlreadyExisted = true;
+        custSkipped++;
+        log(`  Customer: already exists (${customerId})`, 'info');
+      } else {
+        const fields = {
+          'Customer Name': customerName,
+          'Active': true
+        };
+        if (firstName) fields['First Name'] = firstName;
+        if (lastName)  fields['Last Name']  = lastName;
+        if (email)     fields['Email']       = email;
+        if (phone)     fields['Phone']       = phone;
+        fields['Type'] = 'Residential';
+
+        const created = await atPost('Customers', fields);
+        customerId = created.id;
+        custCreated++;
+        log(`  Customer: CREATED (${customerId})`, 'ok');
+        await sleep(200);
+      }
+    } catch (err) {
+      custFailed++;
+      failedNames.push(customerName);
+      log(`  Customer ERROR: ${err.message}`, 'err');
+      continue;
+    }
+
+    // ── 2. Check / create Property (only if address exists) ─────────────────
+    if (!address1) {
+      log(`  Property: no address in CSV, skipping`, 'info');
+      continue;
+    }
+
+    try {
+      let existingProps = [];
+
+      if (email) {
+        existingProps = await atGet('Properties', `{Customer Email}="${email}"`);
+        await sleep(120);
+      }
+
+      if (!existingProps.length && customerId) {
+        // check by customer link + address match as fallback
+        existingProps = await atGet('Properties', `AND({Customer}="${customerId}",{Service Address}="${address1}")`);
+        await sleep(120);
+      }
+
+      if (existingProps.length > 0) {
+        propSkipped++;
+        log(`  Property: already exists`, 'info');
+      } else {
+        const propName = customerName + (address1 ? ' — ' + address1 : '');
+        const fields = {
+          'Property Name': propName,
+          'Service Address': address1,
+          'Active': true
+        };
+        if (city)  fields['City']  = city;
+        if (state) fields['State'] = state;
+        if (zip)   fields['Zip']   = zip;
+        if (email) fields['Customer Email'] = email;
+        if (customerId) fields['Customer'] = [customerId];
+
+        await atPost('Properties', fields);
+        propCreated++;
+        log(`  Property: CREATED (${address1}, ${city})`, 'ok');
+        await sleep(200);
+      }
+    } catch (err) {
+      propFailed++;
+      log(`  Property ERROR: ${err.message}`, 'err');
+    }
+  }
+
+  // ── Done ──────────────────────────────────────────────────────────────────
+  document.getElementById('progress-bar').style.width = '100%';
+  document.getElementById('progress-bar').style.background = '#1a6b35';
+  document.getElementById('start-btn').classList.add('btn-success');
+  document.getElementById('start-btn').textContent = 'Import Complete ✓';
+
+  const sumEl = document.getElementById('summary');
+  sumEl.style.display = 'block';
+  sumEl.innerHTML = `
+    <h3>Import Complete</h3>
+    <div class="summary-row"><span>Customers created</span><span><strong>${custCreated}</strong></span></div>
+    <div class="summary-row"><span>Customers already existed (skipped)</span><span><strong>${custSkipped}</strong></span></div>
+    <div class="summary-row"><span>Customer errors</span><span><strong style="color:${custFailed?'#c81f25':'inherit'}">${custFailed}</strong></span></div>
+    <div class="summary-row"><span>Properties created</span><span><strong>${propCreated}</strong></span></div>
+    <div class="summary-row"><span>Properties already existed (skipped)</span><span><strong>${propSkipped}</strong></span></div>
+    <div class="summary-row"><span>Property errors</span><span><strong style="color:${propFailed?'#c81f25':'inherit'}">${propFailed}</strong></span></div>
+    ${failedNames.length ? `<div style="margin-top:10px;font-size:12px;color:#c81f25;"><strong>Failed customers:</strong> ${failedNames.join(', ')}</div>` : ''}
+  `;
+
+  log('\n✅ Import finished.', 'ok');
+}
+</script>
+</body>
+</html>
