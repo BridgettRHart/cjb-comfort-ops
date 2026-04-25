@@ -1384,28 +1384,6 @@
       </fieldset>
     </div>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:16px;">
-      <div class="ready-toggle"
-        id="ready-invoice-toggle"
-        onclick="toggleReadyInvoice()"
-        role="checkbox"
-        aria-checked="false"
-        tabindex="0"
-        onkeydown="if(event.key==='Enter'||event.key===' ')toggleReadyInvoice()"
-        aria-label="Mark as ready to invoice — Bridgett will review and send">
-        <div>
-          <div class="ready-toggle-label">Ready to Invoice</div>
-          <div class="ready-toggle-sub">Bridgett will review and send</div>
-        </div>
-        <div class="toggle-wrap">
-          <span class="toggle-label-text" id="toggle-label-text" aria-hidden="true">OFF</span>
-          <div class="toggle-switch" id="invoice-switch" aria-hidden="true">
-            <div class="toggle-knob"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <button class="btn btn-dark btn-full" id="submit-complete-btn" onclick="submitComplete()" aria-label="Save and mark this job as complete">
       Mark Job Complete
     </button>
@@ -2159,7 +2137,6 @@ async function skipUnit(eqId, eqName, btn) {
   if (!currentJob) return;
   const woFields = currentJob.fields;
   const serviceMode = (woFields['Service Mode'] || '').toLowerCase().trim();
-  showToast('Service Mode: "' + (woFields['Service Mode'] || 'NOT FOUND') + '"');
   if (serviceMode === 'all units' && btn) {
     if (!btn.dataset.confirmPending) {
       btn.dataset.confirmPending = '1';
