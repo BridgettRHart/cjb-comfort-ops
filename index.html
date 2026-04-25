@@ -2407,6 +2407,26 @@ function openCompleteForm() {
     if (jf['Recommendations']) document.getElementById('field-recommendations').value = jf['Recommendations'];
     if (jf['Follow Up Required']) selectFollowup('yes');
     if (jf['Follow Up Notes']) document.getElementById('field-followup-notes').value = jf['Follow Up Notes'];
+
+    // Restore saved parts
+    if (jf['Parts Used']) {
+      jf['Parts Used'].split('\n').filter(Boolean).forEach(line => {
+        if (line.startsWith('Custom: ')) {
+          document.getElementById('field-parts-other').value = line.replace('Custom: ', '');
+        } else {
+          let name = line, price = 0, qty = 1;
+          if (line.includes(' | $')) {
+            const chunks = line.split(' | $');
+            name = chunks[0];
+            price = parseFloat(chunks[1]) || 0;
+          }
+          const qtyMatch = name.match(/^(\d+)x (.+)$/);
+          if (qtyMatch) { qty = parseInt(qtyMatch[1]); name = qtyMatch[2]; }
+          addSelectedPart(name, price);
+          if (qty > 1) updatePartQty(name, qty);
+        }
+      });
+    }
   }
   document.getElementById('parts-search').value = '';
   document.getElementById('parts-search-results').style.display = 'none';
@@ -2661,7 +2681,13 @@ async function submitComplete() {
       if (followupNotes) jobFields['Follow Up Notes'] = followupNotes;
     }
 
-    await apiPost('Jobs', jobFields);
+    // Update existing job if one already exists for this unit, otherwise create new
+    const existingJob = currentJobsByEquipment[selectedEquipmentId];
+    if (existingJob && existingJob.fields['Status'] === 'Complete') {
+      await apiPatch('Jobs', existingJob.id, jobFields);
+    } else {
+      await apiPost('Jobs', jobFields);
+    }
 
     // Keep Work Order as In Progress — summary screen finalizes it
     await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
