@@ -2003,8 +2003,8 @@ async function activateJobScreen(record) {
     });
 
     const count = currentWorkOrderEquipment.length;
-    document.getElementById('active-unit-badge').textContent =
-      count > 0 ? `${count} Unit${count !== 1 ? 's' : ''}` : 'Diagnostic';
+    const badgeText = count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
+    document.getElementById('active-unit-badge').textContent = badgeText;
 
     await renderActiveEquipmentList();
   } catch(err) {
