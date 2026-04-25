@@ -1582,7 +1582,10 @@ async function loadTodaysJobs() {
 
   try {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const y = today.getFullYear();
+    const mo = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${mo}-${d}`;
 
     const data = await apiGet('Work Orders', {
       maxRecords: '100',
@@ -1967,6 +1970,7 @@ async function loadPropertyEquipmentPreview(record) {
 let selectedEquipmentId = null;
 let selectedEquipmentName = '';
 let currentWorkOrderEquipment = []; // Equipment records for this property
+let currentJobsByEquipment = {};    // equipmentId -> job record, kept in sync with Airtable
 let summaryReadyToInvoice = false;
 
 // ═══════════════════════
@@ -2014,8 +2018,7 @@ async function activateJobScreen(record) {
 
 async function resumeActiveJob() {
   if (!currentJob) return;
-  showScreen('active');
-  await renderActiveEquipmentList();
+  await activateJobScreen(currentJob);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2034,7 +2037,7 @@ async function renderActiveEquipmentList() {
   let jobsByEquipment = {}; // equipmentId -> job record
   if (woId) {
     try {
-      const jobData = await apiGet('Jobs', { maxRecords: '50' });
+      const jobData = await apiGet('Jobs', { maxRecords: '500' });
       const allJobs = jobData.records || [];
       // Filter to jobs for this Work Order
       const woJobs = allJobs.filter(j => {
@@ -2052,6 +2055,7 @@ async function renderActiveEquipmentList() {
       console.error('Could not load jobs:', err);
     }
   }
+  currentJobsByEquipment = jobsByEquipment;
 
   const completedCount = Object.values(jobsByEquipment).filter(j =>
     j.fields['Status'] === 'Complete').length;
@@ -2367,7 +2371,7 @@ function openCompleteForm() {
     if (problemWrap) problemWrap.style.display = 'none';
   }
 
-  // Reset all fields
+  // Reset all fields (do NOT clear selectedEquipmentId/Name — set by startUnitComplete before this runs)
   ['field-work','field-diagnosis','field-recommendations','field-parts-other','field-followup-notes']
     .forEach(id => document.getElementById(id).value = '');
   document.getElementById('followup-notes-wrap').style.display = 'none';
@@ -2383,9 +2387,18 @@ function openCompleteForm() {
     c.setAttribute('aria-checked', 'false');
   });
   selectedParts = [];
-  selectedEquipmentId = null;
-  selectedEquipmentName = '';
   renderSelectedParts();
+
+  // Pre-fill from existing job if this unit was already completed
+  const existingJob = currentJobsByEquipment[selectedEquipmentId];
+  if (existingJob && existingJob.fields['Status'] === 'Complete') {
+    const jf = existingJob.fields;
+    if (jf['Work Performed']) document.getElementById('field-work').value = jf['Work Performed'];
+    if (jf['Diagnosis']) document.getElementById('field-diagnosis').value = jf['Diagnosis'];
+    if (jf['Recommendations']) document.getElementById('field-recommendations').value = jf['Recommendations'];
+    if (jf['Follow Up Required']) selectFollowup('yes');
+    if (jf['Follow Up Notes']) document.getElementById('field-followup-notes').value = jf['Follow Up Notes'];
+  }
   document.getElementById('parts-search').value = '';
   document.getElementById('parts-search-results').style.display = 'none';
 
