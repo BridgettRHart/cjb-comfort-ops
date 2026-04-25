@@ -1670,7 +1670,7 @@ function buildJobCard(record) {
     <div class="job-card-body">
       <div class="job-customer">${customer}</div>
       <span class="job-type-tag">${jobType}</span>
-      ${(f['Service Mode'] && f['Service Mode'] !== 'Diagnostic') ? `<span class="job-type-tag" style="background:var(--charcoal);color:var(--gold);margin-left:4px;">${escHtml(f['Service Mode'])}</span>` : ''}
+
       ${addressFull ? `
       <div class="job-address-row">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -1710,6 +1710,32 @@ async function openJob(recordId) {
     renderJobDetail(data);
   } catch (err) {
     content.innerHTML = `<div class="empty-state"><h3>Could not load job</h3><p>${escHtml(err.message)}</p></div>`;
+  }
+}
+
+async function updateStatus(recordId, newStatus) {
+  try {
+    showToast('Updating...');
+    const updateFields = { 'Status': newStatus };
+    if (newStatus === 'In Progress') {
+      updateFields['Actual Start'] = new Date().toISOString();
+    }
+    await apiPatch('Work Orders', recordId, updateFields);
+    const data = await apiGet(`Work Orders/${recordId}`);
+    currentJob = data;
+    if (newStatus === 'In Progress') {
+      showToast('✓ Job started', 'success');
+      currentWorkOrderEquipment = [];
+      selectedEquipmentId = null;
+      selectedEquipmentName = '';
+      renderJobDetail(data);
+      await activateJobScreen(data);
+    } else {
+      showToast(`✓ Marked: ${newStatus}`, 'success');
+      renderJobDetail(data);
+    }
+  } catch (err) {
+    showToast('⚠ Could not update status', 'error');
   }
 }
 
@@ -1855,48 +1881,81 @@ function renderJobDetail(record) {
       </div>
     </div>
 
+    <div class="detail-section" style="margin-bottom:12px;">
+      <div class="detail-section-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleEquipmentPreview()">
+        <span>Equipment on File</span>
+        <span id="eq-preview-toggle-icon" style="font-size:18px;color:var(--gold);">+</span>
+      </div>
+      <div id="equipment-preview-wrap" style="display:none;padding:0 16px 12px;">
+        <div id="equipment-preview-list" style="color:var(--gray-text);font-size:13px;padding:8px 0;">
+          Tap to load equipment...
+        </div>
+      </div>
+    </div>
+
     <div class="bottom-pad"></div>
-  `;
+  \`;
 
   // Equipment loads when job goes active (after Start Job)
 }
 
-async function loadPropertyEquipment(record) {
+function toggleEquipmentPreview() {
+  const wrap = document.getElementById('equipment-preview-wrap');
+  const icon = document.getElementById('eq-preview-toggle-icon');
+  if (!wrap) return;
+  const isOpen = wrap.style.display === 'block';
+  wrap.style.display = isOpen ? 'none' : 'block';
+  if (icon) icon.textContent = isOpen ? '+' : '−';
+  if (!isOpen && currentJob) {
+    loadPropertyEquipmentPreview(currentJob);
+  }
+}
+
+async function loadPropertyEquipmentPreview(record) {
+  // Read-only equipment preview for pre-arrival screen
   const f = record.fields;
-  const listEl = document.getElementById('equipment-list');
+  const listEl = document.getElementById('equipment-preview-list');
   if (!listEl) return;
 
-  // Get property ID from Work Order
   const propLinks = f['Property'];
   if (!propLinks || propLinks.length === 0) {
-    listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;padding:4px 0;">No property linked — add equipment manually.</div>';
+    listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;">No property linked.</div>';
     return;
   }
 
   const propId = propLinks[0];
+  listEl.innerHTML = '<div style="color:var(--gray-text);font-size:12px;">Loading...</div>';
 
   try {
-    // Fetch all equipment and filter by property in JS
-    // (Airtable formula filtering on linked fields is unreliable)
     const data = await apiGet('Equipment', { maxRecords: '200' });
-    const allEquipment = data.records || [];
-
-    const equipment = allEquipment.filter(eq => {
-      const propField = eq.fields['Property'];
-      return propField && propField.includes(propId);
+    const all = data.records || [];
+    const equipment = all.filter(eq => {
+      const pf = eq.fields['Property'];
+      return pf && pf.includes(propId);
     });
 
     if (equipment.length === 0) {
-      listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;padding:4px 0;">No equipment on file for this property. Tap + Add Unit to add.</div>';
+      listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;">No equipment on file yet.</div>';
       return;
     }
 
-    // Store equipment list globally for this Work Order
-    currentWorkOrderEquipment = equipment;
-    renderUnitActionCards();
-
+    listEl.innerHTML = equipment.map(eq => {
+      const ef = eq.fields;
+      const name = ef['Equipment Name'] || 'Unknown Unit';
+      const tons = ef['Capacity (Tons)'] ? ef['Capacity (Tons)'] + ' Ton' : '';
+      const brand = ef['Brand'] || '';
+      const refrig = ef['Refrigerant Type'] || '';
+      const location = ef['Location in Building'] || '';
+      const installYear = ef['Install Date'] ? new Date(ef['Install Date']).getFullYear() : '';
+      const serial = ef['Serial Number'] && ef['Serial Number'] !== 'SN-PENDING' ? 'SN: ' + ef['Serial Number'] : '';
+      const meta = [brand, tons, refrig, location, installYear ? 'Installed ' + installYear : '', serial].filter(Boolean).join(' · ');
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--gray-light);">
+        <div style="font-size:14px;font-weight:700;color:var(--charcoal);">${escHtml(name)}</div>
+        ${meta ? `<div style="font-size:12px;color:var(--gray-text);margin-top:2px;">${escHtml(meta)}</div>` : ''}
+      </div>`;
+    }).join('');
   } catch(err) {
-    listEl.innerHTML = '<div style="color:var(--gray-text);font-size:13px;">Could not load equipment.</div>';
+    listEl.innerHTML = '<div style="color:var(--gray-text);font-size:12px;">Could not load equipment.</div>';
   }
 }
 
