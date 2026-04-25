@@ -2063,15 +2063,15 @@ async function renderActiveEquipmentList() {
   let progressHtml = '';
   if (totalUnits > 0) {
     const pct = Math.round((doneCount / totalUnits) * 100);
-    progressHtml = `<div class="wo-progress" style="margin-bottom:12px;">
-      <div class="wo-progress-bar-wrap">
-        <div class="wo-progress-bar-fill" style="width:${pct}%"></div>
-      </div>
-      <div class="wo-progress-counts">
-        <span>${completedCount} complete, ${skippedCount} skipped</span>
-        <span>${totalUnits - doneCount} remaining</span>
-      </div>
-    </div>`;
+    progressHtml = '<div class="wo-progress" style="margin-bottom:12px;">'
+      + '<div class="wo-progress-bar-wrap">'
+      + '<div class="wo-progress-bar-fill" style="width:' + pct + '%"></div>'
+      + '</div>'
+      + '<div class="wo-progress-counts">'
+      + '<span>' + completedCount + ' complete, ' + skippedCount + ' skipped</span>'
+      + '<span>' + (totalUnits - doneCount) + ' remaining</span>'
+      + '</div>'
+      + '</div>';
   }
 
   // Unit cards
@@ -2102,45 +2102,29 @@ async function renderActiveEquipmentList() {
         cardClass += ' complete';
         dot = '<div class="unit-status-dot complete">✓</div>';
         const wp = jobRecord.fields['Work Performed'] || '';
-        summary = `<div class="unit-complete-summary">✓ ${escHtml(wp.substring(0, 60))}${wp.length > 60 ? '...' : ''}</div>`;
-        actions = `<div class="unit-card-actions">
-          <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;"
-            onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Edit Notes</button>
-        </div>`;
+        summary = '<div class="unit-complete-summary">✓ ' + escHtml(wp.substring(0, 60)) + (wp.length > 60 ? '...' : '') + '</div>';
+        actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="startUnitComplete(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Edit Notes</button></div>';
       } else if (isSkipped) {
         cardClass += ' not-this-visit';
         dot = '<div class="unit-status-dot skipped">—</div>';
-        actions = `<div class="unit-card-actions">
-          <button class="btn-small btn-small-outline" style="flex:none;font-size:11px;"
-            onclick="unskipUnit('${eq.id}', '${escAttr(jobRecord.id)}')">Undo Skip</button>
-        </div>`;
+        actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit(\'' + eq.id + '\', \'' + escAttr(jobRecord.id) + '\')">Undo Skip</button></div>';
       } else {
-        actions = `<div class="unit-card-actions">
-          <button class="btn-small btn-small-red"
-            onclick="startUnitComplete('${eq.id}', '${escAttr(name)}')">Complete This Unit</button>
-          <button class="btn-small btn-small-outline"
-            onclick="skipUnit('${eq.id}', '${escAttr(name)}')">Not This Visit</button>
-        </div>`;
+        actions = '<div class="unit-card-actions">'
+          + '<button class="btn-small btn-small-red" onclick="startUnitComplete(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Complete This Unit</button>'
+          + '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Not This Visit</button>'
+          + '</div>';
       }
 
-      return `<div class="${cardClass}">
-        <div class="unit-card-header">${dot}<div class="unit-card-name">${escHtml(name)}</div></div>
-        ${meta ? `<div class="unit-card-meta">${escHtml(meta)}</div>` : ''}
-        ${actions}${summary}
-      </div>`;
+      return '<div class="' + cardClass + '"><div class="unit-card-header">' + dot + '<div class="unit-card-name">' + escHtml(name) + '</div></div>' + (meta ? '<div class="unit-card-meta">' + escHtml(meta) + '</div>' : '') + actions + summary + '</div>';
     }).join('');
   }
 
   // Show summary button when all units addressed
   let summaryBtn = '';
   if (totalUnits > 0 && doneCount === totalUnits) {
-    summaryBtn = `<button class="btn btn-success btn-full" style="margin-top:12px;"
-      onclick="showWorkOrderSummary(jobsByEquipment)">
-      ✓ All Units Done — View Summary & Invoice
-    </button>`;
+    summaryBtn = '<button class="btn btn-success btn-full" style="margin-top:12px;" onclick="showWorkOrderSummary(jobsByEquipment)">✓ All Units Done — View Summary & Invoice</button>';
   } else if (totalUnits === 0) {
-    summaryBtn = `<button class="btn btn-dark btn-full" style="margin-top:12px;"
-      onclick="showWorkOrderSummary({})">Complete Visit</button>`;
+    summaryBtn = '<div class="btn btn-dark btn-full" style="margin-top:12px;cursor:pointer;" onclick="showWorkOrderSummary({})">Complete Visit</div>';
   }
 
   listEl.innerHTML = progressHtml + cardsHtml + summaryBtn;
@@ -2164,7 +2148,7 @@ async function skipUnit(eqId, eqName) {
     showToast('Skipping unit...');
     const now = new Date();
     const customerName = woFields['Customer Name'] || 'Customer';
-    const jobName = `${customerName} — ${eqName} — Not This Visit`;
+    const jobName = '' + (customerName) + ' — ' + (eqName) + ' — Not This Visit';
 
     const jobFields = {
       'Job Name': jobName,
@@ -2191,7 +2175,7 @@ async function unskipUnit(eqId, jobId) {
   try {
     showToast('Undoing skip...');
     // Delete the skipped job record
-    const res = await fetch(`${PROXY}/Jobs/${jobId}`, { method: 'DELETE' });
+    const res = await fetch(PROXY + '/Jobs/' + jobId, { method: 'DELETE' });
     if (!res.ok) throw new Error('DELETE failed');
     showToast('✓ Unskipped', 'success');
     await renderActiveEquipmentList();
@@ -2218,7 +2202,7 @@ async function saveNewEquipmentActive() {
   const tons = document.getElementById('eq-tons-active').value;
   const tonsStr = tons ? tons + ' Ton ' : '';
   const sameType = currentWorkOrderEquipment.filter(e => e.fields['Equipment Type'] === type).length;
-  const eqName = `${tonsStr}${type} — Unit ${sameType + 1}`;
+  const eqName = '' + (tonsStr) + '' + (type) + ' — Unit ' + (sameType + 1) + '';
 
   const fields = {
     'Equipment Name': eqName,
@@ -2274,27 +2258,27 @@ async function showWorkOrderSummary(jobsByEquipment) {
       const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
       const jf = job.fields;
 
-      html += `<div class="detail-section" style="margin-bottom:8px;overflow:hidden;">
-        <div class="summary-unit-header">${escHtml(unitName)}</div>`;
+      html += '<div class="detail-section" style="margin-bottom:8px;overflow:hidden;">'
+        + '<div class="summary-unit-header">' + escHtml(unitName) + '</div>';
 
       if (jf['Work Performed']) {
-        html += `<div class="summary-line-item">
-          <div class="summary-item-name"><strong>Work:</strong> ${escHtml(jf['Work Performed'])}</div>
-        </div>`;
+        html += '<div class="summary-line-item">'
+          + '<div class="summary-item-name"><strong>Work:</strong> ' + escHtml(jf['Work Performed']) + '</div>'
+          + '</div>';
       }
       if (jf['Diagnosis']) {
-        html += `<div class="summary-line-item">
-          <div class="summary-item-name"><strong>Diagnosis:</strong> ${escHtml(jf['Diagnosis'])}</div>
-        </div>`;
+        html += '<div class="summary-line-item">'
+          + '<div class="summary-item-name"><strong>Diagnosis:</strong> ' + escHtml(jf['Diagnosis']) + '</div>'
+          + '</div>';
       }
       if (jf['Parts Used']) {
         const parts = jf['Parts Used'].split('\n').filter(Boolean);
         parts.forEach(p => {
-          const [name, price] = p.split(' | ');
-          html += `<div class="summary-line-item">
-            <div class="summary-item-name">${escHtml(name)}</div>
-            ${price ? `<div class="summary-item-price">${escHtml(price)}</div>` : ''}
-          </div>`;
+          const [pname, pprice] = p.split(' | ');
+          html += '<div class="summary-line-item">'
+            + '<div class="summary-item-name">' + escHtml(pname) + '</div>'
+            + (pprice ? '<div class="summary-item-price">' + escHtml(pprice) + '</div>' : '')
+            + '</div>';
         });
       }
       html += '</div>';
@@ -2410,15 +2394,13 @@ function openCompleteForm() {
 
 function buildPartsGrid() {
   const grid = document.getElementById('parts-grid');
-  grid.innerHTML = COMMON_PARTS.map(p => `
-    <label class="part-chip" tabindex="0"
-      role="checkbox" aria-checked="false"
-      aria-label="${escHtml(p.name)} $${p.price}">
-      <input type="checkbox" value="${escAttr(p.name)}" data-price="${p.price}" onchange="toggleCommonPart(this)">
-      <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-      ${escHtml(p.name)}
-    </label>
-  `).join('');
+  grid.innerHTML = COMMON_PARTS.map(p =>
+    '<label class="part-chip" tabindex="0" role="checkbox" aria-checked="false" aria-label="' + escHtml(p.name) + ' $' + p.price + '">'
+    + '<input type="checkbox" value="' + escAttr(p.name) + '" data-price="' + p.price + '" onchange="toggleCommonPart(this)">'
+    + '<svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
+    + escHtml(p.name)
+    + '</label>'
+  ).join('');
 }
 
 function toggleCommonPart(checkbox) {
@@ -2465,20 +2447,17 @@ function renderSelectedParts() {
     return;
   }
   wrapper.style.display = 'block';
-  container.innerHTML = selectedParts.map((p, i) => `
-    <div class="part-qty-row">
-      <div class="part-qty-name">${escHtml(p.name)}</div>
-      ${p.price ? `<div class="part-qty-price">$${p.price.toFixed(2)}</div>` : ''}
-      <input type="number"
-        class="part-qty-input"
-        value="${p.qty || 1}"
-        min="1" max="99" step="1"
-        aria-label="Quantity for ${escHtml(p.name)}"
-        onchange="updatePartQty('${escAttr(p.name)}', this.value)"
-        onclick="this.select()">
-      <button class="part-qty-remove" onclick="removeSelectedPart('${escAttr(p.name)}')" aria-label="Remove ${escHtml(p.name)}">×</button>
-    </div>
-  `).join('');
+  container.innerHTML = selectedParts.map(function(p) {
+    return '<div class="part-qty-row">'
+      + '<div class="part-qty-name">' + escHtml(p.name) + '</div>'
+      + (p.price ? '<div class="part-qty-price">$' + p.price.toFixed(2) + '</div>' : '')
+      + '<input type="number" class="part-qty-input" value="' + (p.qty || 1) + '" min="1" max="99" step="1"'
+      + ' aria-label="Quantity for ' + escHtml(p.name) + '"'
+      + ' onchange="updatePartQty(\'' + escAttr(p.name) + '\', this.value)"'
+      + ' onclick="this.select()">'
+      + '<button class="part-qty-remove" onclick="removeSelectedPart(\'' + escAttr(p.name) + '\')" aria-label="Remove ' + escHtml(p.name) + '">\xd7</button>'
+      + '</div>';
+  }).join('');
 }
 
 function updatePartQty(name, qty) {
@@ -2530,14 +2509,13 @@ async function searchProducts(query) {
     const name = f['Product Name'] || '';
     const price = f['Unit Price'] || 0;
     const cat = f['Category'] || '';
-    return `
-    <div class="parts-search-result" onclick="selectSearchResult('${escAttr(name)}', ${price})" role="button" tabindex="0">
-      <div>
-        <div class="parts-result-name">${escHtml(name)}</div>
-        <span class="parts-result-category">${escHtml(cat)}</span>
-      </div>
-      <div class="parts-result-price">${price ? '$' + parseFloat(price).toFixed(2) : '—'}</div>
-    </div>`;
+    return '<div class="parts-search-result" onclick="selectSearchResult(\'' + escAttr(name) + '\', ' + price + ')" role="button" tabindex="0">'
+      + '<div>'
+      + '<div class="parts-result-name">' + escHtml(name) + '</div>'
+      + '<span class="parts-result-category">' + escHtml(cat) + '</span>'
+      + '</div>'
+      + '<div class="parts-result-price">' + (price ? '$' + parseFloat(price).toFixed(2) : '\u2014') + '</div>'
+      + '</div>';
   }).join('');
 }
 
@@ -2584,7 +2562,7 @@ function handlePhotos(input) {
       const img = document.createElement('img');
       img.src = e.target.result;
       img.className = 'photo-thumb';
-      img.setAttribute('alt', `Job photo: ${file.name}`);
+      img.setAttribute('alt', 'Job photo: ' + (file.name) + '');
       img.setAttribute('role', 'listitem');
       preview.appendChild(img);
     };
@@ -2613,11 +2591,11 @@ async function submitComplete() {
   try {
     const otherParts = document.getElementById('field-parts-other').value.trim();
     const partLines = selectedParts.map(p => {
-      const qty = p.qty && p.qty > 1 ? `${p.qty}x ` : '';
-      const price = p.price ? ` | $${p.price.toFixed(2)}` : '';
-      return `${qty}${p.name}${price}`;
+      const qty = p.qty && p.qty > 1 ? '' + (p.qty) + 'x ' : '';
+      const price = p.price ? ' | $' + (p.price.toFixed(2)) + '' : '';
+      return '' + (qty) + '' + (p.name) + '' + (price) + '';
     });
-    if (otherParts) partLines.push(`Custom: ${otherParts}`);
+    if (otherParts) partLines.push('Custom: ' + (otherParts) + '');
     const allParts = partLines.join('\n');
 
     const followupRequired = followupSelected === 'yes';
@@ -2632,8 +2610,8 @@ async function submitComplete() {
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const customerName = woFields['Customer Name'] || 'Customer';
     const jobTypeName = woFields['Work Order Type'] || 'Service';
-    const unitLabel = selectedEquipmentName ? ` — ${selectedEquipmentName}` : '';
-    const autoJobName = `${customerName}${unitLabel} — ${jobTypeName} — ${dateStr}`;
+    const unitLabel = selectedEquipmentName ? ' — ' + (selectedEquipmentName) + '' : '';
+    const autoJobName = '' + (customerName) + '' + (unitLabel) + ' — ' + (jobTypeName) + ' — ' + (dateStr) + '';
 
     // Create Job record in Airtable
     const jobFields = {
@@ -2688,7 +2666,7 @@ async function submitComplete() {
 // UTILITIES
 // ═══════════════════════
 function openMaps(address) {
-  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
+  window.open('https://www.google.com/maps/search/?api=1&query=' + (encodeURIComponent(address)) + '', '_blank');
 }
 
 function escHtml(str) {
@@ -2707,7 +2685,7 @@ let toastTimer;
 function showToast(msg, type = '') {
   const t = document.getElementById('toast');
   t.textContent = msg;
-  t.className = `toast ${type} show`;
+  t.className = 'toast ' + (type) + ' show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
