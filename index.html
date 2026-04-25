@@ -2158,7 +2158,8 @@ function startUnitComplete(eqId, eqName) {
 async function skipUnit(eqId, eqName, btn) {
   if (!currentJob) return;
   const woFields = currentJob.fields;
-  const serviceMode = (woFields['Service Mode'] || '').toLowerCase();
+  const serviceMode = (woFields['Service Mode'] || '').toLowerCase().trim();
+  showToast('Service Mode: "' + (woFields['Service Mode'] || 'NOT FOUND') + '"');
   if (serviceMode === 'all units' && btn) {
     if (!btn.dataset.confirmPending) {
       btn.dataset.confirmPending = '1';
