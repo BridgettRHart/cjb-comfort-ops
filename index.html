@@ -2118,9 +2118,13 @@ async function renderActiveEquipmentList() {
         dot = '<div class="unit-status-dot skipped">—</div>';
         actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit(\'' + eq.id + '\', \'' + escAttr(jobRecord.id) + '\')">Undo Skip</button></div>';
       } else {
+        const woServiceMode = (currentJob && currentJob.fields['Service Mode'] || '').toLowerCase().trim();
+        const skipBtn = woServiceMode !== 'specific unit'
+          ? '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\', this)">Not This Visit</button>'
+          : '';
         actions = '<div class="unit-card-actions">'
           + '<button class="btn-small btn-small-red" onclick="startUnitComplete(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Complete This Unit</button>'
-          + '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\', this)">Not This Visit</button>'
+          + skipBtn
           + '</div>';
       }
 
@@ -2304,14 +2308,16 @@ async function showWorkOrderSummary(jobsByEquipment) {
   document.getElementById('summary-customer').textContent = f['Customer Name'] || 'Customer';
   document.getElementById('summary-wo-id').textContent = f['Work Order ID'] || '';
 
-  // Build summary from completed jobs
+  // Build summary from completed and skipped jobs
   const jobsListEl = document.getElementById('summary-jobs-list');
   let html = '';
 
   const completedJobs = Object.entries(jobsByEquipment || {})
     .filter(([, j]) => j.fields['Status'] === 'Complete');
+  const skippedJobs = Object.entries(jobsByEquipment || {})
+    .filter(([, j]) => j.fields['Status'] === 'Cancelled');
 
-  if (completedJobs.length === 0) {
+  if (completedJobs.length === 0 && skippedJobs.length === 0) {
     html = '<div style="text-align:center;padding:24px;color:var(--gray-text);font-size:14px;">No completed units.</div>';
   } else {
     completedJobs.forEach(([eqId, job]) => {
@@ -2344,6 +2350,21 @@ async function showWorkOrderSummary(jobsByEquipment) {
       }
       html += '</div>';
     });
+
+    if (skippedJobs.length > 0) {
+      html += '<div style="margin-top:16px;margin-bottom:6px;font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;">Not Serviced This Visit</div>';
+      skippedJobs.forEach(([eqId, job]) => {
+        const eq = currentWorkOrderEquipment.find(e => e.id === eqId);
+        const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
+        const wp = job.fields['Work Performed'] || '';
+        const reason = wp.replace('Not serviced this visit — ', '').replace('Not serviced this visit', '').trim();
+        html += '<div class="detail-section" style="margin-bottom:8px;overflow:hidden;opacity:0.6;">'
+          + '<div class="summary-unit-header" style="text-decoration:line-through;color:var(--gray-text);">' + escHtml(unitName) + '</div>'
+          + (reason ? '<div class="summary-line-item"><div class="summary-item-name"><strong>Reason:</strong> ' + escHtml(reason) + '</div></div>' : '')
+          + '<div class="summary-line-item"><div class="summary-item-name" style="font-size:11px;color:var(--gray-text);">Not billed</div></div>'
+          + '</div>';
+      });
+    }
   }
 
   jobsListEl.innerHTML = html;
