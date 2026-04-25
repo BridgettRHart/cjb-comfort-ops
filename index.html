@@ -2126,7 +2126,7 @@ async function renderActiveEquipmentList() {
   // Show summary button when all units addressed
   let summaryBtn = '';
   if (totalUnits > 0 && doneCount === totalUnits) {
-    summaryBtn = '<button class="btn btn-success btn-full" style="margin-top:12px;" onclick="showWorkOrderSummary(jobsByEquipment)">✓ All Units Done — View Summary & Invoice</button>';
+    summaryBtn = '<button class="btn btn-success btn-full" style="margin-top:12px;" onclick="showWorkOrderSummary(currentJobsByEquipment)">✓ All Units Done — View Summary & Invoice</button>';
   } else if (totalUnits === 0) {
     summaryBtn = '<div class="btn btn-dark btn-full" style="margin-top:12px;cursor:pointer;" onclick="showWorkOrderSummary({})">Complete Visit</div>';
   }
