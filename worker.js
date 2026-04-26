@@ -256,7 +256,7 @@ export default {
         }
 
         // 4. Delete any existing Stripe draft for this Work Order
-        //    (prevents stacking duplicate drafts on repeated "Save Draft" clicks)
+        //    Items attached to a deleted draft become pending — cleaned up in step 5
         const woNotes = woRecord?.fields?.['Internal Notes'] || '';
         const existingIdMatch = woNotes.match(/Stripe Invoice ID: (inv_[^\s\n]+)/);
         if (existingIdMatch) {
@@ -265,11 +265,11 @@ export default {
             if (existingInv.status === 'draft') {
               await stripeDelete(STRIPE_KEY, `/v1/invoices/${existingIdMatch[1]}`);
             }
-          } catch (e) { /* invoice already deleted or not found — continue */ }
+          } catch (e) { /* invoice already gone — continue */ }
         }
 
-        // 5. Delete any floating pending items for this customer
-        //    (cleanup from earlier flow that created items without an invoice ID)
+        // 5. Delete ALL floating pending items for this customer
+        //    Catches old test items + any items released from the deleted draft above
         try {
           const pendRes  = await fetch(
             `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
@@ -283,30 +283,28 @@ export default {
           }
         } catch (e) { /* best effort */ }
 
-        // 6. Create invoice first — items will be attached directly to it
-        //    This prevents items from floating as "pending" and being double-collected later
+        // 6. Create fresh pending items — Stripe requires items to exist before invoice creation
         const woName = woRecord?.fields?.['Work Order Name'] || '';
-        const invParams = {
-          customer:          stripeCustId,
-          auto_advance:      'false',
-          collection_method: 'send_invoice',
-          days_until_due:    '30'
-        };
-        if (notes)  invParams.description           = notes;
-        if (woName) invParams['metadata[work_order]'] = woName;
-        const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
-
-        // 7. Add line items directly to this invoice (invoice: inv.id keeps them attached)
         for (const item of lineItems) {
           await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
             customer:    stripeCustId,
-            invoice:     inv.id,
             unit_amount: String(Math.round((item.unitPrice || 0) * 100)),
             quantity:    String(Math.max(1, Math.round(item.quantity || 1))),
             currency:    'usd',
             description: item.productName || 'Service'
           });
         }
+
+        // 7. Create invoice — auto-collects all pending items created above
+        const invParams = {
+          customer:          stripeCustId,
+          auto_advance:      'false',
+          collection_method: 'send_invoice',
+          days_until_due:    '30'
+        };
+        if (notes)  invParams.description             = notes;
+        if (woName) invParams['metadata[work_order]'] = woName;
+        const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
         // 8. Finalize + send only if sendNow — otherwise leave as Stripe draft
         let finalInv = inv;
