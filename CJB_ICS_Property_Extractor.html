@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — ICS Property Extractor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f4f4; color: #2e2e2e; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 820px; margin: 0 auto 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.09); }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.6; }
+  .info-box { background: #e8f0fb; border: 1px solid #a0bdf0; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #1a3a6b; line-height: 1.6; }
+  .file-label { display: block; border: 2px dashed #ccc; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; font-size: 14px; color: #888; margin-bottom: 16px; transition: border-color 0.2s; }
+  .file-label:hover { border-color: #c81f25; color: #c81f25; }
+  .file-label.ready { border-color: #1a6b35; color: #1a6b35; background: #f0faf4; }
+  #ics-file { display: none; }
+  .btn { background: #c81f25; color: #fff; border: none; border-radius: 8px; padding: 13px 24px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; margin-bottom: 8px; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-success { background: #1a6b35 !important; }
+  .btn-sm { padding: 6px 14px; font-size: 12px; width: auto; border-radius: 6px; cursor: pointer; border: none; font-weight: 600; color: #fff; background: #555; }
+  .stat-row { display: flex; gap: 10px; margin-bottom: 16px; }
+  .stat { flex: 1; background: #f4f4f4; border-radius: 8px; padding: 10px; text-align: center; }
+  .stat-num { font-size: 22px; font-weight: 700; color: #c81f25; }
+  .stat-label { font-size: 11px; color: #888; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 16px; }
+  th { background: #f4f4f4; padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 700; color: #666; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  tr:hover td { background: #fafafa; }
+  .tbl-wrap { max-height: 520px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 16px; }
+  input[type=text].inline { border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; font-size: 12px; width: 100%; }
+  input[type=text].inline:focus { outline: none; border-color: #c81f25; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+  .badge-ok { background: #e2f0e7; color: #1a6b35; }
+  .badge-warn { background: #fffbea; color: #8a6d00; }
+  .badge-new { background: #e8f0fb; color: #1a3a6b; }
+  .badge-skip { background: #f0f0f0; color: #999; }
+  .actions-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .progress { margin-top: 16px; display: none; }
+  .progress-bar-wrap { background: #e0e0e0; border-radius: 20px; height: 10px; margin-top: 6px; }
+  .progress-bar { background: #c81f25; border-radius: 20px; height: 10px; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #666; margin-top: 6px; }
+  .log { margin-top: 16px; background: #f4f4f4; border-radius: 8px; padding: 14px; max-height: 340px; overflow-y: auto; font-size: 12px; font-family: monospace; line-height: 1.9; display: none; }
+  .ok { color: #1a6b35; } .err { color: #c81f25; } .info { color: #999; } .warn { color: #8a6d00; }
+  .sum-box { background: #e2f0e7; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 14px; display: none; }
+  .sum-box h3 { font-weight: 700; margin-bottom: 10px; color: #1a6b35; }
+  .sum-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(0,0,0,0.07); }
+  .sum-row:last-child { border-bottom: none; }
+  #preview-section { display: none; }
+  .chk-all { accent-color: #1a6b35; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>CJB Comfort — ICS Property Extractor</h1>
+  <p class="sub">Reads Cornell's full calendar history (2020–present), extracts every unique customer + address pair from work appointments, and creates missing Property records in Airtable. Run this <strong>before</strong> the Property Deduplicator.</p>
+
+  <div class="info-box">
+    ℹ <strong>Naming standard:</strong> All properties are created as <code>Customer Name — Street Address</code> (e.g. <em>Herb Duncan — 45974 W Starlight Dr</em>). This matches the Wave Importer and Cloudflare Worker. You can edit any customer name in the table below before importing.
+  </div>
+
+  <label class="file-label" id="file-label" for="ics-file">
+    📂 Click to choose the exported .ics calendar file
+  </label>
+  <input type="file" id="ics-file" accept=".ics" onchange="handleFile(this)">
+
+  <div id="preview-section">
+    <div class="stat-row" id="stat-row">
+      <div class="stat"><div class="stat-num" id="s-events">—</div><div class="stat-label">Work Events Found</div></div>
+      <div class="stat"><div class="stat-num" id="s-pairs">—</div><div class="stat-label">Unique Address Pairs</div></div>
+      <div class="stat"><div class="stat-num" id="s-selected">—</div><div class="stat-label">Selected to Import</div></div>
+    </div>
+
+    <div class="actions-row">
+      <button class="btn-sm" onclick="setAll(true)">Select All</button>
+      <button class="btn-sm" onclick="setAll(false)">Deselect All</button>
+      <button class="btn-sm" style="background:#1a3a6b" onclick="selectNewOnly()">New Properties Only</button>
+      <span style="font-size:12px;color:#888;margin-left:4px;">Edit customer names directly in the table if needed.</span>
+    </div>
+
+    <div class="tbl-wrap">
+      <table id="pairs-table">
+        <thead>
+          <tr>
+            <th style="width:32px"><input type="checkbox" class="chk-all" id="chk-all" onchange="setAll(this.checked)"></th>
+            <th>Customer Name <span style="font-weight:400;color:#aaa">(editable)</span></th>
+            <th>Street Address</th>
+            <th>City</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="pairs-body"></tbody>
+      </table>
+    </div>
+
+    <button class="btn" id="import-btn" onclick="startImport()">Create Selected Properties in Airtable</button>
+  </div>
+
+  <div class="progress" id="progress-wrap">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">Starting...</div>
+  </div>
+  <div class="sum-box" id="sum-box"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+const WORK_KEYWORDS = [
+  'inspection','service','hvac','maintenance','repair','install','check',
+  'diagnostic','estimate','warranty','filter','coil','motor','condenser',
+  'compressor','thermostat','t-stat','unit','cooler','furnace','heat pump',
+  'a/c','blower','drain','refriger','ductwork','startup','start up',
+  'promenade','bella vista','verrado','sanctuary','miller edge','valley plaza'
+];
+const SKIP_KEYWORDS = [
+  'soccer','concert','church','dentist','doctor','medical','va app',
+  'mri','birthday','party','school','game','lunch','dinner','movie',
+  'trip','vacation','flight','regain','lpc','therapy','prosthetic',
+  'pulmonary','gt project','presentation','passport','laughlin','remax',
+  'housecall','lease','meeting with','license','invoice','collect','call ',
+  'pick up','set up','window people'
+];
+
+let allPairs = []; // { custName, street, city, state, zip, email, rawSummary, status }
+
+// ── ICS Parsing ──────────────────────────────────────────────────────────────
+function getField(block, key) {
+  const m = block.match(new RegExp(key + '[^:]*:([^\r\n]+(?:\r?\n[ \t][^\r\n]+)*)'));
+  return m ? m[1].replace(/\r?\n[ \t]/g, '').trim() : '';
+}
+
+function parseICS(text) {
+  const START_YEAR = 2020;
+  const blocks = text.split('BEGIN:VEVENT');
+  const pairs = new Map(); // key = "normName|normStreet" → pair object
+
+  for (let i = 1; i < blocks.length; i++) {
+    const b = blocks[i];
+    const summary  = getField(b, 'SUMMARY').replace(/\\,/g,',').replace(/\\n/g,' ');
+    const location = getField(b, 'LOCATION').replace(/\\,/g,',').replace(/\\n/g,', ').replace(/\\N/g,', ');
+    const desc     = getField(b, 'DESCRIPTION').replace(/\\n/g,'\n').replace(/\\,/g,',');
+    const dtraw    = getField(b, 'DTSTART');
+
+    if (!summary || !dtraw) continue;
+
+    // Year filter — 2020+
+    const yearMatch = dtraw.match(/^(\d{4})/);
+    if (!yearMatch || +yearMatch[1] < START_YEAR) continue;
+
+    // Must have a usable location
+    const addr = parseAddress(location);
+    if (!addr.street) continue;
+
+    // Must be work-related
+    const text = (summary + ' ' + location).toLowerCase();
+    if (!WORK_KEYWORDS.some(k => text.includes(k))) {
+      // Also accept "Name: Something" Calendly format even without keywords
+      if (!/^[A-Z][a-z].*:/.test(summary)) continue;
+    }
+    if (SKIP_KEYWORDS.some(k => text.includes(k))) continue;
+
+    // Extract customer name
+    const custName = extractName(summary);
+    if (!custName || custName.length < 3) continue;
+
+    // Extract email from Calendly description
+    const emailMatch = desc.match(/Invitee Email:\s*([^\s\n\\]+@[^\s\n\\]+)/i);
+    const email = emailMatch ? emailMatch[1].trim().toLowerCase() : '';
+
+    const key = normKey(custName) + '|' + normKey(addr.street);
+    if (!pairs.has(key)) {
+      pairs.set(key, {
+        custName,
+        street: addr.street,
+        city:   addr.city,
+        state:  addr.state,
+        zip:    addr.zip,
+        email,
+        rawSummary: summary,
+        status: 'pending' // will be checked against Airtable
+      });
+    } else {
+      // Keep the one with more data
+      const existing = pairs.get(key);
+      if (!existing.email && email) existing.email = email;
+      if (!existing.city && addr.city) existing.city = addr.city;
+    }
+  }
+
+  return Array.from(pairs.values()).sort((a,b) => a.custName.localeCompare(b.custName));
+}
+
+function extractName(summary) {
+  // "Herb Duncan: On-Site HVAC Inspection" → "Herb Duncan"
+  if (summary.includes(':')) {
+    const name = summary.split(':')[0].trim();
+    if (name.split(' ').length <= 4 && /^[A-Za-z]/.test(name)) return titleCase(name);
+  }
+  // "Service with Harold Clark" → "Harold Clark"
+  const withMatch = summary.match(/^[Ss]ervice with (.+?)(?:\s+for|\s+on|\s*$)/);
+  if (withMatch) return titleCase(withMatch[1].trim());
+
+  // "Kyle Luhnow condenser motor" — first 2 words if they look like a name
+  const words = summary.trim().split(/\s+/);
+  if (words.length >= 2 && /^[A-Z]/.test(words[0]) && /^[A-Z]/.test(words[1])) {
+    // Take up to 3 words if third looks like part of name (not a common word)
+    const skip = ['service','hvac','unit','check','repair','coil','motor','filter','call','air'];
+    let nameWords = [words[0], words[1]];
+    if (words[2] && /^[A-Z]/.test(words[2]) && !skip.includes(words[2].toLowerCase())) {
+      nameWords.push(words[2]);
+    }
+    return titleCase(nameWords.join(' '));
+  }
+
+  return titleCase(words.slice(0,2).join(' '));
+}
+
+function titleCase(s) {
+  return s.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .replace(/\bMc([a-z])/g, (_, c) => 'Mc' + c.toUpperCase())
+    .replace(/\bO'([a-z])/g, (_, c) => "O'" + c.toUpperCase());
+}
+
+function parseAddress(loc) {
+  if (!loc) return {};
+  // Clean up
+  loc = loc.replace(/\s+/g, ' ').trim();
+
+  // Split by comma first
+  let parts = loc.split(',').map(s => s.trim()).filter(Boolean);
+
+  let street = '', city = '', state = '', zip = '';
+
+  if (parts.length >= 1) {
+    // First part — if it starts with a number it's the street address
+    if (/^\d/.test(parts[0])) {
+      // But the first part might have city/zip embedded without commas
+      // e.g. "3521 W Orchid Ln chandler 85226"
+      const embedded = parts[0].match(/^(\d+\s+[A-Za-z0-9 #\.]+?)\s+([A-Za-z]{3,})\s+(\d{5})\s*$/);
+      if (embedded) {
+        street = embedded[1].trim();
+        city   = titleCase(embedded[2]);
+        zip    = embedded[3];
+      } else {
+        // Check for "street city state zip" all in one part
+        const embedded2 = parts[0].match(/^(\d+\s+[A-Za-z0-9 #\.]+?)\s+([A-Za-z]{3,})\s*,?\s*([A-Z]{2})\s+(\d{5})\s*$/);
+        if (embedded2) {
+          street = embedded2[1].trim();
+          city   = titleCase(embedded2[2]);
+          state  = embedded2[3];
+          zip    = embedded2[4];
+        } else {
+          // Just take it as the street, maybe has city at end
+          // "45974 W Starlight dr Maricopa Az 85139"
+          const m3 = parts[0].match(/^(\d+\s+\w+\s+\w+(?:\s+\w+)?)\s+([A-Za-z]{3,})\s+([A-Za-z]{2})\s+(\d{5})$/i);
+          if (m3) {
+            street = m3[1].trim();
+            city   = titleCase(m3[2]);
+            state  = m3[3].toUpperCase();
+            zip    = m3[4];
+          } else {
+            street = parts[0];
+          }
+        }
+      }
+    } else {
+      // No number → not a real street address
+      return {};
+    }
+  }
+
+  // Parse remaining comma-separated parts for city/state/zip
+  for (let i = 1; i < parts.length; i++) {
+    const p = parts[i].trim();
+    if (!city && /^[A-Za-z\s]+$/.test(p) && p.length > 2) { city = titleCase(p); continue; }
+    if (!state && /^[A-Z]{2}$/.test(p)) { state = p; continue; }
+    if (!zip && /^\d{5}/.test(p)) { zip = p.substring(0,5); continue; }
+    // "Phoenix, AZ 85250" style
+    const stateZip = p.match(/^([A-Z]{2})\s+(\d{5})/);
+    if (stateZip) { state = stateZip[1]; zip = stateZip[2]; continue; }
+    // "Scottsdale, AZ" or "Mesa, AZ 85204"
+    const cityStateZip = p.match(/^([A-Za-z ]+),?\s*([A-Z]{2})\s*(\d{5})?/);
+    if (cityStateZip && !city) {
+      city  = titleCase(cityStateZip[1].trim());
+      state = cityStateZip[2];
+      if (cityStateZip[3]) zip = cityStateZip[3];
+    }
+  }
+
+  // Normalize street casing
+  street = street.replace(/\b(st|ave|dr|ln|rd|blvd|pl|ct|way|cir|pkwy|trl|loop)\b\.?/gi,
+    s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase());
+
+  return { street, city, state, zip };
+}
+
+function normKey(s) {
+  return (s||'').toLowerCase()
+    .replace(/\bst\b\.?/g,'st').replace(/\bstreet\b/g,'st')
+    .replace(/\bave\b\.?/g,'ave').replace(/\bavenue\b/g,'ave')
+    .replace(/\bdr\b\.?/g,'dr').replace(/\bdrive\b/g,'dr')
+    .replace(/\bln\b\.?/g,'ln').replace(/\blane\b/g,'ln')
+    .replace(/\brd\b\.?/g,'rd').replace(/\broad\b/g,'rd')
+    .replace(/\bblvd\b\.?/g,'blvd')
+    .replace(/[.,#]/g,'').replace(/\s+/g,' ').trim();
+}
+
+// ── File handler ─────────────────────────────────────────────────────────────
+let workEventCount = 0;
+
+function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const lbl = document.getElementById('file-label');
+    lbl.textContent = '⏳ Parsing calendar...';
+
+    const text = e.target.result;
+    // Count work events
+    const blocks = text.split('BEGIN:VEVENT');
+    workEventCount = 0;
+    for (let i = 1; i < blocks.length; i++) {
+      const b = blocks[i];
+      const dtraw = getField(b, 'DTSTART').match(/^(\d{4})/);
+      if (dtraw && +dtraw[1] >= 2020) workEventCount++;
+    }
+
+    allPairs = parseICS(text);
+
+    lbl.textContent = `✅ ${file.name} — ${allPairs.length} unique address pairs found`;
+    lbl.classList.add('ready');
+
+    document.getElementById('s-events').textContent = workEventCount;
+    document.getElementById('s-pairs').textContent = allPairs.length;
+
+    // Check status vs Airtable
+    document.getElementById('preview-section').style.display = 'block';
+    document.getElementById('import-btn').disabled = true;
+    document.getElementById('import-btn').textContent = 'Checking Airtable... please wait';
+
+    await checkAirtableStatus();
+    renderTable();
+    document.getElementById('import-btn').disabled = false;
+    document.getElementById('import-btn').textContent = 'Create Selected Properties in Airtable';
+    updateSelectedCount();
+  };
+  reader.readAsText(file);
+}
+
+// ── Airtable helpers ─────────────────────────────────────────────────────────
+async function atGet(table, formula) {
+  const url = `${PROXY}/${encodeURIComponent(table)}?filterByFormula=${encodeURIComponent(formula)}&maxRecords=5`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GET ${table}: ${res.status}`);
+  return (await res.json()).records || [];
+}
+
+async function atPost(table, fields) {
+  const res = await fetch(`${PROXY}/${encodeURIComponent(table)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields })
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error(`POST ${table}: ${res.status} — ${e}`); }
+  return res.json();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function checkAirtableStatus() {
+  // Batch check in groups to avoid rate limits
+  for (let i = 0; i < allPairs.length; i++) {
+    const p = allPairs[i];
+    try {
+      // Check by Service Address (exact) — catches new-format records
+      let found = await atGet('Properties', `{Service Address}="${p.street}"`);
+      await sleep(80);
+
+      if (!found.length) {
+        // Check by Property Name = just the address (old format)
+        found = await atGet('Properties', `{Property Name}="${p.street}"`);
+        await sleep(80);
+      }
+
+      if (!found.length) {
+        // Check by "Customer Name — Address" format
+        const fullName = p.custName + ' — ' + p.street;
+        found = await atGet('Properties', `{Property Name}="${fullName}"`);
+        await sleep(80);
+      }
+
+      p.status = found.length ? 'exists' : 'new';
+    } catch(err) {
+      p.status = 'unknown';
+    }
+
+    // Update progress in stat
+    if (i % 5 === 0) {
+      document.getElementById('import-btn').textContent =
+        `Checking Airtable... (${i+1}/${allPairs.length})`;
+    }
+  }
+}
+
+// ── Table rendering ──────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('pairs-body');
+  tbody.innerHTML = '';
+  allPairs.forEach((p, idx) => {
+    const isNew = p.status === 'new';
+    const tr = document.createElement('tr');
+    tr.id = 'row-' + idx;
+    tr.innerHTML = `
+      <td><input type="checkbox" id="chk-${idx}" ${isNew ? 'checked' : ''}
+        onchange="updateSelectedCount()"></td>
+      <td><input type="text" class="inline" id="name-${idx}" value="${escHtml(p.custName)}"
+        placeholder="Customer name"></td>
+      <td style="color:#444">${escHtml(p.street)}</td>
+      <td style="color:#888">${escHtml(p.city)}</td>
+      <td>${statusBadge(p.status)}</td>`;
+    tbody.appendChild(tr);
+  });
+  updateSelectedCount();
+}
+
+function statusBadge(s) {
+  if (s === 'exists')  return '<span class="badge badge-ok">already in Airtable</span>';
+  if (s === 'new')     return '<span class="badge badge-new">new — will create</span>';
+  if (s === 'unknown') return '<span class="badge badge-warn">unknown</span>';
+  return '<span class="badge badge-skip">pending</span>';
+}
+
+function updateSelectedCount() {
+  const n = allPairs.filter((_, i) => {
+    const c = document.getElementById('chk-' + i);
+    return c && c.checked;
+  }).length;
+  document.getElementById('s-selected').textContent = n;
+}
+
+function setAll(val) {
+  allPairs.forEach((_, i) => {
+    const c = document.getElementById('chk-' + i);
+    if (c) c.checked = val;
+  });
+  updateSelectedCount();
+}
+
+function selectNewOnly() {
+  allPairs.forEach((p, i) => {
+    const c = document.getElementById('chk-' + i);
+    if (c) c.checked = (p.status === 'new');
+  });
+  updateSelectedCount();
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Import ───────────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+function log(msg, cls='') {
+  logEl.style.display = 'block';
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = msg + '\n';
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function startImport() {
+  const selected = allPairs.map((p, i) => {
+    const chk  = document.getElementById('chk-' + i);
+    const name = document.getElementById('name-' + i);
+    return chk && chk.checked ? { ...p, custName: (name ? name.value.trim() : p.custName) } : null;
+  }).filter(Boolean);
+
+  if (!selected.length) { alert('Select at least one pair to import.'); return; }
+
+  document.getElementById('import-btn').disabled = true;
+  document.getElementById('progress-wrap').style.display = 'block';
+  logEl.innerHTML = '';
+
+  let created = 0, skipped = 0, failed = 0;
+  const total = selected.length;
+
+  for (let i = 0; i < selected.length; i++) {
+    const p = selected[i];
+    document.getElementById('progress-bar').style.width = Math.round((i/total)*100) + '%';
+    document.getElementById('progress-text').textContent = `(${i+1}/${total}) ${p.custName} — ${p.street}`;
+    log(`\n— ${p.custName} | ${p.street}`, 'section-head');
+
+    try {
+      // Final safety check before creating
+      let existing = await atGet('Properties', `{Service Address}="${p.street}"`);
+      await sleep(100);
+      if (!existing.length) {
+        existing = await atGet('Properties', `{Property Name}="${p.street}"`);
+        await sleep(100);
+      }
+      if (!existing.length) {
+        existing = await atGet('Properties', `{Property Name}="${p.custName + ' — ' + p.street}"`);
+        await sleep(100);
+      }
+
+      if (existing.length) {
+        skipped++;
+        log(`  Already exists — skipped`, 'info');
+        continue;
+      }
+
+      // Find customer record
+      let customerId = null;
+      if (p.email) {
+        const custs = await atGet('Customers', `{Email}="${p.email}"`);
+        await sleep(100);
+        if (custs.length) customerId = custs[0].id;
+      }
+      if (!customerId) {
+        const custs = await atGet('Customers', `{Customer Name}="${p.custName}"`);
+        await sleep(100);
+        if (custs.length) customerId = custs[0].id;
+      }
+      log(`  Customer: ${customerId ? 'linked (' + customerId + ')' : 'not found — property created without link'}`,
+        customerId ? 'ok' : 'warn');
+
+      // Create property — standard naming: "Customer Name — Street Address"
+      const propName = p.custName + ' — ' + p.street;
+      const fields = {
+        'Property Name':   propName,
+        'Service Address': p.street,
+        'Active':          true
+      };
+      if (p.city)       fields['City']           = p.city;
+      if (p.state)      fields['State']          = p.state;
+      if (p.zip)        fields['Zip']            = p.zip;
+      if (p.email)      fields['Customer Email'] = p.email;
+      if (customerId)   fields['Customer']       = [customerId];
+
+      const rec = await atPost('Properties', fields);
+      created++;
+      log(`  CREATED: ${propName} (${rec.id})`, 'ok');
+      await sleep(220);
+
+    } catch(err) {
+      failed++;
+      log(`  ERROR: ${err.message}`, 'err');
+    }
+  }
+
+  document.getElementById('progress-bar').style.width = '100%';
+  document.getElementById('progress-bar').style.background = '#1a6b35';
+  document.getElementById('import-btn').classList.add('btn-success');
+  document.getElementById('import-btn').textContent = 'Import Complete ✓';
+
+  const sumEl = document.getElementById('sum-box');
+  sumEl.style.display = 'block';
+  sumEl.innerHTML = `<h3>Done</h3>
+    <div class="sum-row"><span>Properties created</span><strong>${created}</strong></div>
+    <div class="sum-row"><span>Already existed (skipped)</span><strong>${skipped}</strong></div>
+    <div class="sum-row"><span>Errors</span><strong style="color:${failed?'#c81f25':'inherit'}">${failed}</strong></div>`;
+  log('\n✅ Import finished.', 'ok');
+}
+</script>
+</body>
+</html>

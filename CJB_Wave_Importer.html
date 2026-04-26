@@ -277,6 +277,12 @@ async function startImport() {
         await sleep(120);
       }
 
+      if (!existingProps.length) {
+        // Catch old-format properties where name = just the address
+        existingProps = await atGet('Properties', `{Property Name}="${address1}"`);
+        await sleep(120);
+      }
+
       if (!existingProps.length && customerId) {
         existingProps = await atGet('Properties',
           `AND({Service Address}="${address1}",{City}="${city}")`);
