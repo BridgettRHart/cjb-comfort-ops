@@ -186,6 +186,39 @@ async function scanDuplicates() {
       }
     }
 
+    // Name-based duplicates: "X Residence" or bare "X" (no address) vs "X — Address"
+    // Catches old first-importer records that have no Service Address set
+    const nameMap = {};
+    for (const p of allProps) {
+      let pname = (p.fields['Property Name'] || '').trim();
+      const addr  = (p.fields['Service Address'] || '').trim();
+      // Extract base name: strip " Residence" suffix or " — Address" suffix
+      let base = pname.replace(/\s+Residence\s*$/i, '').replace(/\s+—\s+.+$/, '').trim();
+      if (base.length < 4) continue;
+      const key = norm(base);
+      if (!nameMap[key]) nameMap[key] = [];
+      nameMap[key].push({ prop: p, base, hasAddr: !!addr, hasResidenceSuffix: /Residence\s*$/i.test(pname), hasDashAddr: /—/.test(pname) });
+    }
+
+    for (const [key, entries] of Object.entries(nameMap)) {
+      if (entries.length < 2) continue;
+      const noAddr  = entries.filter(e => !e.hasAddr);
+      const hasAddr = entries.filter(e => e.hasAddr && e.hasDashAddr);
+      if (!noAddr.length || !hasAddr.length) continue;
+      // Pair each no-address record with the first addressed record
+      for (const old of noAddr) {
+        const match = hasAddr[0];
+        const groupId = [old.prop.id, match.prop.id].sort().join('|');
+        if (!seen.has(groupId)) {
+          seen.add(groupId);
+          dupGroups.push({
+            reason: 'Incomplete record — same customer, one has address and one does not',
+            props: [old.prop, match.prop]
+          });
+        }
+      }
+    }
+
     document.getElementById('progress-bar').style.width = '100%';
     document.getElementById('progress-wrap').style.display = 'none';
 
