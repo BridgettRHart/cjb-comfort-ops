@@ -460,34 +460,70 @@ function renderJobSummary(jobs) {
   </div>`;
 }
 
-function addLineItemFromJob(job) {
-  const jf = job.fields;
-  const jobType = (jf['Job Type'] || '').toLowerCase();
-
-  // Try to find a matching product by job type
-  const match = allProducts?.find(p => {
-    const name = (p.fields['Product Name'] || '').toLowerCase();
-    const cat  = (p.fields['Category']     || '').toLowerCase();
-    return name.includes(jobType) || cat.includes(jobType) ||
-      (jobType === 'maintenance' && cat.includes('maintenance')) ||
-      (jobType === 'repair'      && (cat.includes('diagnostic') || cat.includes('labor'))) ||
-      (jobType === 'inspection'  && (cat.includes('diagnostic') || name.includes('inspect'))) ||
-      (jobType === 'installation'&& cat.includes('installation')) ||
-      (jobType === 'diagnostic'  && cat.includes('diagnostic'));
+function parsePartsUsed(text) {
+  // Format written by the field app:
+  //   "2x Air Filter | $2.50"
+  //   "Condenser Fan Motor Mounting Assembly | $500.00"
+  //   "Custom: freeform note"
+  if (!text) return [];
+  return text.split('\n').filter(Boolean).map(line => {
+    if (line.startsWith('Custom: ')) {
+      return { name: line.slice(8).trim(), qty: 1, price: null };
+    }
+    let qty = 1, name = line, price = null;
+    const priceMatch = line.match(/\s*\|\s*\$([0-9.]+)\s*$/);
+    if (priceMatch) {
+      price = parseFloat(priceMatch[1]);
+      name  = line.slice(0, priceMatch.index).trim();
+    }
+    const qtyMatch = name.match(/^(\d+)x\s+/);
+    if (qtyMatch) { qty = parseInt(qtyMatch[1]); name = name.slice(qtyMatch[0].length).trim(); }
+    return { name, qty, price };
   });
+}
 
+function fillLineItem(name, qty, price, productId) {
   addLineItem();
   const idx = liCount - 1;
   const nameEl  = document.getElementById('lin-' + idx);
+  const qtyEl   = document.getElementById('liq-' + idx);
   const priceEl = document.getElementById('lip-' + idx);
+  if (nameEl)  { nameEl.value = name; if (productId) nameEl.dataset.pid = productId; }
+  if (qtyEl)   qtyEl.value = qty || 1;
+  if (priceEl && price != null) priceEl.value = Number(price).toFixed(2);
+  liCalc(idx);
+}
 
-  if (match) {
-    nameEl.value = match.fields['Product Name'];
-    nameEl.dataset.pid = match.id;
-    priceEl.value = Number(match.fields['Unit Price'] || 0).toFixed(2);
-    liCalc(idx);
+function addLineItemFromJob(job) {
+  const jf      = job.fields;
+  const jobType = (jf['Job Type'] || '').toLowerCase();
+
+  // 1. Service/labor line item — match job type to Product List
+  const serviceMatch = allProducts?.find(p => {
+    const name = (p.fields['Product Name'] || '').toLowerCase();
+    const cat  = (p.fields['Category']     || '').toLowerCase();
+    return name.includes(jobType) ||
+      (jobType === 'maintenance'  && cat.includes('maintenance')) ||
+      (jobType === 'repair'       && (cat.includes('diagnostic') || cat.includes('labor'))) ||
+      (jobType === 'inspection'   && (cat.includes('diagnostic') || name.includes('inspect'))) ||
+      (jobType === 'installation' && cat.includes('installation')) ||
+      (jobType === 'diagnostic'   && cat.includes('diagnostic'));
+  });
+  if (serviceMatch) {
+    fillLineItem(serviceMatch.fields['Product Name'], 1,
+      serviceMatch.fields['Unit Price'] || null, serviceMatch.id);
   } else {
-    nameEl.value = jf['Job Name'] || (jf['Job Type'] ? jf['Job Type'] + ' Service' : 'Service');
+    fillLineItem(jf['Job Name'] || (jf['Job Type'] ? jf['Job Type'] + ' Service' : 'Service'), 1, null, null);
+  }
+
+  // 2. Parts — parse the structured "Parts Used" text and add one line per part
+  const parts = parsePartsUsed(jf['Parts Used']);
+  for (const part of parts) {
+    // Try to find matching product by name for the price ID (price comes from the saved text)
+    const prodMatch = allProducts?.find(p =>
+      (p.fields['Product Name'] || '').toLowerCase() === part.name.toLowerCase()
+    );
+    fillLineItem(part.name, part.qty, part.price, prodMatch?.id || null);
   }
 }
 
