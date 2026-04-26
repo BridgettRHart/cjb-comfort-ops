@@ -418,9 +418,13 @@ async function openInvoiceModal(workOrderId, customerId) {
     // Render job summary panel
     renderJobSummary(jobs);
 
-    // Pre-populate line items from jobs
+    // Pre-populate line items
     if (jobs.length > 0) {
-      for (const job of jobs) addLineItemFromJob(job);
+      // 1. Service call fee (once, at the top) — skipped if any job is a Repair
+      const woForDate = currentWorkOrders.find(w => w.id === workOrderId);
+      addServiceCallItem(jobs, woForDate?.fields['Scheduled Date']);
+      // 2. Parts from each job
+      for (const job of jobs) addPartsFromJob(job);
     } else {
       addLineItem(); // blank fallback if no jobs recorded
     }
@@ -494,32 +498,47 @@ function fillLineItem(name, qty, price, productId) {
   liCalc(idx);
 }
 
-function addLineItemFromJob(job) {
-  const jf      = job.fields;
-  const jobType = (jf['Job Type'] || '').toLowerCase();
+function addServiceCallItem(jobs, scheduledDate) {
+  // After-hours = weekends (Sat/Sun) OR before 6am OR at/after 6pm
+  const date        = scheduledDate ? new Date(scheduledDate) : null;
+  const day         = date ? date.getDay() : -1;   // 0=Sun, 6=Sat
+  const hour        = date ? date.getHours() : -1;
+  const isWeekend   = day === 0 || day === 6;
+  const isOddHour   = hour !== -1 && (hour < 6 || hour >= 18);
+  const isAfterHours = isWeekend || isOddHour;
 
-  // 1. Service/labor line item — match job type to Product List
-  const serviceMatch = allProducts?.find(p => {
-    const name = (p.fields['Product Name'] || '').toLowerCase();
-    const cat  = (p.fields['Category']     || '').toLowerCase();
-    return name.includes(jobType) ||
-      (jobType === 'maintenance'  && cat.includes('maintenance')) ||
-      (jobType === 'repair'       && (cat.includes('diagnostic') || cat.includes('labor'))) ||
-      (jobType === 'inspection'   && (cat.includes('diagnostic') || name.includes('inspect'))) ||
-      (jobType === 'installation' && cat.includes('installation')) ||
-      (jobType === 'diagnostic'   && cat.includes('diagnostic'));
-  });
-  if (serviceMatch) {
-    fillLineItem(serviceMatch.fields['Product Name'], 1,
-      serviceMatch.fields['Unit Price'] || null, serviceMatch.id);
+  const custType     = (selectedCustomer?.fields['Type'] || '').toLowerCase();
+  const isCommercial = custType === 'commercial';
+
+  // Classify job types on this work order
+  const jobTypes = jobs.map(j => (j.fields['Job Type'] || '').toLowerCase());
+  const isInspectionOrMaintenance = jobTypes.some(t => t === 'maintenance' || t === 'inspection');
+
+  // After-hours always takes priority — premium rate regardless of job type
+  let productName;
+  if (isAfterHours) {
+    productName = 'Service Call Fee — After Hours';
+  } else if (isInspectionOrMaintenance) {
+    // Scheduled maintenance or inspection visit
+    productName = isCommercial ? 'A/C Inspection — Commercial' : 'A/C Inspection — Residential';
   } else {
-    fillLineItem(jf['Job Name'] || (jf['Job Type'] ? jf['Job Type'] + ' Service' : 'Service'), 1, null, null);
+    // Repair, diagnostic, callback, warranty — something went wrong and they called
+    productName = isCommercial ? 'Service Call Fee — Commercial' : 'Service Call Fee — Residential';
   }
 
-  // 2. Parts — parse the structured "Parts Used" text and add one line per part
-  const parts = parsePartsUsed(jf['Parts Used']);
+  const product = allProducts?.find(p => p.fields['Product Name'] === productName);
+  fillLineItem(
+    product ? product.fields['Product Name'] : productName,
+    1,
+    product ? (product.fields['Unit Price'] || null) : null,
+    product?.id || null
+  );
+}
+
+function addPartsFromJob(job) {
+  // Only add parts — service call is handled separately above
+  const parts = parsePartsUsed(job.fields['Parts Used']);
   for (const part of parts) {
-    // Try to find matching product by name for the price ID (price comes from the saved text)
     const prodMatch = allProducts?.find(p =>
       (p.fields['Product Name'] || '').toLowerCase() === part.name.toLowerCase()
     );

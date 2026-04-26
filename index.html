@@ -1473,18 +1473,8 @@
 // ═══════════════════════
 const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
 
-const COMMON_PARTS = [
-  { name: 'Dual Capacitor', price: 200 },
-  { name: 'Single Run Capacitor', price: 150 },
-  { name: 'Contactor — 1 pole', price: 125 },
-  { name: 'Contactor — 2 pole', price: 200 },
-  { name: 'Filter Drier', price: 50 },
-  { name: 'Air Filter', price: 2.50 },
-  { name: 'Drain Flush', price: 125 },
-  { name: 'R-410a — per lb', price: 125 },
-  { name: 'R-22 — per lb', price: 225 },
-  { name: 'Miscellaneous Electrical Parts', price: 60 },
-];
+// Quick-select parts are loaded live from Airtable (Commonly Used = true)
+// No hardcoded list — prices and items stay in sync automatically
 
 // Holds all selected parts as {name, price} objects
 let selectedParts = [];
@@ -2511,15 +2501,36 @@ function openCompleteForm() {
   showScreen('complete');
 }
 
-function buildPartsGrid() {
+async function buildPartsGrid() {
   const grid = document.getElementById('parts-grid');
-  grid.innerHTML = COMMON_PARTS.map(p =>
-    '<label class="part-chip" tabindex="0" role="checkbox" aria-checked="false" aria-label="' + escHtml(p.name) + ' $' + p.price + '">'
-    + '<input type="checkbox" value="' + escAttr(p.name) + '" data-price="' + p.price + '" onchange="toggleCommonPart(this)">'
-    + '<svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
-    + escHtml(p.name)
-    + '</label>'
-  ).join('');
+  grid.innerHTML = '<div style="padding:8px 4px; font-size:13px; color:var(--gray-text);">Loading products…</div>';
+  try {
+    const data = await apiGet('Product List', {
+      filterByFormula: '{Commonly Used}=1',
+      'fields[]': 'Product Name',
+      // fetch multiple fields via URLSearchParams limitation — build manually
+    });
+    // apiGet uses URLSearchParams which doesn't handle repeated keys well, so fetch directly
+    const url = `${PROXY}/Product%20List?filterByFormula=${encodeURIComponent('{Commonly Used}=1')}&fields[]=Product%20Name&fields[]=Unit%20Price&fields[]=Active&sort[0][field]=Product%20Name&sort[0][direction]=asc&pageSize=100`;
+    const res  = await fetch(url);
+    const json = await res.json();
+    const products = (json.records || []).filter(r => r.fields['Active'] !== false);
+
+    // Cache for the search box too — avoids a second round-trip when Cornell types
+    if (!productListCache) productListCache = products;
+
+    grid.innerHTML = products.map(r => {
+      const name  = r.fields['Product Name'] || '';
+      const price = r.fields['Unit Price']   || 0;
+      return '<label class="part-chip" tabindex="0" role="checkbox" aria-checked="false" aria-label="' + escHtml(name) + ' $' + price + '">'
+        + '<input type="checkbox" value="' + escAttr(name) + '" data-price="' + price + '" onchange="toggleCommonPart(this)">'
+        + '<svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
+        + escHtml(name)
+        + '</label>';
+    }).join('');
+  } catch (err) {
+    grid.innerHTML = '<div style="padding:8px 4px; font-size:13px; color:var(--red);">Could not load products — check connection</div>';
+  }
 }
 
 function toggleCommonPart(checkbox) {
