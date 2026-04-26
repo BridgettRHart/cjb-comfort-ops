@@ -339,7 +339,10 @@ function renderDetail(customer, props, wos) {
         const total  = wf['Total Amount'] != null ? ' · $' + Number(wf['Total Amount']).toFixed(2) : '';
         let invoiceBtn = '';
         if (status === 'Complete') {
-          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`;
+          const hasDraft = (wf['Internal Notes'] || '').includes('Stripe Invoice ID:');
+          invoiceBtn = hasDraft
+            ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
+            : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`;
         } else if (status === 'Invoiced' || status === 'Paid') {
           const stripeUrl = extractStripeUrl(wf['Internal Notes']);
           if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;

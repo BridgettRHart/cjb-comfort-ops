@@ -230,12 +230,18 @@ export default {
         if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured in Worker environment');
 
         // 1. Get customer from Airtable
-        const custRec  = await airtableGetById('Customers', customerId);
+        const custRec   = await airtableGetById('Customers', customerId);
         const custEmail = (custRec.fields['Email']         || '').trim();
         const custName  = (custRec.fields['Customer Name'] || '').trim();
         if (!custEmail) throw new Error(`Customer "${custName}" has no email — required for Stripe invoicing`);
 
-        // 2. Find or create Stripe customer
+        // 2. Get Work Order record (needed for existing-draft check and WO name)
+        let woRecord = null;
+        if (workOrderId) {
+          woRecord = await airtableGetById('Work Orders', workOrderId);
+        }
+
+        // 3. Find or create Stripe customer
         let stripeCustId;
         const srchRes  = await fetch(
           `https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
@@ -249,11 +255,52 @@ export default {
           stripeCustId = cc.id;
         }
 
-        // 3. Create line items as pending for this customer (no invoice ID yet)
-        //    Stripe collects all pending items when the invoice is created
+        // 4. Delete any existing Stripe draft for this Work Order
+        //    (prevents stacking duplicate drafts on repeated "Save Draft" clicks)
+        const woNotes = woRecord?.fields?.['Internal Notes'] || '';
+        const existingIdMatch = woNotes.match(/Stripe Invoice ID: (inv_[^\s\n]+)/);
+        if (existingIdMatch) {
+          try {
+            const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingIdMatch[1]}`);
+            if (existingInv.status === 'draft') {
+              await stripeDelete(STRIPE_KEY, `/v1/invoices/${existingIdMatch[1]}`);
+            }
+          } catch (e) { /* invoice already deleted or not found — continue */ }
+        }
+
+        // 5. Delete any floating pending items for this customer
+        //    (cleanup from earlier flow that created items without an invoice ID)
+        try {
+          const pendRes  = await fetch(
+            `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
+            { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+          );
+          const pendData = await pendRes.json();
+          for (const pitem of (pendData.data || [])) {
+            if (!pitem.invoice) {
+              await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${pitem.id}`);
+            }
+          }
+        } catch (e) { /* best effort */ }
+
+        // 6. Create invoice first — items will be attached directly to it
+        //    This prevents items from floating as "pending" and being double-collected later
+        const woName = woRecord?.fields?.['Work Order Name'] || '';
+        const invParams = {
+          customer:          stripeCustId,
+          auto_advance:      'false',
+          collection_method: 'send_invoice',
+          days_until_due:    '30'
+        };
+        if (notes)  invParams.description           = notes;
+        if (woName) invParams['metadata[work_order]'] = woName;
+        const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
+
+        // 7. Add line items directly to this invoice (invoice: inv.id keeps them attached)
         for (const item of lineItems) {
           await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
             customer:    stripeCustId,
+            invoice:     inv.id,
             unit_amount: String(Math.round((item.unitPrice || 0) * 100)),
             quantity:    String(Math.max(1, Math.round(item.quantity || 1))),
             currency:    'usd',
@@ -261,24 +308,24 @@ export default {
           });
         }
 
-        // 4. Create invoice — automatically collects all pending items above
-        const invParams = {
-          customer:           stripeCustId,
-          auto_advance:       'false',
-          collection_method:  'send_invoice',
-          days_until_due:     '30'
-        };
-        if (notes) invParams.description = notes;
-        const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
-
-        // 5. Finalize + send only if sendNow — otherwise leave as Stripe draft
+        // 8. Finalize + send only if sendNow — otherwise leave as Stripe draft
         let finalInv = inv;
         if (sendNow) {
-          const finalized = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
+          await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
           finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
         }
 
-        // 6. Create Airtable Invoice record
+        // 9. Store Stripe ID in Work Order Internal Notes (always — so admin detects draft)
+        //    On sendNow also flip Work Order status to Invoiced
+        if (workOrderId) {
+          const woUpdate = {
+            'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
+          };
+          if (sendNow) woUpdate['Status'] = 'Invoiced';
+          await airtablePatch('Work Orders', workOrderId, woUpdate);
+        }
+
+        // 10. Create Airtable Invoice record
         const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
         const today   = new Date().toISOString().split('T')[0];
         const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
@@ -296,17 +343,6 @@ export default {
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
         const atInv = await airtablePost('Invoices', atFields);
-
-        // 7. Update Work Order:
-        //    - sendNow  → status Invoiced + store hosted URL so office can find it
-        //    - draft    → leave status as Complete so invoice button stays available
-        if (workOrderId && sendNow) {
-          const woUpdate = { 'Status': 'Invoiced' };
-          if (finalInv.hosted_invoice_url) {
-            woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
-          }
-          await airtablePatch('Work Orders', workOrderId, woUpdate);
-        }
 
         return new Response(JSON.stringify({
           ok:              true,
@@ -404,7 +440,7 @@ async function airtablePatch(table, recordId, fields) {
   return res.json();
 }
 
-// ── Stripe helper ─────────────────────────────────────────────────────────
+// ── Stripe helpers ────────────────────────────────────────────────────────
 async function stripePost(apiKey, path, params) {
   const body = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -420,5 +456,24 @@ async function stripePost(apiKey, path, params) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(`Stripe ${path}: ${data.error?.message || JSON.stringify(data)}`);
+  return data;
+}
+
+async function stripeGet(apiKey, path) {
+  const res = await fetch(`https://api.stripe.com${path}`, {
+    headers: { Authorization: `Bearer ${apiKey}` }
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Stripe GET ${path}: ${data.error?.message || JSON.stringify(data)}`);
+  return data;
+}
+
+async function stripeDelete(apiKey, path) {
+  const res = await fetch(`https://api.stripe.com${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${apiKey}` }
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Stripe DELETE ${path}: ${data.error?.message || JSON.stringify(data)}`);
   return data;
 }
