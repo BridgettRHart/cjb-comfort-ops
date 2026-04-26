@@ -299,7 +299,7 @@ async function selectCustomer(id) {
       const woUrl = `${PROXY}/Work%20Orders` +
         `?filterByFormula=${encodeURIComponent(formula)}` +
         '&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type' +
-        '&fields[]=Scheduled Date&fields[]=Total Amount' +
+        '&fields[]=Scheduled Date&fields[]=Total Amount&fields[]=Internal Notes' +
         '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
       const woData = await fetch(woUrl).then(r => r.json());
       currentWorkOrders = woData.records || [];
@@ -337,9 +337,13 @@ function renderDetail(customer, props, wos) {
           ? new Date(wf['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
           : '';
         const total  = wf['Total Amount'] != null ? ' · $' + Number(wf['Total Amount']).toFixed(2) : '';
-        const invoiceBtn = status === 'Complete'
-          ? `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`
-          : '';
+        let invoiceBtn = '';
+        if (status === 'Complete') {
+          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`;
+        } else if (status === 'Invoiced' || status === 'Paid') {
+          const stripeUrl = extractStripeUrl(wf['Internal Notes']);
+          if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;
+        }
         return `<div class="wo-row">
           <div class="wo-info">
             <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
@@ -711,6 +715,12 @@ async function submitInvoice(sendNow) {
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────────
+function extractStripeUrl(internalNotes) {
+  if (!internalNotes) return null;
+  const m = internalNotes.match(/https:\/\/invoice\.stripe\.com\/[^\s]+/);
+  return m ? m[0] : null;
+}
+
 function esc(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
