@@ -271,19 +271,17 @@ export default {
         if (notes) invParams.description = notes;
         const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
-        // 5. Finalize invoice
-        const finalized = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
-
-        // 6. Send (optional)
-        let finalInv = finalized;
+        // 5. Finalize + send only if sendNow — otherwise leave as Stripe draft
+        let finalInv = inv;
         if (sendNow) {
+          const finalized = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
           finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
         }
 
-        // 7. Create Airtable Invoice record
+        // 6. Create Airtable Invoice record
         const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
-        const today    = new Date().toISOString().split('T')[0];
-        const dueDate  = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+        const today   = new Date().toISOString().split('T')[0];
+        const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
         const atFields = {
           'Invoice Name':   `${custName} — ${today}`,
           'Customers':      [customerId],
@@ -293,22 +291,28 @@ export default {
           'Due Date':       dueDate,
           'Subtotal':       subtotal,
           'Total':          subtotal,
-          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}`
+          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
         };
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
         const atInv = await airtablePost('Invoices', atFields);
 
-        // 8. Update Work Order → Invoiced
-        if (workOrderId) {
-          await airtablePatch('Work Orders', workOrderId, { 'Status': 'Invoiced' });
+        // 7. Update Work Order:
+        //    - sendNow  → status Invoiced + store hosted URL so office can find it
+        //    - draft    → leave status as Complete so invoice button stays available
+        if (workOrderId && sendNow) {
+          const woUpdate = { 'Status': 'Invoiced' };
+          if (finalInv.hosted_invoice_url) {
+            woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
+          }
+          await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
 
         return new Response(JSON.stringify({
           ok:              true,
           stripeInvoiceId: finalInv.id,
-          hostedUrl:       finalInv.hosted_invoice_url,
-          pdfUrl:          finalInv.invoice_pdf,
+          hostedUrl:       finalInv.hosted_invoice_url || null,
+          isDraft:         !sendNow,
           airtableId:      atInv.id
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
