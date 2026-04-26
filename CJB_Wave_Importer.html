@@ -267,22 +267,25 @@ async function startImport() {
     }
 
     try {
+      // Check for this SPECIFIC address — not just any property for this email
+      // This allows multi-property clients (e.g. Herb Duncan) to get all their addresses imported
       let existingProps = [];
 
       if (email) {
-        existingProps = await atGet('Properties', `{Customer Email}="${email}"`);
+        existingProps = await atGet('Properties',
+          `AND({Customer Email}="${email}",{Service Address}="${address1}")`);
         await sleep(120);
       }
 
       if (!existingProps.length && customerId) {
-        // check by customer link + address match as fallback
-        existingProps = await atGet('Properties', `AND({Customer}="${customerId}",{Service Address}="${address1}")`);
+        existingProps = await atGet('Properties',
+          `AND({Service Address}="${address1}",{City}="${city}")`);
         await sleep(120);
       }
 
       if (existingProps.length > 0) {
         propSkipped++;
-        log(`  Property: already exists`, 'info');
+        log(`  Property: already exists (${address1})`, 'info');
       } else {
         const propName = customerName + (address1 ? ' — ' + address1 : '');
         const fields = {
