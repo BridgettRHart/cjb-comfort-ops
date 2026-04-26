@@ -113,6 +113,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .notes-inp { width: 100%; border: 1px solid #ddd; border-radius: 7px; padding: 10px 12px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 64px; margin-bottom: 18px; }
 .notes-inp:focus { outline: none; border-color: #c81f25; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* Job summary panel inside invoice modal */
+.job-summary-panel { background: #f7f9fc; border: 1px solid #dce6f5; border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; }
+.job-summary-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #7a9ccf; font-weight: 700; margin-bottom: 10px; }
+.job-block { padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #e4ecf7; }
+.job-block:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.job-block-name { font-size: 13px; font-weight: 700; color: #1a2e4a; }
+.job-block-type { font-size: 11px; color: #888; margin-left: 6px; }
+.job-block-line { font-size: 12px; color: #444; margin-top: 4px; line-height: 1.5; }
+.job-block-label { color: #888; margin-right: 4px; }
 </style>
 </head>
 <body>
@@ -146,6 +156,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
   <div class="modal">
     <div class="modal-title">Create Invoice</div>
     <div class="modal-sub" id="modal-sub">—</div>
+
+    <!-- Job summary — what Cornell recorded -->
+    <div id="job-summary"></div>
 
     <table class="li-table">
       <thead>
@@ -363,38 +376,119 @@ async function openInvoiceModal(workOrderId, customerId) {
   invoiceCustId = customerId;
   liCount = 0;
 
-  document.getElementById('li-body').innerHTML = '';
-  document.getElementById('inv-notes').value   = '';
+  document.getElementById('li-body').innerHTML    = '';
+  document.getElementById('inv-notes').value      = '';
   document.getElementById('inv-total').textContent = '$0.00';
-  document.getElementById('modal-sub').textContent = '—';
-  document.getElementById('draft-btn').disabled = false;
-  document.getElementById('send-btn').disabled  = false;
-  document.getElementById('send-btn').textContent = 'Send Invoice Now';
+  document.getElementById('job-summary').innerHTML = '<div style="color:#aaa;font-size:13px;padding:8px 0;">Loading job details…</div>';
+  document.getElementById('draft-btn').disabled   = true;
+  document.getElementById('send-btn').disabled    = true;
+  document.getElementById('send-btn').textContent = 'Loading…';
 
   const wo = currentWorkOrders.find(w => w.id === workOrderId);
-  if (wo) document.getElementById('modal-sub').textContent = wo.fields['Work Order Name'] || '—';
-
+  document.getElementById('modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
   document.getElementById('invoice-modal').classList.remove('hidden');
 
-  // Load products once
-  if (!allProducts) {
-    document.getElementById('draft-btn').disabled = true;
-    document.getElementById('send-btn').disabled  = true;
-    document.getElementById('send-btn').textContent = 'Loading products…';
-    try {
-      const prods = await fetchAll('Product List',
-        'fields[]=Product Name&fields[]=Unit Price&fields[]=Unit Type&fields[]=Category' +
-        '&fields[]=Active&sort[0][field]=Product Name&sort[0][direction]=asc');
-      allProducts = prods.filter(p => p.fields['Active'] !== false);
-    } catch (e) {
-      allProducts = [];
+  try {
+    // Load products + fetch WO's linked job IDs in parallel
+    const [prodsRaw, woDetail] = await Promise.all([
+      allProducts
+        ? Promise.resolve(null)
+        : fetchAll('Product List',
+            'fields[]=Product Name&fields[]=Unit Price&fields[]=Unit Type&fields[]=Category' +
+            '&fields[]=Active&sort[0][field]=Product Name&sort[0][direction]=asc'),
+      fetch(`${PROXY}/Work%20Orders/${workOrderId}?fields[]=Jobs`).then(r => r.json())
+    ]);
+    if (prodsRaw) allProducts = prodsRaw.filter(p => p.fields['Active'] !== false);
+
+    // Fetch job details
+    const jobIds = woDetail.fields?.['Jobs'] || [];
+    let jobs = [];
+    if (jobIds.length > 0) {
+      const formula = jobIds.length === 1
+        ? `RECORD_ID()="${jobIds[0]}"`
+        : `OR(${jobIds.map(j => `RECORD_ID()="${j}"`).join(',')})`;
+      const jobData = await fetch(
+        `${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}` +
+        '&fields[]=Job Name&fields[]=Job Type&fields[]=Status' +
+        '&fields[]=Work Performed&fields[]=Parts Used&fields[]=Diagnosis&fields[]=Labor Hours'
+      ).then(r => r.json());
+      jobs = jobData.records || [];
     }
-    document.getElementById('draft-btn').disabled = false;
-    document.getElementById('send-btn').disabled  = false;
-    document.getElementById('send-btn').textContent = 'Send Invoice Now';
+
+    // Render job summary panel
+    renderJobSummary(jobs);
+
+    // Pre-populate line items from jobs
+    if (jobs.length > 0) {
+      for (const job of jobs) addLineItemFromJob(job);
+    } else {
+      addLineItem(); // blank fallback if no jobs recorded
+    }
+
+  } catch (err) {
+    document.getElementById('job-summary').innerHTML =
+      `<div style="color:#c81f25;font-size:12px;">Could not load job details: ${esc(err.message)}</div>`;
+    addLineItem();
   }
 
+  document.getElementById('draft-btn').disabled   = false;
+  document.getElementById('send-btn').disabled    = false;
+  document.getElementById('send-btn').textContent = 'Send Invoice Now';
+}
+
+function renderJobSummary(jobs) {
+  const el = document.getElementById('job-summary');
+  if (!jobs.length) {
+    el.innerHTML = '<div style="color:#aaa;font-size:12px;margin-bottom:12px;">No jobs recorded on this work order yet.</div>';
+    return;
+  }
+  const rows = jobs.map(job => {
+    const jf = job.fields;
+    const lines = [];
+    if (jf['Work Performed']) lines.push(`<div class="job-block-line"><span class="job-block-label">✅ Work done:</span>${esc(jf['Work Performed'])}</div>`);
+    if (jf['Diagnosis'])      lines.push(`<div class="job-block-line"><span class="job-block-label">🔍 Diagnosis:</span>${esc(jf['Diagnosis'])}</div>`);
+    if (jf['Parts Used'])     lines.push(`<div class="job-block-line"><span class="job-block-label">🔧 Parts used:</span>${esc(jf['Parts Used'])}</div>`);
+    if (jf['Labor Hours'])    lines.push(`<div class="job-block-line"><span class="job-block-label">⏱ Labor:</span>${jf['Labor Hours']} hrs</div>`);
+    return `<div class="job-block">
+      <div><span class="job-block-name">${esc(jf['Job Name'] || '(unnamed job)')}</span><span class="job-block-type">${esc(jf['Job Type'] || '')}</span></div>
+      ${lines.join('')}
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="job-summary-panel">
+    <div class="job-summary-title">📋 What Cornell recorded (${jobs.length} job${jobs.length > 1 ? 's' : ''})</div>
+    ${rows}
+  </div>`;
+}
+
+function addLineItemFromJob(job) {
+  const jf = job.fields;
+  const jobType = (jf['Job Type'] || '').toLowerCase();
+
+  // Try to find a matching product by job type
+  const match = allProducts?.find(p => {
+    const name = (p.fields['Product Name'] || '').toLowerCase();
+    const cat  = (p.fields['Category']     || '').toLowerCase();
+    return name.includes(jobType) || cat.includes(jobType) ||
+      (jobType === 'maintenance' && cat.includes('maintenance')) ||
+      (jobType === 'repair'      && (cat.includes('diagnostic') || cat.includes('labor'))) ||
+      (jobType === 'inspection'  && (cat.includes('diagnostic') || name.includes('inspect'))) ||
+      (jobType === 'installation'&& cat.includes('installation')) ||
+      (jobType === 'diagnostic'  && cat.includes('diagnostic'));
+  });
+
   addLineItem();
+  const idx = liCount - 1;
+  const nameEl  = document.getElementById('lin-' + idx);
+  const priceEl = document.getElementById('lip-' + idx);
+
+  if (match) {
+    nameEl.value = match.fields['Product Name'];
+    nameEl.dataset.pid = match.id;
+    priceEl.value = Number(match.fields['Unit Price'] || 0).toFixed(2);
+    liCalc(idx);
+  } else {
+    nameEl.value = jf['Job Name'] || (jf['Job Type'] ? jf['Job Type'] + ' Service' : 'Service');
+  }
 }
 
 function closeModal() {
