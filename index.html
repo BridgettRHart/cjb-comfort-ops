@@ -2511,7 +2511,12 @@ async function buildPartsGrid() {
       // fetch multiple fields via URLSearchParams limitation — build manually
     });
     // apiGet uses URLSearchParams which doesn't handle repeated keys well, so fetch directly
-    const url = `${PROXY}/Product%20List?filterByFormula=${encodeURIComponent('{Commonly Used}=1')}&fields[]=Product%20Name&fields[]=Unit%20Price&fields[]=Active&sort[0][field]=Product%20Name&sort[0][direction]=asc&pageSize=100`;
+    // Exclude office-only categories: billing fees, labor rates, large installs
+    const techFilter = encodeURIComponent(
+      'AND({Commonly Used}=1,{Active}=1,' +
+      'NOT(OR({Category}="Diagnostic & Service Calls",{Category}="Labor",{Category}="Installation Services")))'
+    );
+    const url = `${PROXY}/Product%20List?filterByFormula=${techFilter}&fields[]=Product%20Name&fields[]=Unit%20Price&fields[]=Active&sort[0][field]=Product%20Name&sort[0][direction]=asc&pageSize=100`;
     const res  = await fetch(url);
     const json = await res.json();
     const products = (json.records || []).filter(r => r.fields['Active'] !== false);
