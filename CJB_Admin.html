@@ -274,13 +274,23 @@ async function selectCustomer(id) {
           (p.fields['Customer Email'] || '').toLowerCase() === email)
       : [];
 
-    const woUrl = `${PROXY}/Work%20Orders` +
-      `?filterByFormula=${encodeURIComponent('FIND("' + id + '", ARRAYJOIN({Customer}))')}` +
-      '&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type' +
-      '&fields[]=Scheduled Date&fields[]=Total Amount' +
-      '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
-    const woData = await fetch(woUrl).then(r => r.json());
-    currentWorkOrders = woData.records || [];
+    // Fetch customer record to get linked Work Order IDs
+    const custDetail = await fetch(`${PROXY}/Customers/${id}?fields[]=Work+Orders`).then(r => r.json());
+    const woIds = custDetail.fields?.['Work Orders'] || [];
+
+    currentWorkOrders = [];
+    if (woIds.length > 0) {
+      const formula = woIds.length === 1
+        ? `RECORD_ID()="${woIds[0]}"`
+        : `OR(${woIds.map(wid => `RECORD_ID()="${wid}"`).join(',')})`;
+      const woUrl = `${PROXY}/Work%20Orders` +
+        `?filterByFormula=${encodeURIComponent(formula)}` +
+        '&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type' +
+        '&fields[]=Scheduled Date&fields[]=Total Amount' +
+        '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
+      const woData = await fetch(woUrl).then(r => r.json());
+      currentWorkOrders = woData.records || [];
+    }
 
     renderDetail(selectedCustomer, props, currentWorkOrders);
   } catch (err) {
