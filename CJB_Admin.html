@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Admin</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f0f0; color: #2e2e2e; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+.header { background: #c81f25; color: #fff; padding: 0 20px; height: 52px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+.header h1 { font-size: 17px; font-weight: 700; }
+.header-sub { font-size: 13px; opacity: 0.75; margin-left: auto; }
+
+.app { display: flex; flex: 1; overflow: hidden; }
+
+/* Sidebar */
+.sidebar { width: 290px; flex-shrink: 0; background: #fff; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-hd { padding: 12px 14px 10px; border-bottom: 1px solid #ebebeb; }
+.sidebar-hd h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #999; margin-bottom: 8px; }
+.search-box { width: 100%; padding: 8px 11px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; outline: none; }
+.search-box:focus { border-color: #c81f25; }
+.cust-list { overflow-y: auto; flex: 1; }
+.cust-item { padding: 10px 14px; border-bottom: 1px solid #f2f2f2; cursor: pointer; transition: background 0.1s; }
+.cust-item:hover { background: #fafafa; }
+.cust-item.active { background: #fff5f5; border-left: 3px solid #c81f25; padding-left: 11px; }
+.ci-name { font-size: 13px; font-weight: 600; }
+.ci-meta { font-size: 11px; color: #999; margin-top: 2px; }
+.empty-list { padding: 24px; text-align: center; font-size: 13px; color: #bbb; }
+
+/* Detail */
+.detail { flex: 1; overflow-y: auto; padding: 20px; }
+.empty-state { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #ccc; flex-direction: column; gap: 8px; }
+.empty-state .arrow { font-size: 28px; }
+
+/* Customer header card */
+.cust-card { background: #fff; border-radius: 10px; padding: 18px 22px; margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+.cust-card-name { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.cust-card-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: #555; }
+.cust-card-meta span { display: flex; align-items: center; gap: 5px; }
+
+/* Section card */
+.section { background: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+.section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 12px; }
+
+/* Property rows */
+.prop-row { padding: 8px 0; border-bottom: 1px solid #f2f2f2; }
+.prop-row:last-child { border-bottom: none; }
+.prop-row-name { font-size: 13px; font-weight: 600; }
+.prop-row-addr { font-size: 12px; color: #777; margin-top: 2px; }
+
+/* Work order rows */
+.wo-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #ebebeb; border-radius: 8px; margin-bottom: 8px; }
+.wo-row:last-child { margin-bottom: 0; }
+.wo-info { flex: 1; min-width: 0; }
+.wo-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wo-meta { font-size: 11px; color: #888; margin-top: 3px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.b-scheduled   { background: #e3f0ff; color: #1a4f8a; }
+.b-in-progress { background: #fff3cd; color: #7a5500; }
+.b-complete    { background: #d4edda; color: #155724; }
+.b-invoiced    { background: #e2d9f3; color: #4a235a; }
+.b-paid        { background: #c3e6cb; color: #0d4a1f; }
+.b-cancelled   { background: #f0f0f0; color: #999; }
+.b-on-hold     { background: #ffe4b5; color: #7a4500; }
+
+/* Buttons */
+.btn { border: none; border-radius: 7px; padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-red   { background: #c81f25; color: #fff; }
+.btn-green { background: #1a6b35; color: #fff; }
+.btn-gray  { background: #888; color: #fff; }
+.btn-sm    { padding: 6px 13px; font-size: 12px; }
+
+/* Loading spinner */
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #c81f25; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Modal */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.52); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-bg.hidden { display: none; }
+.modal { background: #fff; border-radius: 12px; width: 100%; max-width: 700px; max-height: 92vh; overflow-y: auto; padding: 26px 28px; }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.modal-sub { font-size: 13px; color: #888; margin-bottom: 20px; }
+
+/* Line items */
+.li-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }
+.li-table th { text-align: left; font-size: 11px; text-transform: uppercase; color: #aaa; padding: 6px 8px; border-bottom: 1px solid #e8e8e8; }
+.li-table td { padding: 5px 8px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+.li-table td:last-child { text-align: right; }
+.li-table input { border: 1px solid #ddd; border-radius: 5px; padding: 5px 7px; font-size: 13px; font-family: inherit; }
+.li-table input:focus { outline: none; border-color: #c81f25; }
+.inp-name  { width: 100%; }
+.inp-qty   { width: 56px; text-align: center; }
+.inp-price { width: 84px; text-align: right; }
+.sub-val   { font-weight: 600; color: #333; min-width: 72px; text-align: right; }
+.del-btn   { background: none; border: none; cursor: pointer; color: #ccc; font-size: 18px; line-height: 1; padding: 2px 4px; }
+.del-btn:hover { color: #c81f25; }
+
+/* Product dropdown */
+.pd-wrap { position: relative; }
+.pd-drop { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 7px 7px; max-height: 200px; overflow-y: auto; z-index: 300; box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
+.pd-drop.hidden { display: none; }
+.pd-opt { padding: 8px 12px; cursor: pointer; }
+.pd-opt:hover { background: #f7f7f7; }
+.pd-opt-name  { font-size: 13px; font-weight: 600; }
+.pd-opt-price { font-size: 11px; color: #999; }
+
+/* Total + notes */
+.total-row { display: flex; justify-content: flex-end; align-items: baseline; gap: 14px; padding: 12px 8px 4px; border-top: 2px solid #ebebeb; margin-bottom: 16px; }
+.total-lbl { font-size: 14px; color: #888; }
+.total-amt { font-size: 26px; font-weight: 700; color: #c81f25; }
+.notes-inp { width: 100%; border: 1px solid #ddd; border-radius: 7px; padding: 10px 12px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 64px; margin-bottom: 18px; }
+.notes-inp:focus { outline: none; border-color: #c81f25; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CJB Comfort — Admin</h1>
+  <span class="header-sub" id="load-status"><span class="spinner"></span> Loading customers…</span>
+</div>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-hd">
+      <h2>Customers <span id="cust-count"></span></h2>
+      <input class="search-box" id="search" type="text" placeholder="Search name or email…" oninput="filterCustomers()">
+    </div>
+    <div class="cust-list" id="cust-list">
+      <div class="empty-list">Loading…</div>
+    </div>
+  </div>
+
+  <div class="detail" id="detail">
+    <div class="empty-state">
+      <span class="arrow">←</span>
+      <span>Select a customer</span>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice modal -->
+<div class="modal-bg hidden" id="invoice-modal">
+  <div class="modal">
+    <div class="modal-title">Create Invoice</div>
+    <div class="modal-sub" id="modal-sub">—</div>
+
+    <table class="li-table">
+      <thead>
+        <tr>
+          <th style="width:42%">Product / Description</th>
+          <th style="width:10%">Qty</th>
+          <th style="width:16%">Unit Price</th>
+          <th style="width:14%">Subtotal</th>
+          <th style="width:6%"></th>
+        </tr>
+      </thead>
+      <tbody id="li-body"></tbody>
+    </table>
+
+    <button class="btn btn-gray btn-sm" onclick="addLineItem()" style="margin-bottom:16px;">+ Add Line Item</button>
+
+    <div class="total-row">
+      <span class="total-lbl">Total</span>
+      <span class="total-amt" id="inv-total">$0.00</span>
+    </div>
+
+    <textarea class="notes-inp" id="inv-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
+
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-gray" id="draft-btn" onclick="submitInvoice(false)">Save Draft</button>
+      <button class="btn btn-green" id="send-btn" onclick="submitInvoice(true)">Send Invoice Now</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PROXY  = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+let allCustomers   = [];
+let filteredCustomers = [];
+let allProperties  = [];
+let allProducts    = null; // loaded lazily on first invoice
+let selectedCustomer = null;
+let currentWorkOrders = [];
+let liCount = 0;
+let invoiceWOId   = null;
+let invoiceCustId = null;
+
+// ── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const [custs, props] = await Promise.all([
+      fetchAll('Customers',
+        'fields[]=Customer Name&fields[]=Email&fields[]=Phone&fields[]=Type&fields[]=Active' +
+        '&sort[0][field]=Customer Name&sort[0][direction]=asc'),
+      fetchAll('Properties',
+        'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
+        '&fields[]=Customer Email&fields[]=Active')
+    ]);
+    allCustomers   = custs.filter(c => c.fields['Active'] !== false);
+    allProperties  = props;
+    filteredCustomers = [...allCustomers];
+    document.getElementById('cust-count').textContent = '(' + allCustomers.length + ')';
+    document.getElementById('load-status').textContent = allCustomers.length + ' customers';
+    renderCustList();
+  } catch (err) {
+    document.getElementById('load-status').textContent = 'Error: ' + err.message;
+  }
+}
+
+async function fetchAll(table, qs) {
+  let all = [], offset = null;
+  do {
+    let url = `${PROXY}/${encodeURIComponent(table)}?pageSize=100&${qs}`;
+    if (offset) url += '&offset=' + encodeURIComponent(offset);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch ' + table + ': ' + res.status);
+    const data = await res.json();
+    all = all.concat(data.records || []);
+    offset = data.offset || null;
+  } while (offset);
+  return all;
+}
+
+// ── Customer list ───────────────────────────────────────────────────────────
+function filterCustomers() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  filteredCustomers = q
+    ? allCustomers.filter(c =>
+        (c.fields['Customer Name'] || '').toLowerCase().includes(q) ||
+        (c.fields['Email'] || '').toLowerCase().includes(q))
+    : [...allCustomers];
+  renderCustList();
+}
+
+function renderCustList() {
+  const el = document.getElementById('cust-list');
+  if (!filteredCustomers.length) {
+    el.innerHTML = '<div class="empty-list">No customers found</div>';
+    return;
+  }
+  el.innerHTML = filteredCustomers.map(c => {
+    const f = c.fields;
+    const email = f['Email'] || '';
+    const propCount = email
+      ? allProperties.filter(p =>
+          (p.fields['Customer Email'] || '').toLowerCase() === email.toLowerCase()).length
+      : 0;
+    const active = selectedCustomer && selectedCustomer.id === c.id ? ' active' : '';
+    return `<div class="cust-item${active}" onclick="selectCustomer('${c.id}')">
+      <div class="ci-name">${esc(f['Customer Name'] || '(no name)')}</div>
+      <div class="ci-meta">${esc(email)}${propCount ? ' · ' + propCount + ' prop.' : ''}${f['Type'] ? ' · ' + f['Type'] : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Customer detail ─────────────────────────────────────────────────────────
+async function selectCustomer(id) {
+  selectedCustomer = allCustomers.find(c => c.id === id);
+  if (!selectedCustomer) return;
+  renderCustList();
+
+  const det = document.getElementById('detail');
+  det.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+
+  try {
+    const email = (selectedCustomer.fields['Email'] || '').toLowerCase();
+    const props = email
+      ? allProperties.filter(p =>
+          (p.fields['Customer Email'] || '').toLowerCase() === email)
+      : [];
+
+    const woUrl = `${PROXY}/Work%20Orders` +
+      `?filterByFormula=${encodeURIComponent('FIND("' + id + '", ARRAYJOIN({Customer}))')}` +
+      '&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type' +
+      '&fields[]=Scheduled Date&fields[]=Total Amount' +
+      '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
+    const woData = await fetch(woUrl).then(r => r.json());
+    currentWorkOrders = woData.records || [];
+
+    renderDetail(selectedCustomer, props, currentWorkOrders);
+  } catch (err) {
+    det.innerHTML = `<div class="empty-state" style="color:#c81f25;">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderDetail(customer, props, wos) {
+  const f = customer.fields;
+
+  const propsHtml = props.length
+    ? props.map(p => {
+        const pf = p.fields;
+        const addr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(', ');
+        return `<div class="prop-row">
+          <div class="prop-row-name">${esc(pf['Property Name'] || '')}</div>
+          ${addr ? `<div class="prop-row-addr">📍 ${esc(addr)}</div>` : ''}
+        </div>`;
+      }).join('')
+    : '<div style="color:#bbb;font-size:13px;">No properties on file</div>';
+
+  const badgeCls = { 'Scheduled':'b-scheduled','In Progress':'b-in-progress','Complete':'b-complete',
+    'Invoiced':'b-invoiced','Paid':'b-paid','Cancelled':'b-cancelled','On Hold':'b-on-hold' };
+
+  const wosHtml = wos.length
+    ? wos.map(wo => {
+        const wf = wo.fields;
+        const status = wf['Status'] || 'Scheduled';
+        const cls    = badgeCls[status] || 'b-scheduled';
+        const date   = wf['Scheduled Date']
+          ? new Date(wf['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
+          : '';
+        const total  = wf['Total Amount'] != null ? ' · $' + Number(wf['Total Amount']).toFixed(2) : '';
+        const invoiceBtn = status === 'Complete'
+          ? `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`
+          : '';
+        return `<div class="wo-row">
+          <div class="wo-info">
+            <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
+            <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
+          </div>
+          <span class="badge ${cls}">${esc(status)}</span>
+          ${invoiceBtn}
+        </div>`;
+      }).join('')
+    : '<div style="color:#bbb;font-size:13px;">No work orders found</div>';
+
+  document.getElementById('detail').innerHTML = `
+    <div class="cust-card">
+      <div class="cust-card-name">${esc(f['Customer Name'] || '')}</div>
+      <div class="cust-card-meta">
+        ${f['Email'] ? `<span>✉️ ${esc(f['Email'])}</span>` : ''}
+        ${f['Phone'] ? `<span>📞 ${esc(f['Phone'])}</span>` : ''}
+        ${f['Type']  ? `<span>🏷 ${esc(f['Type'])}</span>` : ''}
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Properties (${props.length})</div>
+      ${propsHtml}
+    </div>
+    <div class="section">
+      <div class="section-title">Work Orders (${wos.length})</div>
+      ${wosHtml}
+    </div>`;
+}
+
+// ── Invoice modal ───────────────────────────────────────────────────────────
+async function openInvoiceModal(workOrderId, customerId) {
+  invoiceWOId   = workOrderId;
+  invoiceCustId = customerId;
+  liCount = 0;
+
+  document.getElementById('li-body').innerHTML = '';
+  document.getElementById('inv-notes').value   = '';
+  document.getElementById('inv-total').textContent = '$0.00';
+  document.getElementById('modal-sub').textContent = '—';
+  document.getElementById('draft-btn').disabled = false;
+  document.getElementById('send-btn').disabled  = false;
+  document.getElementById('send-btn').textContent = 'Send Invoice Now';
+
+  const wo = currentWorkOrders.find(w => w.id === workOrderId);
+  if (wo) document.getElementById('modal-sub').textContent = wo.fields['Work Order Name'] || '—';
+
+  document.getElementById('invoice-modal').classList.remove('hidden');
+
+  // Load products once
+  if (!allProducts) {
+    document.getElementById('draft-btn').disabled = true;
+    document.getElementById('send-btn').disabled  = true;
+    document.getElementById('send-btn').textContent = 'Loading products…';
+    try {
+      const prods = await fetchAll('Product List',
+        'fields[]=Product Name&fields[]=Unit Price&fields[]=Unit Type&fields[]=Category' +
+        '&fields[]=Active&sort[0][field]=Product Name&sort[0][direction]=asc');
+      allProducts = prods.filter(p => p.fields['Active'] !== false);
+    } catch (e) {
+      allProducts = [];
+    }
+    document.getElementById('draft-btn').disabled = false;
+    document.getElementById('send-btn').disabled  = false;
+    document.getElementById('send-btn').textContent = 'Send Invoice Now';
+  }
+
+  addLineItem();
+}
+
+function closeModal() {
+  document.getElementById('invoice-modal').classList.add('hidden');
+}
+
+function addLineItem() {
+  const idx = liCount++;
+  const tr = document.createElement('tr');
+  tr.id = 'li-' + idx;
+  tr.innerHTML = `
+    <td>
+      <div class="pd-wrap">
+        <input class="inp-name" type="text" id="lin-${idx}" placeholder="Type to search products…"
+          oninput="pdSearch(${idx})" onfocus="pdSearch(${idx})" onblur="pdHide(${idx})"
+          autocomplete="off">
+        <div class="pd-drop hidden" id="pd-${idx}"></div>
+      </div>
+    </td>
+    <td><input class="inp-qty" type="number" id="liq-${idx}" value="1" min="0.01" step="any" oninput="liCalc(${idx})"></td>
+    <td><input class="inp-price" type="number" id="lip-${idx}" value="" placeholder="0.00" step="0.01" oninput="liCalc(${idx})"></td>
+    <td class="sub-val" id="lis-${idx}">$0.00</td>
+    <td><button class="del-btn" onclick="removeLi(${idx})">×</button></td>`;
+  document.getElementById('li-body').appendChild(tr);
+}
+
+function removeLi(idx) {
+  const row = document.getElementById('li-' + idx);
+  if (row) row.remove();
+  updateTotal();
+}
+
+function pdSearch(idx) {
+  const q   = (document.getElementById('lin-' + idx)?.value || '').toLowerCase().trim();
+  const drop = document.getElementById('pd-' + idx);
+  if (!drop) return;
+  if (!q || !allProducts?.length) { drop.classList.add('hidden'); return; }
+
+  const matches = allProducts
+    .filter(p => (p.fields['Product Name'] || '').toLowerCase().includes(q))
+    .slice(0, 15);
+
+  if (!matches.length) { drop.classList.add('hidden'); return; }
+
+  drop.innerHTML = matches.map(p => {
+    const price = p.fields['Unit Price'] || 0;
+    const unit  = p.fields['Unit Type']  || '';
+    return `<div class="pd-opt"
+      data-idx="${idx}"
+      data-id="${p.id}"
+      data-name="${escAttr(p.fields['Product Name'] || '')}"
+      data-price="${price}"
+      onmousedown="pdSelect(this)">
+        <div class="pd-opt-name">${esc(p.fields['Product Name'] || '')}</div>
+        <div class="pd-opt-price">$${Number(price).toFixed(2)} / ${esc(unit)}</div>
+      </div>`;
+  }).join('');
+  drop.classList.remove('hidden');
+}
+
+function pdHide(idx) {
+  setTimeout(() => {
+    const d = document.getElementById('pd-' + idx);
+    if (d) d.classList.add('hidden');
+  }, 160);
+}
+
+function pdSelect(el) {
+  const idx   = el.dataset.idx;
+  const name  = el.dataset.name;
+  const price = parseFloat(el.dataset.price) || 0;
+  const nameEl  = document.getElementById('lin-' + idx);
+  const priceEl = document.getElementById('lip-' + idx);
+  if (nameEl)  { nameEl.value = name; nameEl.dataset.pid = el.dataset.id; }
+  if (priceEl) priceEl.value = price.toFixed(2);
+  liCalc(idx);
+  pdHide(idx);
+}
+
+function liCalc(idx) {
+  const qty   = parseFloat(document.getElementById('liq-' + idx)?.value) || 0;
+  const price = parseFloat(document.getElementById('lip-' + idx)?.value) || 0;
+  const el    = document.getElementById('lis-' + idx);
+  if (el) el.textContent = '$' + (qty * price).toFixed(2);
+  updateTotal();
+}
+
+function updateTotal() {
+  let t = 0;
+  document.querySelectorAll('[id^="li-"]').forEach(row => {
+    if (!row.id.match(/^li-\d+$/)) return;
+    const idx = row.id.slice(3);
+    const qty   = parseFloat(document.getElementById('liq-' + idx)?.value) || 0;
+    const price = parseFloat(document.getElementById('lip-' + idx)?.value) || 0;
+    t += qty * price;
+  });
+  document.getElementById('inv-total').textContent = '$' + t.toFixed(2);
+}
+
+async function submitInvoice(sendNow) {
+  const lineItems = [];
+  document.querySelectorAll('[id^="li-"]').forEach(row => {
+    if (!row.id.match(/^li-\d+$/)) return;
+    const idx   = row.id.slice(3);
+    const nameEl  = document.getElementById('lin-' + idx);
+    const qtyEl   = document.getElementById('liq-' + idx);
+    const priceEl = document.getElementById('lip-' + idx);
+    if (!nameEl || !qtyEl || !priceEl) return;
+    const name  = (nameEl.value || '').trim();
+    const qty   = parseFloat(qtyEl.value)   || 1;
+    const price = parseFloat(priceEl.value) || 0;
+    if (!name && price === 0) return;
+    lineItems.push({
+      productId:   nameEl.dataset.pid || null,
+      productName: name || 'Service',
+      quantity:    qty,
+      unitPrice:   price
+    });
+  });
+
+  if (!lineItems.length) { alert('Please add at least one line item.'); return; }
+
+  const notes = document.getElementById('inv-notes').value.trim();
+  const draftBtn = document.getElementById('draft-btn');
+  const sendBtn  = document.getElementById('send-btn');
+  draftBtn.disabled = true;
+  sendBtn.disabled  = true;
+  sendBtn.textContent = sendNow ? 'Sending…' : 'Saving…';
+
+  try {
+    const res = await fetch(`${PROXY}/invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workOrderId: invoiceWOId,
+        customerId:  invoiceCustId,
+        lineItems,
+        notes,
+        sendNow
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Invoice failed');
+
+    closeModal();
+
+    if (data.hostedUrl) {
+      const go = confirm(sendNow
+        ? '✅ Invoice sent to customer!\n\nOpen the Stripe invoice to confirm?'
+        : '✅ Draft invoice saved.\n\nOpen in Stripe to review before sending?');
+      if (go) window.open(data.hostedUrl, '_blank');
+    } else {
+      alert(sendNow ? '✅ Invoice sent!' : '✅ Draft saved.');
+    }
+
+    // Refresh work orders for this customer
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+
+  } catch (err) {
+    alert('Error: ' + err.message);
+    draftBtn.disabled = false;
+    sendBtn.disabled  = false;
+    sendBtn.textContent = 'Send Invoice Now';
+  }
+}
+
+// ── Utilities ───────────────────────────────────────────────────────────────
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+init();
+</script>
+</body>
+</html>
