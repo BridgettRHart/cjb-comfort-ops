@@ -249,7 +249,19 @@ export default {
           stripeCustId = cc.id;
         }
 
-        // 3. Create draft Stripe invoice
+        // 3. Create line items as pending for this customer (no invoice ID yet)
+        //    Stripe collects all pending items when the invoice is created
+        for (const item of lineItems) {
+          await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
+            customer:    stripeCustId,
+            unit_amount: String(Math.round((item.unitPrice || 0) * 100)),
+            quantity:    String(Math.max(1, Math.round(item.quantity || 1))),
+            currency:    'usd',
+            description: item.productName || 'Service'
+          });
+        }
+
+        // 4. Create invoice — automatically collects all pending items above
         const invParams = {
           customer:           stripeCustId,
           auto_advance:       'false',
@@ -258,18 +270,6 @@ export default {
         };
         if (notes) invParams.description = notes;
         const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
-
-        // 4. Add line items
-        for (const item of lineItems) {
-          await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
-            customer:    stripeCustId,
-            invoice:     inv.id,
-            unit_amount: String(Math.round((item.unitPrice || 0) * 100)),
-            quantity:    String(Math.max(1, Math.round(item.quantity || 1))),
-            currency:    'usd',
-            description: item.productName || 'Service'
-          });
-        }
 
         // 5. Finalize invoice
         const finalized = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});

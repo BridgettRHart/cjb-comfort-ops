@@ -1128,12 +1128,12 @@
     <div class="logo" aria-label="CJB Comfort">
       <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
-    <div class="header-name" aria-label="Logged in as Cornell Hart">Cornell Hart</div>
+    <div class="header-name" aria-label="Logged in as Technician">Technician</div>
   </header>
 
   <div class="greeting-strip" role="region" aria-label="Schedule summary">
     <div>
-      <div class="greeting-hello" id="greeting-text">Good morning, Cornell</div>
+      <div class="greeting-hello" id="greeting-text">Good morning</div>
       <div class="greeting-date" id="greeting-date"></div>
     </div>
     <div class="jobs-count-badge" id="jobs-badge" aria-live="polite">Loading...</div>
@@ -1374,7 +1374,7 @@
           <label class="radio-option" id="radio-yes-label" onclick="selectFollowup('yes')">
             <input type="radio" name="followup" value="yes" id="followup-yes" aria-label="Yes, flag Bridgett for follow-up">
             <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            Yes — flag Bridgett
+            Yes — flag for office review
           </label>
         </div>
         <div id="followup-notes-wrap" style="display:none; margin-top:10px;">
@@ -1430,7 +1430,7 @@
         aria-label="Mark visit as ready to invoice">
         <div>
           <div class="ready-toggle-label">Ready to Invoice</div>
-          <div class="ready-toggle-sub">Bridgett will review and send</div>
+          <div class="ready-toggle-sub">Office will review and send</div>
         </div>
         <div class="toggle-wrap">
           <span class="toggle-label-text" id="summary-toggle-label" aria-hidden="true">OFF</span>
@@ -1504,7 +1504,7 @@ function setGreeting() {
   let greet = 'Good morning';
   if (hour >= 12 && hour < 17) greet = 'Good afternoon';
   else if (hour >= 17) greet = 'Good evening';
-  document.getElementById('greeting-text').textContent = `${greet}, Cornell`;
+  document.getElementById('greeting-text').textContent = greet;
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   document.getElementById('greeting-date').textContent =
@@ -1590,7 +1590,7 @@ async function loadTodaysJobs() {
         <div class="empty-state">
           <div class="empty-state-icon" aria-hidden="true">☀️</div>
           <h3>No jobs scheduled today</h3>
-          <p>Enjoy the downtime or check with Bridgett for any new bookings.</p>
+          <p>Enjoy the downtime or check with the office for any new bookings.</p>
         </div>`;
       return;
     }
