@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Property Deduplicator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f4f4; color: #2e2e2e; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 720px; margin: 0 auto 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.09); }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .warn-box { background: #fffbea; border: 1px solid #e8d44d; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #5c4700; line-height: 1.6; }
+  .btn { background: #c81f25; color: #fff; border: none; border-radius: 8px; padding: 13px 24px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-sm { padding: 8px 16px; font-size: 13px; width: auto; border-radius: 6px; cursor: pointer; border: none; font-weight: 700; color: #fff; }
+  .btn-delete { background: #c81f25; }
+  .btn-keep { background: #1a6b35; }
+  .btn-skip { background: #888; }
+  .progress { margin-top: 16px; display: none; }
+  .progress-bar-wrap { background: #e0e0e0; border-radius: 20px; height: 10px; margin-top: 6px; }
+  .progress-bar { background: #c81f25; border-radius: 20px; height: 10px; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #666; margin-top: 6px; }
+  .dup-group { border: 1px solid #e8d44d; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fffbea; }
+  .dup-group h3 { font-size: 14px; font-weight: 700; margin-bottom: 10px; color: #5c4700; }
+  .prop-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.07); flex-wrap: wrap; }
+  .prop-row:last-of-type { border-bottom: none; }
+  .prop-info { flex: 1; min-width: 200px; }
+  .prop-name { font-weight: 700; font-size: 13px; }
+  .prop-addr { font-size: 12px; color: #555; margin-top: 2px; }
+  .prop-id { font-size: 11px; color: #bbb; margin-top: 2px; font-family: monospace; }
+  .prop-links { font-size: 11px; color: #888; margin-top: 2px; }
+  .group-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  #results { display: none; }
+  .stat-row { display: flex; gap: 12px; margin-bottom: 20px; }
+  .stat { flex: 1; background: #f4f4f4; border-radius: 8px; padding: 12px; text-align: center; }
+  .stat-num { font-size: 24px; font-weight: 700; color: #c81f25; }
+  .stat-label { font-size: 12px; color: #888; margin-top: 2px; }
+  .clean-box { background: #e2f0e7; border-radius: 8px; padding: 16px; font-size: 14px; color: #1a6b35; font-weight: 700; text-align: center; }
+  .log { margin-top: 16px; background: #f4f4f4; border-radius: 8px; padding: 16px; max-height: 280px; overflow-y: auto; font-size: 12px; font-family: monospace; line-height: 1.9; display: none; }
+  .ok { color: #1a6b35; } .err { color: #c81f25; } .info { color: #999; }
+  .recommend { font-size: 11px; background: #e8f0fb; border-radius: 4px; padding: 2px 6px; color: #1a3a6b; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>CJB Comfort — Property Deduplicator</h1>
+  <p class="sub">Fetches all properties from Airtable, finds likely duplicates (same address or same customer with very similar names), and lets you delete the ones you don't want.</p>
+
+  <div class="warn-box">
+    ⚠ <strong>Review carefully before deleting.</strong> The "Keep" record shown in green is the recommended one to keep (uses the "Customer Name — Address" format). The red one is suggested for deletion. You can always skip a group if you're unsure.
+  </div>
+
+  <button class="btn" id="scan-btn" onclick="scanDuplicates()">Scan for Duplicate Properties</button>
+
+  <div class="progress" id="progress-wrap">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">Fetching properties...</div>
+  </div>
+
+  <div id="results" style="margin-top:20px;"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+const logEl = document.getElementById('log');
+function log(msg, cls='') {
+  logEl.style.display = 'block';
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = msg + '\n';
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function norm(s) {
+  return (s || '').toLowerCase()
+    .replace(/\bst\b\.?/g,'street').replace(/\bave\b\.?/g,'avenue')
+    .replace(/\bdr\b\.?/g,'drive').replace(/\bln\b\.?/g,'lane')
+    .replace(/\brd\b\.?/g,'road').replace(/\bblvd\b\.?/g,'boulevard')
+    .replace(/\bpl\b\.?/g,'place').replace(/\bct\b\.?/g,'court')
+    .replace(/\bpkwy\b\.?/g,'parkway').replace(/\bw\b/g,'west')
+    .replace(/\be\b/g,'east').replace(/\bn\b/g,'north').replace(/\bs\b/g,'south')
+    .replace(/[.,#]/g,'').replace(/\s+/g,' ').trim();
+}
+
+function similar(a, b) {
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  // One contains the other (e.g. short vs long format)
+  if (na.includes(nb) || nb.includes(na)) return true;
+  return false;
+}
+
+async function fetchAllProperties() {
+  let all = [], offset = null;
+  do {
+    let url = `${PROXY}/Properties?pageSize=100&fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Zip&fields[]=Customer Email&fields[]=Customer&fields[]=Active`;
+    if (offset) url += `&offset=${offset}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch properties: ' + res.status);
+    const data = await res.json();
+    all = all.concat(data.records || []);
+    offset = data.offset || null;
+  } while (offset);
+  return all;
+}
+
+async function deleteRecord(table, id) {
+  const res = await fetch(`${PROXY}/${encodeURIComponent(table)}/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('DELETE failed: ' + res.status);
+  return res.json();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+let dupGroups = [];
+let allProps = [];
+
+async function scanDuplicates() {
+  document.getElementById('scan-btn').disabled = true;
+  document.getElementById('progress-wrap').style.display = 'block';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('results').style.display = 'none';
+
+  try {
+    document.getElementById('progress-text').textContent = 'Fetching all properties from Airtable...';
+    allProps = await fetchAllProperties();
+    document.getElementById('progress-bar').style.width = '50%';
+    document.getElementById('progress-text').textContent = `Loaded ${allProps.length} properties. Scanning for duplicates...`;
+
+    // Find duplicates: group by normalized address
+    const addrMap = {};
+    for (const p of allProps) {
+      const addr = (p.fields['Service Address'] || '').trim();
+      if (!addr) continue;
+      const key = norm(addr);
+      if (!addrMap[key]) addrMap[key] = [];
+      addrMap[key].push(p);
+    }
+
+    // Also group by customer email (same customer, multiple records with no address differentiation)
+    const emailMap = {};
+    for (const p of allProps) {
+      const email = (p.fields['Customer Email'] || '').toLowerCase().trim();
+      const name  = (p.fields['Property Name'] || '').trim();
+      if (!email) continue;
+      if (!emailMap[email]) emailMap[email] = [];
+      emailMap[email].push(p);
+    }
+
+    dupGroups = [];
+    const seen = new Set();
+
+    // Address-based duplicates
+    for (const [key, props] of Object.entries(addrMap)) {
+      if (props.length < 2) continue;
+      const groupId = props.map(p => p.id).sort().join('|');
+      if (seen.has(groupId)) continue;
+      seen.add(groupId);
+      dupGroups.push({ reason: 'Same address', props });
+    }
+
+    // Email-based duplicates with similar names
+    for (const [email, props] of Object.entries(emailMap)) {
+      if (props.length < 2) continue;
+      // Look for name similarities
+      for (let i = 0; i < props.length; i++) {
+        for (let j = i+1; j < props.length; j++) {
+          const na = props[i].fields['Property Name'] || '';
+          const nb = props[j].fields['Property Name'] || '';
+          const aa = props[i].fields['Service Address'] || '';
+          const ab = props[j].fields['Service Address'] || '';
+          // Only flag if addresses are similar too
+          if (similar(aa, ab) || (!aa && !ab)) {
+            const groupId = [props[i].id, props[j].id].sort().join('|');
+            if (!seen.has(groupId)) {
+              seen.add(groupId);
+              dupGroups.push({ reason: 'Same customer email + similar address', props: [props[i], props[j]] });
+            }
+          }
+        }
+      }
+    }
+
+    document.getElementById('progress-bar').style.width = '100%';
+    document.getElementById('progress-wrap').style.display = 'none';
+
+    renderResults();
+
+  } catch (err) {
+    document.getElementById('progress-text').textContent = 'Error: ' + err.message;
+    log('Error: ' + err.message, 'err');
+  }
+}
+
+function renderResults() {
+  const el = document.getElementById('results');
+  el.style.display = 'block';
+
+  if (!dupGroups.length) {
+    el.innerHTML = '<div class="clean-box">✅ No duplicate properties found!</div>';
+    return;
+  }
+
+  let html = `<div class="stat-row">
+    <div class="stat"><div class="stat-num">${allProps.length}</div><div class="stat-label">Total Properties</div></div>
+    <div class="stat"><div class="stat-num">${dupGroups.length}</div><div class="stat-label">Duplicate Groups</div></div>
+  </div>
+  <p style="font-size:13px;color:#888;margin-bottom:16px;">For each group, choose which record to <strong>Keep</strong> (green) and which to <strong>Delete</strong> (red). Use Skip if you're unsure.</p>`;
+
+  dupGroups.forEach((group, gIdx) => {
+    // Decide recommended keep/delete: prefer "Name — Address" format
+    const sorted = [...group.props].sort((a, b) => {
+      const na = a.fields['Property Name'] || '';
+      const nb = b.fields['Property Name'] || '';
+      // Prefer names with " — " in them (our format)
+      const aScore = na.includes(' — ') ? 1 : 0;
+      const bScore = nb.includes(' — ') ? 1 : 0;
+      return bScore - aScore;
+    });
+    const keepRec = sorted[0];
+    const deleteRecs = sorted.slice(1);
+
+    html += `<div class="dup-group" id="group-${gIdx}">
+      <h3>${group.reason}</h3>`;
+
+    group.props.forEach(p => {
+      const name = p.fields['Property Name'] || '(no name)';
+      const addr = [p.fields['Service Address'], p.fields['City'], p.fields['State'], p.fields['Zip']].filter(Boolean).join(', ');
+      const email = p.fields['Customer Email'] || '';
+      const isKeep = p.id === keepRec.id;
+      html += `<div class="prop-row">
+        <div class="prop-info">
+          <div class="prop-name">${escHtml(name)} ${isKeep ? '<span class="recommend">recommended keep</span>' : ''}</div>
+          ${addr ? `<div class="prop-addr">📍 ${escHtml(addr)}</div>` : ''}
+          ${email ? `<div class="prop-links">✉️ ${escHtml(email)}</div>` : ''}
+          <div class="prop-id">${p.id}</div>
+        </div>
+      </div>`;
+    });
+
+    html += `<div class="group-actions">
+      <button class="btn-sm btn-delete" onclick="deleteAndDismiss(${gIdx}, '${deleteRecs.map(r=>r.id).join(',')}')">
+        Delete ${deleteRecs.length === 1 ? '"' + escHtml((deleteRecs[0].fields['Property Name']||'').substring(0,30)) + '"' : deleteRecs.length + ' duplicates'}
+      </button>
+      <button class="btn-sm btn-skip" onclick="skipGroup(${gIdx})">Skip</button>
+    </div></div>`;
+  });
+
+  el.innerHTML = html;
+}
+
+async function deleteAndDismiss(gIdx, idsStr) {
+  const ids = idsStr.split(',').filter(Boolean);
+  for (const id of ids) {
+    try {
+      await deleteRecord('Properties', id);
+      log(`Deleted property ${id}`, 'ok');
+      await sleep(200);
+    } catch (err) {
+      log(`Failed to delete ${id}: ${err.message}`, 'err');
+    }
+  }
+  document.getElementById('group-' + gIdx).style.display = 'none';
+}
+
+function skipGroup(gIdx) {
+  document.getElementById('group-' + gIdx).style.display = 'none';
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Calendar → Work Orders</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f4f4; color: #2e2e2e; padding: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; max-width: 720px; margin: 0 auto 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.09); }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  h2 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .info-box { background: #e8f0fb; border: 1px solid #a0bdf0; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #1a3a6b; line-height: 1.6; }
+  .file-label { display: block; border: 2px dashed #ccc; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; font-size: 14px; color: #888; margin-bottom: 16px; transition: border-color 0.2s; }
+  .file-label:hover { border-color: #c81f25; color: #c81f25; }
+  .file-label.ready { border-color: #1a6b35; color: #1a6b35; background: #f0faf4; }
+  #ics-file { display: none; }
+  .btn { background: #c81f25; color: #fff; border: none; border-radius: 8px; padding: 13px 24px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-success { background: #1a6b35 !important; }
+  .btn-sm { padding: 6px 14px; font-size: 13px; width: auto; border-radius: 6px; }
+  .event-list { margin-bottom: 16px; display: none; }
+  .event-item { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+  .event-item:hover { border-color: #c81f25; }
+  .event-item.selected { border-color: #1a6b35; background: #f0faf4; }
+  .event-item.personal { border-color: #e0e0e0; background: #fafafa; opacity: 0.5; }
+  .event-header { display: flex; align-items: flex-start; gap: 10px; }
+  .event-check { width: 20px; height: 20px; flex-shrink: 0; margin-top: 2px; accent-color: #1a6b35; }
+  .event-title { font-weight: 700; font-size: 14px; }
+  .event-meta { font-size: 12px; color: #888; margin-top: 4px; }
+  .event-addr { font-size: 12px; color: #555; margin-top: 4px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+  .badge-work { background: #e2f0e7; color: #1a6b35; }
+  .badge-personal { background: #f0f0f0; color: #999; }
+  .type-select { margin-top: 8px; font-size: 12px; }
+  .type-select select { padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 12px; }
+  .progress { margin-top: 16px; display: none; }
+  .progress-bar-wrap { background: #e0e0e0; border-radius: 20px; height: 10px; margin-top: 6px; }
+  .progress-bar { background: #c81f25; border-radius: 20px; height: 10px; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 13px; color: #666; margin-top: 6px; }
+  .log { margin-top: 16px; background: #f4f4f4; border-radius: 8px; padding: 16px; max-height: 380px; overflow-y: auto; font-size: 12px; font-family: monospace; line-height: 1.9; display: none; }
+  .ok { color: #1a6b35; } .err { color: #c81f25; } .info { color: #999; } .warn { color: #8a6d00; }
+  .summary { background: #e2f0e7; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 14px; display: none; }
+  .summary h3 { font-weight: 700; margin-bottom: 10px; color: #1a6b35; }
+  .summary-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(0,0,0,0.07); }
+  .summary-row:last-child { border-bottom: none; }
+  #preview-section { display: none; }
+  .actions-row { display: flex; gap: 8px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>CJB Comfort — Calendar → Work Orders</h1>
+  <p class="sub">Upload Cornell's exported .ics file. Work appointments are detected automatically. Select which ones to import as Work Orders in Airtable.</p>
+
+  <div class="info-box">
+    ℹ Exports from Google Calendar: calendar.google.com → Settings gear → Export → opens a .zip → extract the .ics file inside.
+  </div>
+
+  <label class="file-label" id="file-label" for="ics-file">
+    📂 Click to choose the .ics calendar file
+  </label>
+  <input type="file" id="ics-file" accept=".ics" onchange="handleFile(this)">
+
+  <div id="preview-section">
+    <div class="actions-row">
+      <button class="btn btn-sm" style="background:#555" onclick="selectAll(true)">Select All Work</button>
+      <button class="btn btn-sm" style="background:#888" onclick="selectAll(false)">Deselect All</button>
+    </div>
+    <div class="event-list" id="event-list"></div>
+    <button class="btn" id="import-btn" onclick="startImport()">Import Selected as Work Orders</button>
+  </div>
+
+  <div class="progress" id="progress-wrap">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">Starting...</div>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+const TODAY = new Date();
+TODAY.setHours(0,0,0,0);
+
+const WORK_KEYWORDS = [
+  'inspection','service','hvac','maintenance','repair','install',
+  'check on','check up','checkup','diagnostic','estimate','warranty',
+  'filter','coil','motor','condenser','compressor','thermostat','t-stat',
+  'unit','cooler','furnace','heat pump','a/c','ac ','blower','drain',
+  'refriger','ductwork','startup','startup','start up'
+];
+const PERSONAL_KEYWORDS = [
+  'soccer','concert','church','dentist','doctor','medical','va app',
+  'mri','appointment with','birthday','party','school','game','lunch',
+  'dinner','movie','trip','vacation','flight','regain','lpc','therapy',
+  'prosthetic','pulmonary','gt project','presentations','isabel'
+];
+const WO_TYPE_MAP = {
+  'inspection': 'Inspection',
+  'maintenance': 'Maintenance',
+  'repair': 'Repair',
+  'install': 'Installation',
+  'estimate': 'Estimate Only',
+  'warranty': 'Warranty',
+  'diagnostic': 'Inspection',
+  'check': 'Inspection',
+  'service': 'Repair',
+  'filter': 'Maintenance',
+  'coil': 'Repair',
+  'motor': 'Repair',
+  'thermostat': 'Repair',
+  't-stat': 'Repair',
+  'startup': 'Maintenance',
+  'start up': 'Maintenance'
+};
+
+let parsedEvents = [];
+
+// ── ICS Parser ──────────────────────────────────────────────────────────────
+function parseICS(text) {
+  const events = [];
+  const blocks = text.split('BEGIN:VEVENT');
+  for (let i = 1; i < blocks.length; i++) {
+    const block = blocks[i];
+    const get = (key) => {
+      const m = block.match(new RegExp(key + '[^:]*:([^\r\n]+(?:\r?\n[ \t][^\r\n]+)*)'));
+      return m ? m[1].replace(/\r?\n[ \t]/g, '').trim() : '';
+    };
+    const summary  = get('SUMMARY').replace(/\\,/g, ',').replace(/\\n/g, ' ');
+    const location = get('LOCATION').replace(/\\,/g, ',').replace(/\\n/g, ', ').replace(/\\N/g, ', ');
+    const desc     = get('DESCRIPTION').replace(/\\n/g, '\n').replace(/\\,/g, ',');
+    const dtraw    = get('DTSTART');
+    const dtendraw = get('DTEND');
+
+    if (!summary || !dtraw) continue;
+
+    const dt    = parseICSDate(dtraw);
+    const dtend = parseICSDate(dtendraw);
+    if (!dt || dt < TODAY) continue;
+
+    // Extract email from description
+    const emailMatch = desc.match(/Invitee Email:\s*([^\s|]+@[^\s|\\]+)/i);
+    const email = emailMatch ? emailMatch[1].trim() : '';
+
+    // Extract phone from description
+    const phoneMatch = desc.match(/Phone[:\s]+([+\d\s()\-\.]{7,})/i);
+    const phone = phoneMatch ? phoneMatch[1].trim() : '';
+
+    const isWork = detectWork(summary, location, desc);
+    const woType = detectWOType(summary + ' ' + desc);
+
+    events.push({ summary, location, desc, dt, dtend, email, phone, isWork, woType });
+  }
+  events.sort((a, b) => a.dt - b.dt);
+  return events;
+}
+
+function parseICSDate(raw) {
+  if (!raw) return null;
+  // All-day: YYYYMMDD
+  const allDay = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (allDay) return new Date(+allDay[1], +allDay[2]-1, +allDay[3]);
+  // DateTime UTC: YYYYMMDDTHHmmssZ
+  const utc = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/);
+  if (utc) {
+    const d = new Date(Date.UTC(+utc[1],+utc[2]-1,+utc[3],+utc[4],+utc[5],+utc[6]));
+    return d;
+  }
+  // DateTime local: YYYYMMDDTHHmmss
+  const local = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
+  if (local) return new Date(+local[1],+local[2]-1,+local[3],+local[4],+local[5],+local[6]);
+  return null;
+}
+
+function detectWork(summary, location, desc) {
+  const text = (summary + ' ' + location + ' ' + desc).toLowerCase();
+  if (PERSONAL_KEYWORDS.some(k => text.includes(k))) return false;
+  if (WORK_KEYWORDS.some(k => text.includes(k))) return true;
+  // Calendly-style "Name: Event" format is usually work
+  if (/^[A-Z][a-z]+ [A-Z][a-z]+:/.test(summary)) return true;
+  return false;
+}
+
+function detectWOType(text) {
+  const t = text.toLowerCase();
+  for (const [kw, type] of Object.entries(WO_TYPE_MAP)) {
+    if (t.includes(kw)) return type;
+  }
+  return 'Inspection';
+}
+
+function formatDT(dt) {
+  if (!dt) return '';
+  return dt.toLocaleString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZone: 'America/Phoenix'
+  });
+}
+
+function formatISO(dt) {
+  if (!dt) return '';
+  // Return ISO string in local Phoenix time for Airtable
+  return dt.toISOString();
+}
+
+// ── File handler ─────────────────────────────────────────────────────────────
+function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    parsedEvents = parseICS(e.target.result);
+    renderEvents();
+    const lbl = document.getElementById('file-label');
+    lbl.textContent = `✅ ${file.name} — ${parsedEvents.length} upcoming events found`;
+    lbl.classList.add('ready');
+    document.getElementById('preview-section').style.display = 'block';
+  };
+  reader.readAsText(file);
+}
+
+function renderEvents() {
+  const list = document.getElementById('event-list');
+  list.innerHTML = '';
+  list.style.display = 'block';
+
+  if (!parsedEvents.length) {
+    list.innerHTML = '<div style="color:#888;font-size:13px;">No upcoming events found.</div>';
+    return;
+  }
+
+  parsedEvents.forEach((ev, idx) => {
+    const div = document.createElement('div');
+    div.className = 'event-item' + (ev.isWork ? ' selected' : ' personal');
+    div.id = 'ev-' + idx;
+    div.onclick = () => toggleEvent(idx);
+
+    const badge = ev.isWork
+      ? '<span class="badge badge-work">WORK</span>'
+      : '<span class="badge badge-personal">personal</span>';
+
+    div.innerHTML = `
+      <div class="event-header">
+        <input class="event-check" type="checkbox" id="chk-${idx}" ${ev.isWork ? 'checked' : ''}
+          onclick="event.stopPropagation(); toggleEvent(${idx})">
+        <div style="flex:1">
+          <div class="event-title">${escHtml(ev.summary)} ${badge}</div>
+          <div class="event-meta">${formatDT(ev.dt)}${ev.dtend ? ' → ' + formatDT(ev.dtend) : ''}</div>
+          ${ev.location ? `<div class="event-addr">📍 ${escHtml(ev.location)}</div>` : ''}
+          ${ev.email ? `<div class="event-addr">✉️ ${escHtml(ev.email)}</div>` : ''}
+          ${ev.isWork ? `<div class="type-select">Work Order Type: <select id="type-${idx}" onclick="event.stopPropagation()">
+            ${['Inspection','Maintenance','Repair','Installation','Estimate Only','Warranty'].map(t =>
+              `<option${t===ev.woType?' selected':''}>${t}</option>`).join('')}
+          </select></div>` : ''}
+        </div>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+
+function toggleEvent(idx) {
+  const chk = document.getElementById('chk-' + idx);
+  const div = document.getElementById('ev-' + idx);
+  chk.checked = !chk.checked;
+  div.className = 'event-item' + (chk.checked ? ' selected' : (parsedEvents[idx].isWork ? '' : ' personal'));
+}
+
+function selectAll(val) {
+  parsedEvents.forEach((ev, idx) => {
+    const chk = document.getElementById('chk-' + idx);
+    const div = document.getElementById('ev-' + idx);
+    if (chk) {
+      chk.checked = val ? true : false;
+      div.className = 'event-item' + (chk.checked ? ' selected' : (ev.isWork ? '' : ' personal'));
+    }
+  });
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Airtable helpers ─────────────────────────────────────────────────────────
+async function atGet(table, formula) {
+  const url = `${PROXY}/${encodeURIComponent(table)}?filterByFormula=${encodeURIComponent(formula)}&maxRecords=5`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GET ${table} failed: ${res.status}`);
+  return (await res.json()).records || [];
+}
+
+async function atPost(table, fields) {
+  const res = await fetch(`${PROXY}/${encodeURIComponent(table)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields })
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error(`POST ${table}: ${res.status} — ${e}`); }
+  return res.json();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+const logEl = document.getElementById('log');
+function log(msg, cls='') {
+  logEl.style.display = 'block';
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = msg + '\n';
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── Import ───────────────────────────────────────────────────────────────────
+async function startImport() {
+  const selected = parsedEvents.filter((_, idx) => {
+    const chk = document.getElementById('chk-' + idx);
+    return chk && chk.checked;
+  }).map((ev, _) => {
+    // get selected type
+    const idxInAll = parsedEvents.indexOf(ev);
+    const typeEl = document.getElementById('type-' + idxInAll);
+    return { ...ev, woType: typeEl ? typeEl.value : ev.woType };
+  });
+
+  if (!selected.length) { alert('Select at least one event to import.'); return; }
+
+  document.getElementById('import-btn').disabled = true;
+  document.getElementById('progress-wrap').style.display = 'block';
+  logEl.innerHTML = '';
+
+  let created = 0, skipped = 0, failed = 0;
+  const total = selected.length;
+
+  for (let i = 0; i < selected.length; i++) {
+    const ev = selected[i];
+    const name = ev.summary.replace(/:\s*(On-Site\s*)?HVAC\s*Inspection/i,'').replace(/:\s*/,'').trim()
+                  || ev.summary;
+
+    document.getElementById('progress-bar').style.width = Math.round((i/total)*100) + '%';
+    document.getElementById('progress-text').textContent = `(${i+1}/${total}) ${name}`;
+    log(`\n— ${ev.summary}`, 'section-head');
+
+    try {
+      // 1. Check if Work Order already exists for this time slot + customer
+      const existingWOs = await atGet('Work Orders',
+        `AND({Work Order Name}="${ev.summary}",{Scheduled Date}="${formatISO(ev.dt)}")`);
+      await sleep(150);
+
+      if (existingWOs.length > 0) {
+        skipped++;
+        log(`  Work Order: already exists, skipping`, 'info');
+        continue;
+      }
+
+      // 2. Find customer
+      let customerId = null;
+      if (ev.email) {
+        const custs = await atGet('Customers', `{Email}="${ev.email.toLowerCase()}"`);
+        await sleep(120);
+        if (custs.length) customerId = custs[0].id;
+      }
+      if (!customerId) {
+        // Try by first+last name from summary
+        const custName = name;
+        const custs = await atGet('Customers', `{Customer Name}="${custName}"`);
+        await sleep(120);
+        if (custs.length) customerId = custs[0].id;
+      }
+      log(`  Customer: ${customerId ? 'found (' + customerId + ')' : 'not found — will create WO without link'}`, customerId ? 'ok' : 'warn');
+
+      // 3. Find property by address or customer email
+      let propertyId = null;
+      const addr = ev.location ? ev.location.split(',')[0].trim() : '';
+      if (addr && ev.email) {
+        const props = await atGet('Properties',
+          `AND({Customer Email}="${ev.email.toLowerCase()}",{Service Address}="${addr}")`);
+        await sleep(120);
+        if (props.length) { propertyId = props[0].id; log(`  Property: found`, 'ok'); }
+      }
+      if (!propertyId && addr) {
+        const props = await atGet('Properties', `{Service Address}="${addr}"`);
+        await sleep(120);
+        if (props.length) { propertyId = props[0].id; log(`  Property: found by address`, 'ok'); }
+      }
+      if (!propertyId && ev.location) {
+        log(`  Property: not found — WO created without property link`, 'warn');
+      }
+
+      // 4. Create Work Order
+      const woName = `${name} — ${ev.woType}`;
+      const fields = {
+        'Work Order Name': woName,
+        'Status': 'Scheduled',
+        'Work Order Type': ev.woType,
+        'Active': true
+      };
+      if (ev.dt)   fields['Scheduled Date'] = formatISO(ev.dt);
+      if (ev.dtend) fields['Scheduled End'] = formatISO(ev.dtend);
+      if (customerId) fields['Customer'] = [customerId];
+      if (propertyId) fields['Property'] = [propertyId];
+      if (ev.email || ev.phone) {
+        const noteParts = [];
+        if (ev.email) noteParts.push('Email: ' + ev.email);
+        if (ev.phone) noteParts.push('Phone: ' + ev.phone);
+        fields['Notes'] = noteParts.join(' | ');
+      }
+      if (ev.location && !propertyId) fields['Problem Description'] = 'Address: ' + ev.location;
+
+      const wo = await atPost('Work Orders', fields);
+      created++;
+      log(`  Work Order CREATED: ${woName} (${wo.id})`, 'ok');
+      await sleep(250);
+
+    } catch (err) {
+      failed++;
+      log(`  ERROR: ${err.message}`, 'err');
+    }
+  }
+
+  document.getElementById('progress-bar').style.width = '100%';
+  document.getElementById('progress-bar').style.background = '#1a6b35';
+  document.getElementById('import-btn').classList.add('btn-success');
+  document.getElementById('import-btn').textContent = 'Import Complete ✓';
+
+  const sumEl = document.getElementById('summary');
+  sumEl.style.display = 'block';
+  sumEl.innerHTML = `
+    <h3>Import Complete</h3>
+    <div class="summary-row"><span>Work Orders created</span><span><strong>${created}</strong></span></div>
+    <div class="summary-row"><span>Already existed (skipped)</span><span><strong>${skipped}</strong></span></div>
+    <div class="summary-row"><span>Errors</span><span><strong style="color:${failed?'#c81f25':'inherit'}">${failed}</strong></span></div>`;
+  log('\n✅ Import finished.', 'ok');
+}
+</script>
+</body>
+</html>
