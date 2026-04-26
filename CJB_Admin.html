@@ -395,8 +395,14 @@ async function openInvoiceModal(workOrderId, customerId) {
   document.getElementById('modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
   document.getElementById('invoice-modal').classList.remove('hidden');
 
+  // Check if there's an existing Stripe draft for this work order
+  const woForModal = currentWorkOrders.find(w => w.id === workOrderId);
+  const woInternalNotes = woForModal?.fields?.['Internal Notes'] || '';
+  const stripeIdMatch = woInternalNotes.match(/Stripe Invoice ID: (inv_[^\s\n]+)/);
+  const existingStripeId = stripeIdMatch ? stripeIdMatch[1] : null;
+
   try {
-    // Load products + fetch WO's linked job IDs in parallel
+    // Always load products + job details (jobs shown in summary panel regardless)
     const [prodsRaw, woDetail] = await Promise.all([
       allProducts
         ? Promise.resolve(null)
@@ -407,7 +413,7 @@ async function openInvoiceModal(workOrderId, customerId) {
     ]);
     if (prodsRaw) allProducts = prodsRaw.filter(p => p.fields['Active'] !== false);
 
-    // Fetch job details
+    // Fetch job details for the summary panel
     const jobIds = woDetail.fields?.['Jobs'] || [];
     let jobs = [];
     if (jobIds.length > 0) {
@@ -422,23 +428,35 @@ async function openInvoiceModal(workOrderId, customerId) {
       jobs = jobData.records || [];
     }
 
-    // Render job summary panel
     renderJobSummary(jobs);
 
-    // Pre-populate line items
-    if (jobs.length > 0) {
-      // 1. Service call fee (once, at the top) — skipped if any job is a Repair
-      const woForDate = currentWorkOrders.find(w => w.id === workOrderId);
-      addServiceCallItem(jobs, woForDate?.fields['Scheduled Date']);
-      // 2. Parts from each job
-      for (const job of jobs) addPartsFromJob(job);
+    if (existingStripeId) {
+      // ── Edit Draft: load line items + notes from the saved Stripe draft ──
+      const draft = await fetch(`${PROXY}/invoice/${existingStripeId}`).then(r => r.json());
+      if (draft.error) throw new Error(draft.error);
+
+      // Restore notes from the Stripe invoice description
+      if (draft.description) document.getElementById('inv-notes').value = draft.description;
+
+      // Restore line items exactly as saved
+      for (const line of (draft.lines || [])) {
+        fillLineItem(line.description, line.quantity, line.unitPrice, null);
+      }
+      if (!draft.lines?.length) addLineItem(); // blank fallback
+
     } else {
-      addLineItem(); // blank fallback if no jobs recorded
+      // ── New invoice: derive line items from job data ──
+      if (jobs.length > 0) {
+        addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
+        for (const job of jobs) addPartsFromJob(job);
+      } else {
+        addLineItem();
+      }
     }
 
   } catch (err) {
     document.getElementById('job-summary').innerHTML =
-      `<div style="color:#c81f25;font-size:12px;">Could not load job details: ${esc(err.message)}</div>`;
+      `<div style="color:#c81f25;font-size:12px;">Could not load details: ${esc(err.message)}</div>`;
     addLineItem();
   }
 

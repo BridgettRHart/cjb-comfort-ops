@@ -218,7 +218,39 @@ export default {
       }
     }
 
-    // ── Stripe Invoice ────────────────────────────────────────────────────
+    // ── Stripe Invoice — fetch existing draft ────────────────────────────
+    if (path.startsWith('/api/invoice/') && request.method === 'GET') {
+      const stripeInvoiceId = path.split('/api/invoice/')[1];
+      const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+      if (!STRIPE_KEY) {
+        return new Response(JSON.stringify({ error: 'STRIPE_SECRET_KEY not configured' }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      try {
+        const [inv, lines] = await Promise.all([
+          stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`),
+          stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}/lines?limit=100`)
+        ]);
+        return new Response(JSON.stringify({
+          id:          inv.id,
+          status:      inv.status,
+          description: inv.description || '',
+          hostedUrl:   inv.hosted_invoice_url || null,
+          lines: (lines.data || []).map(l => ({
+            description: l.description || '',
+            quantity:    l.quantity    || 1,
+            unitPrice:   (l.unit_amount || 0) / 100
+          }))
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── Stripe Invoice — create / update ─────────────────────────────────
     if (path === '/api/invoice' && request.method === 'POST') {
       try {
         const { workOrderId, customerId, lineItems, notes, sendNow } = await request.json();
