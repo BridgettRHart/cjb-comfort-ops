@@ -375,7 +375,7 @@ async function loadDashboard(force) {
     '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
   try {
     const woFormula  = encodeURIComponent(`NOT({Status}="Cancelled")`);
-    const jobFormula = encodeURIComponent(`{Follow-Up Required?}=TRUE()`);
+    const jobFormula = encodeURIComponent(`{Follow Up Required}=TRUE()`);
     [_dashWOs, _dashFlaggedJobs] = await Promise.all([
       fetchAll('Work Orders',
         `filterByFormula=${woFormula}&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
