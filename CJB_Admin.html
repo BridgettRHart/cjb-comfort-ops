@@ -432,8 +432,9 @@ async function openInvoiceModal(workOrderId, customerId) {
 
     if (existingStripeId) {
       // ── Edit Draft: load line items + notes from the saved Stripe draft ──
-      const draft = await fetch(`${PROXY}/invoice/${existingStripeId}`).then(r => r.json());
-      if (draft.error) throw new Error(draft.error);
+      const draftRes = await fetch(`${PROXY}/invoice/${existingStripeId}`);
+      const draft    = await draftRes.json();
+      if (!draftRes.ok || draft.error) throw new Error(draft.error || `HTTP ${draftRes.status}`);
 
       // Restore notes from the Stripe invoice description
       if (draft.description) document.getElementById('inv-notes').value = draft.description;

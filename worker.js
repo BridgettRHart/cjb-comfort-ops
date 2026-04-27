@@ -240,7 +240,9 @@ export default {
           lines: (lines.data || []).map(l => ({
             description: l.description || '',
             quantity:    l.quantity    || 1,
-            unitPrice:   Math.round((l.amount || 0) / (l.quantity || 1)) / 100
+            unitPrice:   (l.price?.unit_amount != null
+              ? l.price.unit_amount
+              : Math.round((l.amount || 0) / (l.quantity || 1))) / 100
           }))
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
