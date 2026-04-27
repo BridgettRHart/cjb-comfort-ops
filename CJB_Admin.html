@@ -868,12 +868,24 @@ async function openInvoiceModal(workOrderId, customerId) {
       const jobData = await fetch(
         `${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}` +
         '&fields[]=Job Name&fields[]=Job Type&fields[]=Status' +
-        '&fields[]=Work Performed&fields[]=Parts Used&fields[]=Diagnosis&fields[]=Labor Hours'
+        '&fields[]=Work Performed&fields[]=Parts Used&fields[]=Diagnosis&fields[]=Labor Hours&fields[]=Recommendations'
       ).then(r => r.json());
       jobs = jobData.records || [];
     }
 
     renderJobSummary(jobs);
+
+    // Auto-fill customer notes from job details (new invoices only)
+    if (!existingStripeId && jobs.length > 0) {
+      const noteLines = [];
+      for (const job of jobs) {
+        const jf = job.fields;
+        if (jf['Diagnosis'])      noteLines.push(`Diagnosis: ${jf['Diagnosis']}`);
+        if (jf['Work Performed']) noteLines.push(`Work Performed: ${jf['Work Performed']}`);
+        if (jf['Recommendations']) noteLines.push(`Recommendations: ${jf['Recommendations']}`);
+      }
+      if (noteLines.length) document.getElementById('inv-notes').value = noteLines.join('\n\n');
+    }
 
     if (existingStripeId) {
       // ── Edit Draft: load line items + notes from the saved Stripe draft ──
@@ -920,10 +932,11 @@ function renderJobSummary(jobs) {
   const rows = jobs.map(job => {
     const jf = job.fields;
     const lines = [];
-    if (jf['Work Performed']) lines.push(`<div class="job-block-line"><span class="job-block-label">✅ Work done:</span>${esc(jf['Work Performed'])}</div>`);
-    if (jf['Diagnosis'])      lines.push(`<div class="job-block-line"><span class="job-block-label">🔍 Diagnosis:</span>${esc(jf['Diagnosis'])}</div>`);
-    if (jf['Parts Used'])     lines.push(`<div class="job-block-line"><span class="job-block-label">🔧 Parts used:</span>${esc(jf['Parts Used'])}</div>`);
-    if (jf['Labor Hours'])    lines.push(`<div class="job-block-line"><span class="job-block-label">⏱ Labor:</span>${jf['Labor Hours']} hrs</div>`);
+    if (jf['Work Performed'])   lines.push(`<div class="job-block-line"><span class="job-block-label">✅ Work done:</span>${esc(jf['Work Performed'])}</div>`);
+    if (jf['Diagnosis'])        lines.push(`<div class="job-block-line"><span class="job-block-label">🔍 Diagnosis:</span>${esc(jf['Diagnosis'])}</div>`);
+    if (jf['Recommendations'])  lines.push(`<div class="job-block-line"><span class="job-block-label">💡 Recommendations:</span>${esc(jf['Recommendations'])}</div>`);
+    if (jf['Parts Used'])       lines.push(`<div class="job-block-line"><span class="job-block-label">🔧 Parts used:</span>${esc(jf['Parts Used'])}</div>`);
+    if (jf['Labor Hours'])      lines.push(`<div class="job-block-line"><span class="job-block-label">⏱ Labor:</span>${jf['Labor Hours']} hrs</div>`);
     return `<div class="job-block">
       <div><span class="job-block-name">${esc(jf['Job Name'] || '(unnamed job)')}</span><span class="job-block-type">${esc(jf['Job Type'] || '')}</span></div>
       ${lines.join('')}
