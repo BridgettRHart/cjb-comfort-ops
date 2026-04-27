@@ -472,7 +472,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           collection_method: 'send_invoice',
           days_until_due:    '30'
         };
-        if (notes)  invParams.description             = notes;
+        if (notes)  invParams.description              = notes;
         if (woName) invParams['metadata[work_order]'] = woName;
         const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 

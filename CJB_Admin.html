@@ -437,9 +437,8 @@ function renderDashboard(wos, flaggedJobs) {
   wos.forEach(w => { const d = _azDate(w.fields['Scheduled Date']); if (d in weekCounts) weekCounts[d]++; });
 
   const thisMonthWOs = wos.filter(w => _azDate(w.fields['Scheduled Date']).startsWith(monthStr));
-  const needsInvoice = wos.filter(w =>
-    w.fields['Status'] === 'Complete' &&
-    !(w.fields['Internal Notes'] || '').includes('Stripe Invoice ID:'));
+  const needsInvoice = wos.filter(w => w.fields['Status'] === 'Complete');
+  const hasDraftId   = w => (w.fields['Internal Notes'] || '').includes('Stripe Invoice ID:');
 
   // Build WO lookup map for joining flagged jobs to customer/date info
   const woById = {};
@@ -518,8 +517,10 @@ function renderDashboard(wos, flaggedJobs) {
           const time   = _azTime(f['Scheduled Date']);
           const addr   = [f['Service Address'], f['City']].filter(Boolean).join(', ');
           const tech   = Array.isArray(f['Technician Name']) ? f['Technician Name'][0] : (f['Technician Name'] || '');
-          const invBtn = status === 'Complete' && !(f['Internal Notes']||'').includes('Stripe Invoice ID:')
-            ? `<button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>`
+          const invBtn = status === 'Complete'
+            ? (hasDraftId(w)
+                ? `<button class="btn btn-gray btn-sm" onclick="dashInvoice('${w.id}')">Edit Draft</button>`
+                : `<button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>`)
             : '';
           return `<div class="sched-row">
             <div class="sched-time">${esc(time)}</div>
@@ -550,7 +551,9 @@ function renderDashboard(wos, flaggedJobs) {
               <div class="inv-name">${esc(f['Customer Name'] || f['Work Order Name'] || '(unnamed)')}</div>
               <div class="inv-meta">${esc(fmtDate(f['Scheduled Date']))}${f['Work Order Type'] ? ' · ' + f['Work Order Type'] : ''}</div>
             </div>
-            <button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>
+            ${hasDraftId(w)
+              ? `<button class="btn btn-gray btn-sm" onclick="dashInvoice('${w.id}')">Edit Draft</button>`
+              : `<button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>`}
           </div>`;
         }).join('')}
   </div>`;
@@ -774,7 +777,7 @@ function renderDetail(customer, props, wos, contacts) {
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
-          <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit</button>
+          <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
           ${invoiceBtn}
         </div>`;
       }).join('')
@@ -877,14 +880,11 @@ async function openInvoiceModal(workOrderId, customerId) {
 
     // Auto-fill customer notes from job details (new invoices only)
     if (!existingStripeId && jobs.length > 0) {
-      const noteLines = [];
-      for (const job of jobs) {
-        const jf = job.fields;
-        if (jf['Diagnosis'])      noteLines.push(`Diagnosis: ${jf['Diagnosis']}`);
-        if (jf['Work Performed']) noteLines.push(`Work Performed: ${jf['Work Performed']}`);
-        if (jf['Recommendations']) noteLines.push(`Recommendations: ${jf['Recommendations']}`);
+      const parts = jobs.map(j => j.fields['Work Performed']).filter(Boolean);
+      if (parts.length) {
+        const full = parts.join('\n\n');
+        document.getElementById('inv-notes').value = full.length > 500 ? full.slice(0, 497) + '…' : full;
       }
-      if (noteLines.length) document.getElementById('inv-notes').value = noteLines.join('\n\n');
     }
 
     if (existingStripeId) {
@@ -894,7 +894,7 @@ async function openInvoiceModal(workOrderId, customerId) {
       if (!draftRes.ok || draft.error) throw new Error(draft.error || `HTTP ${draftRes.status}`);
 
       // Restore notes from the Stripe invoice description
-      if (draft.description) document.getElementById('inv-notes').value = draft.description;
+      if (draft.footer) document.getElementById('inv-notes').value = draft.footer;
 
       // Restore line items exactly as saved
       for (const line of (draft.lines || [])) {
