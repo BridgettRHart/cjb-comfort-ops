@@ -290,7 +290,7 @@ export default {
         // 4. Delete any existing Stripe draft for this Work Order
         //    Items attached to a deleted draft become pending — cleaned up in step 5
         const woNotes = woRecord?.fields?.['Internal Notes'] || '';
-        const existingIdMatch = woNotes.match(/Stripe Invoice ID: (inv_[^\s\n]+)/);
+        const existingIdMatch = woNotes.match(/Stripe Invoice ID: (in_[^\s\n]+)/);
         if (existingIdMatch) {
           try {
             const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingIdMatch[1]}`);

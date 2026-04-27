@@ -398,7 +398,7 @@ async function openInvoiceModal(workOrderId, customerId) {
   // Check if there's an existing Stripe draft for this work order
   const woForModal = currentWorkOrders.find(w => w.id === workOrderId);
   const woInternalNotes = woForModal?.fields?.['Internal Notes'] || '';
-  const stripeIdMatch = woInternalNotes.match(/Stripe Invoice ID: (inv_[^\s\n]+)/);
+  const stripeIdMatch = woInternalNotes.match(/Stripe Invoice ID: (in_[^\s\n]+)/);
   const existingStripeId = stripeIdMatch ? stripeIdMatch[1] : null;
 
   try {
