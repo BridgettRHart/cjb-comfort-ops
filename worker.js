@@ -405,6 +405,17 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const custName  = (custRec.fields['Customer Name'] || '').trim();
         if (!custEmail) throw new Error(`Customer "${custName}" has no email — required for Stripe invoicing`);
 
+        const billingAddr  = (custRec.fields['Billing Address'] || '').trim();
+        const billingCity  = (custRec.fields['Billing City']    || '').trim();
+        const billingState = (custRec.fields['Billing State']   || '').trim();
+        const billingZip   = (custRec.fields['Billing Zip']     || '').trim();
+        const addrParams   = {};
+        if (billingAddr)  addrParams['address[line1]']       = billingAddr;
+        if (billingCity)  addrParams['address[city]']        = billingCity;
+        if (billingState) addrParams['address[state]']       = billingState;
+        if (billingZip)   addrParams['address[postal_code]'] = billingZip;
+        if (billingAddr)  addrParams['address[country]']     = 'US';
+
         // 2. Get Work Order record (needed for existing-draft check and WO name)
         let woRecord = null;
         if (workOrderId) {
@@ -420,8 +431,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const srchData = await srchRes.json();
         if (srchData.data?.length > 0) {
           stripeCustId = srchData.data[0].id;
+          if (Object.keys(addrParams).length) {
+            await stripePost(STRIPE_KEY, `/v1/customers/${stripeCustId}`, addrParams);
+          }
         } else {
-          const cc = await stripePost(STRIPE_KEY, '/v1/customers', { email: custEmail, name: custName });
+          const cc = await stripePost(STRIPE_KEY, '/v1/customers', { email: custEmail, name: custName, ...addrParams });
           stripeCustId = cc.id;
         }
 
@@ -466,14 +480,26 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // 7. Create invoice — auto-collects all pending items created above
+        const woUnwrap = key => {
+          const v = woRecord?.fields?.[key];
+          return Array.isArray(v) ? (v[0] || '') : (v || '');
+        };
+        const svcAddr = [woUnwrap('Service Address'), woUnwrap('City'), woUnwrap('State'), woUnwrap('Zip')]
+          .filter(Boolean).join(', ');
+
+        const descParts = [];
+        if (svcAddr) descParts.push(`Service Address: ${svcAddr}`);
+        if (notes)   descParts.push(notes);
+        const fullDesc = descParts.join('\n\n').slice(0, 500);
+
         const invParams = {
           customer:          stripeCustId,
           auto_advance:      'false',
           collection_method: 'send_invoice',
           days_until_due:    '30'
         };
-        if (notes)  invParams.description              = notes;
-        if (woName) invParams['metadata[work_order]'] = woName;
+        if (fullDesc) invParams.description              = fullDesc;
+        if (woName)   invParams['metadata[work_order]'] = woName;
         const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
         // 8. Finalize + send only if sendNow — otherwise leave as Stripe draft
