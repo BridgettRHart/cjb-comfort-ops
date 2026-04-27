@@ -1693,19 +1693,26 @@ async function loadTodaysJobs() {
 
   try {
     const now = new Date();
-    const y = now.getFullYear();
-    const mo = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${y}-${mo}-${d}`;
 
-    // For week view: get Monday–Sunday of the current week
+    // Always use LOCAL date parts — never toISOString() which converts to UTC
+    // and can shift the date by a day in negative-offset timezones like Arizona MST (UTC-7)
+    const localDateStr = d => {
+      const y  = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${dy}`;
+    };
+
+    const todayStr = localDateStr(now);
+
+    // For week view: get Monday–Sunday of the current week (local dates)
     const dayOfWeek = now.getDay(); // 0=Sun
     const monday = new Date(now);
     monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
-    const weekStart = monday.toISOString().split('T')[0];
-    const weekEnd   = sunday.toISOString().split('T')[0];
+    const weekStart = localDateStr(monday);
+    const weekEnd   = localDateStr(sunday);
 
     const data = await apiGet('Work Orders', {
       maxRecords: '200',
@@ -1713,14 +1720,15 @@ async function loadTodaysJobs() {
 
     const allRecords = data.records || [];
 
-    // Filter by today or this week in JS
+    // Filter by today or this week — parse Airtable timestamps as LOCAL dates
     const records = allRecords.filter(r => {
       const f = r.fields;
       const status = (f['Status'] || '').toLowerCase();
       if (status === 'cancelled' || status === 'paid') return false;
       const scheduled = f['Scheduled Date'];
       if (!scheduled) return false;
-      const dateStr = scheduled.substring(0, 10);
+      // Convert Airtable UTC timestamp to local date string for comparison
+      const dateStr = localDateStr(new Date(scheduled));
       if (scheduleView === 'week') return dateStr >= weekStart && dateStr <= weekEnd;
       return dateStr === todayStr;
     });
