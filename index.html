@@ -1693,61 +1693,48 @@ async function loadTodaysJobs() {
 
   try {
     const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
 
-    // Always use LOCAL date parts — never toISOString() which converts to UTC
-    // and can shift the date by a day in negative-offset timezones like Arizona MST (UTC-7)
-    const localDateStr = d => {
-      const y  = d.getFullYear();
-      const mo = String(d.getMonth() + 1).padStart(2, '0');
-      const dy = String(d.getDate()).padStart(2, '0');
-      return `${y}-${mo}-${dy}`;
+    // Arizona is always UTC-7 (no DST). Convert any UTC ISO string to AZ date string.
+    const azDateStr = isoStr => {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      if (isNaN(d)) return isoStr.substring(0, 10); // fallback for date-only strings
+      const az = new Date(d.getTime() - 7 * 3600000);
+      return `${az.getUTCFullYear()}-${pad(az.getUTCMonth()+1)}-${pad(az.getUTCDate())}`;
     };
 
-    const todayStr = localDateStr(now);
+    const todayStr = azDateStr(now.toISOString());
 
-    // For week view: get Monday–Sunday of the current week (local dates)
-    const dayOfWeek = now.getDay(); // 0=Sun
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    const weekStart = localDateStr(monday);
-    const weekEnd   = localDateStr(sunday);
+    // Compute Mon–Sun week bounds in AZ local dates
+    const dow = now.getDay(); // 0=Sun
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    const weekStart = azDateStr(mon.toISOString());
+    const weekEnd   = azDateStr(sun.toISOString());
 
-    const data = await apiGet('Work Orders', {
-      maxRecords: '200',
+    const isWeek   = scheduleView === 'week';
+    const dateFrom = isWeek ? weekStart : todayStr;
+    const dateTo   = isWeek ? weekEnd   : todayStr;
+
+    // Fetch from Airtable — status filter only, no date filter in formula
+    // (avoids DATETIME_FORMAT timezone complexity; date filtering done client-side below)
+    const formula = `AND(NOT({Status}="Cancelled"),NOT({Status}="Paid"))`;
+    const qs = `filterByFormula=${encodeURIComponent(formula)}&maxRecords=500&sort[0][field]=Scheduled%20Date&sort[0][direction]=asc`;
+
+    const res = await fetch(`${PROXY}/Work%20Orders?${qs}`);
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+
+    // Client-side date filter using AZ-corrected dates
+    const records = (data.records || []).filter(r => {
+      const d = r.fields['Scheduled Date'];
+      if (!d) return false;
+      const ds = azDateStr(d);
+      return ds >= dateFrom && ds <= dateTo;
     });
-
-    const allRecords = data.records || [];
-
-    // Filter by today or this week
-    // Safe date parsing: date-only strings (YYYY-MM-DD) must NOT be passed to new Date()
-    // because JS treats them as UTC midnight, shifting the date by timezone offset.
-    // Full ISO timestamps (with T and Z or offset) are safe to parse locally.
-    const scheduledDateStr = (val) => {
-      if (!val) return null;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val; // already a local date string
-      return localDateStr(new Date(val));               // datetime — convert to local date
-    };
-
-    const records = allRecords.filter(r => {
-      const f = r.fields;
-      const status = (f['Status'] || '').toLowerCase();
-      if (status === 'cancelled' || status === 'paid') return false;
-      const dateStr = scheduledDateStr(f['Scheduled Date']);
-      if (!dateStr) return false;
-      if (scheduleView === 'week') return dateStr >= weekStart && dateStr <= weekEnd;
-      return dateStr === todayStr;
-    });
-
-    // For week view, sort by scheduled date so days appear in order
-    if (scheduleView === 'week') {
-      records.sort((a, b) => {
-        const da = a.fields['Scheduled Date'] || '';
-        const db = b.fields['Scheduled Date'] || '';
-        return da < db ? -1 : da > db ? 1 : 0;
-      });
-    }
 
     const isWeekView = scheduleView === 'week';
     if (records.length === 0) {
@@ -1771,7 +1758,7 @@ async function loadTodaysJobs() {
       let html = '';
       let lastDay = '';
       for (const r of records) {
-        const dateStr = (r.fields['Scheduled Date'] || '').substring(0, 10);
+        const dateStr = azDateStr(r.fields['Scheduled Date'] || '');
         if (dateStr && dateStr !== lastDay) {
           lastDay = dateStr;
           const d = new Date(dateStr + 'T12:00:00');
