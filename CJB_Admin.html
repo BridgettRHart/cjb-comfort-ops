@@ -155,6 +155,23 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .job-block-line { font-size: 12px; color: #444; margin-top: 4px; line-height: 1.5; }
 .job-block-label { color: #888; margin-right: 4px; }
 
+/* ── SECTION HEADER WITH MULTIPLE BUTTONS ── */
+.section-title-btns { display: flex; gap: 10px; align-items: center; }
+
+/* ── CONTACT BADGE ── */
+.contact-primary { display: inline-block; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: #e3f0ff; color: #1a4f8a; border-radius: 3px; padding: 1px 5px; margin-left: 5px; vertical-align: middle; }
+
+/* ── LINK EXISTING MODAL ── */
+.link-search { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:7px; font-size:13px; font-family:inherit; margin-bottom:10px; }
+.link-search:focus { outline:none; border-color:#c81f25; }
+.link-list { max-height:340px; overflow-y:auto; border:1px solid #ebebeb; border-radius:7px; }
+.link-item { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid #f5f5f5; cursor:default; }
+.link-item:last-child { border-bottom:none; }
+.link-item-info { flex:1; min-width:0; }
+.link-item-name { font-size:13px; font-weight:600; }
+.link-item-meta { font-size:11px; color:#999; margin-top:2px; }
+.link-empty { padding:20px; text-align:center; font-size:13px; color:#bbb; }
+
 /* ── TABS ── */
 .tab-bar { display: flex; background: #fff; border-bottom: 1px solid #e0e0e0; padding: 0 20px; flex-shrink: 0; }
 .tab-btn { padding: 12px 18px; font-size: 13px; font-weight: 600; color: #888; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: inherit; transition: color 0.1s; }
@@ -301,9 +318,12 @@ const PROXY  = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
 let allCustomers   = [];
 let filteredCustomers = [];
 let allProperties  = [];
-let allProducts    = null; // loaded lazily on first invoice
-let selectedCustomer = null;
+let allContacts    = [];
+let allProducts    = null;
+let selectedCustomer  = null;
 let currentWorkOrders = [];
+let currentProperties = [];
+let currentContacts   = [];
 let liCount = 0;
 let invoiceWOId   = null;
 let invoiceCustId = null;
@@ -311,7 +331,7 @@ let invoiceCustId = null;
 // ── Init ────────────────────────────────────────────────────────────────────
 async function init() {
   try {
-    const [custs, props] = await Promise.all([
+    const [custs, props, contacts] = await Promise.all([
       fetchAll('Customers',
         'fields[]=Customer Name&fields[]=First Name&fields[]=Last Name' +
         '&fields[]=Email&fields[]=Phone&fields[]=Type&fields[]=Active&fields[]=Notes' +
@@ -319,10 +339,17 @@ async function init() {
         '&sort[0][field]=Customer Name&sort[0][direction]=asc'),
       fetchAll('Properties',
         'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
-        '&fields[]=Customer Email&fields[]=Active')
+        '&fields[]=Customer Email&fields[]=Customer&fields[]=Active'),
+      fetchAll('Contacts',
+        'fields[]=Contact Name&fields[]=First Name&fields[]=Last Name&fields[]=Title' +
+        '&fields[]=Email&fields[]=Phone&fields[]=Alt Phone' +
+        '&fields[]=Preferred Contact Method&fields[]=Is Primary Contact' +
+        '&fields[]=Customers&fields[]=Active&fields[]=Notes' +
+        '&sort[0][field]=Contact Name&sort[0][direction]=asc'),
     ]);
     allCustomers   = custs.filter(c => c.fields['Active'] !== false);
-    allProperties  = props;
+    allProperties  = props.filter(p => p.fields['Active'] !== false);
+    allContacts    = contacts.filter(c => c.fields['Active'] !== false);
     filteredCustomers = [...allCustomers];
     document.getElementById('cust-count').textContent = '(' + allCustomers.length + ')';
     document.getElementById('load-status').textContent = allCustomers.length + ' customers';
@@ -651,10 +678,16 @@ async function selectCustomer(id) {
 
   try {
     const email = (selectedCustomer.fields['Email'] || '').toLowerCase();
-    const props = email
-      ? allProperties.filter(p =>
-          (p.fields['Customer Email'] || '').toLowerCase() === email)
-      : [];
+    const props = allProperties.filter(p => {
+      if ((p.fields['Customer'] || []).includes(id)) return true;
+      return email && (p.fields['Customer Email'] || '').toLowerCase() === email;
+    });
+    currentProperties = props;
+
+    const contacts = allContacts.filter(c =>
+      (c.fields['Customers'] || []).includes(id)
+    );
+    currentContacts = contacts;
 
     // Fetch customer record to get linked Work Order IDs
     const custDetail = await fetch(`${PROXY}/Customers/${id}?fields[]=Work+Orders`).then(r => r.json());
@@ -674,14 +707,30 @@ async function selectCustomer(id) {
       currentWorkOrders = woData.records || [];
     }
 
-    renderDetail(selectedCustomer, props, currentWorkOrders);
+    renderDetail(selectedCustomer, props, currentWorkOrders, contacts);
   } catch (err) {
     det.innerHTML = `<div class="empty-state" style="color:#c81f25;">Error: ${esc(err.message)}</div>`;
   }
 }
 
-function renderDetail(customer, props, wos) {
+function renderDetail(customer, props, wos, contacts) {
   const f = customer.fields;
+
+  const contactsHtml = (contacts && contacts.length)
+    ? contacts.map(c => {
+        const cf = c.fields;
+        const name = esc(cf['Contact Name'] || [cf['First Name'], cf['Last Name']].filter(Boolean).join(' ') || '(no name)');
+        const isPrimary = cf['Is Primary Contact'];
+        const meta = [cf['Title'], cf['Email'], cf['Phone']].filter(Boolean).join(' · ');
+        return `<div class="prop-row">
+          <div class="prop-row-text">
+            <div class="prop-row-name">${name}${isPrimary ? '<span class="contact-primary">Primary</span>' : ''}</div>
+            ${meta ? `<div class="prop-row-addr">${esc(meta)}</div>` : ''}
+          </div>
+          <button class="btn-edit" onclick="editContact('${c.id}')">Edit</button>
+        </div>`;
+      }).join('')
+    : '<div style="color:#bbb;font-size:13px;">No contacts on file</div>';
 
   const propsHtml = props.length
     ? props.map(p => {
@@ -746,8 +795,21 @@ function renderDetail(customer, props, wos) {
     </div>
     <div class="section">
       <div class="section-title-row">
+        <div class="section-title">Contacts (${(contacts||[]).length})</div>
+        <div class="section-title-btns">
+          <button class="add-link" onclick="openLinkModal('contact')">Link Existing</button>
+          <button class="add-link" onclick="openContactForm()">+ New</button>
+        </div>
+      </div>
+      ${contactsHtml}
+    </div>
+    <div class="section">
+      <div class="section-title-row">
         <div class="section-title">Properties (${props.length})</div>
-        <button class="add-link" onclick="openPropertyForm()">+ Add Property</button>
+        <div class="section-title-btns">
+          <button class="add-link" onclick="openLinkModal('property')">Link Existing</button>
+          <button class="add-link" onclick="openPropertyForm()">+ Add</button>
+        </div>
       </div>
       ${propsHtml}
     </div>
@@ -1345,6 +1407,231 @@ async function submitPropertyForm() {
     btn.disabled = false;
     btn.textContent = formModalRecordId ? 'Save Changes' : 'Add Property';
   }
+}
+
+// ── Contact form ──────────────────────────────────────────────────────────────
+async function openContactForm(existingRecord) {
+  formModalRecordId = existingRecord?.id || null;
+  const f = existingRecord?.fields || {};
+  const cust = selectedCustomer?.fields || {};
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="modal-title">${existingRecord ? 'Edit Contact' : 'New Contact'}</div>
+    <div class="modal-sub">${esc(cust['Customer Name'] || '')}</div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">First Name</label>
+        <input class="form-inp" id="ctf-first" type="text" value="${escAttr(f['First Name']||'')}"></div>
+      <div class="form-group"><label class="form-label">Last Name</label>
+        <input class="form-inp" id="ctf-last" type="text" value="${escAttr(f['Last Name']||'')}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Title / Role</label>
+      <input class="form-inp" id="ctf-title" type="text" placeholder="e.g. Property Manager, Owner, Tenant" value="${escAttr(f['Title']||'')}"></div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Phone</label>
+        <input class="form-inp" id="ctf-phone" type="tel" value="${escAttr(f['Phone']||'')}"></div>
+      <div class="form-group"><label class="form-label">Alt Phone</label>
+        <input class="form-inp" id="ctf-altphone" type="tel" value="${escAttr(f['Alt Phone']||'')}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Email</label>
+      <input class="form-inp" id="ctf-email" type="email" value="${escAttr(f['Email']||'')}"></div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Preferred Contact Method</label>
+        <select class="form-inp" id="ctf-pref">
+          ${['Call','Text','Email'].map(m =>
+            `<option value="${m}" ${(f['Preferred Contact Method']||'Call')===m?'selected':''}>${m}</option>`).join('')}
+        </select></div>
+      <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:2px;">
+        <label class="same-addr-row" style="margin-bottom:0;">
+          <input type="checkbox" id="ctf-primary" ${f['Is Primary Contact']?'checked':''}>
+          Primary Contact
+        </label>
+      </div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-inp" id="ctf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
+      <button class="btn btn-red" id="form-submit-btn" onclick="submitContactForm()">
+        ${existingRecord ? 'Save Changes' : 'Add Contact'}</button>
+    </div>`;
+  document.getElementById('form-modal').classList.remove('hidden');
+}
+
+async function submitContactForm() {
+  const first = (document.getElementById('ctf-first').value||'').trim();
+  const last  = (document.getElementById('ctf-last').value ||'').trim();
+  if (!first && !last) { alert('Please enter at least a first or last name.'); return; }
+  const fields = {
+    'First Name':              first,
+    'Last Name':               last,
+    'Contact Name':            [first, last].filter(Boolean).join(' '),
+    'Title':                   (document.getElementById('ctf-title').value   ||'').trim(),
+    'Phone':                   (document.getElementById('ctf-phone').value   ||'').trim(),
+    'Alt Phone':               (document.getElementById('ctf-altphone').value||'').trim(),
+    'Email':                   (document.getElementById('ctf-email').value   ||'').trim(),
+    'Preferred Contact Method': document.getElementById('ctf-pref').value,
+    'Is Primary Contact':       document.getElementById('ctf-primary').checked,
+    'Notes':                   (document.getElementById('ctf-notes').value   ||'').trim(),
+    'Active': true,
+  };
+  if (!formModalRecordId && selectedCustomer) fields['Customers'] = [selectedCustomer.id];
+  const btn = document.getElementById('form-submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    if (formModalRecordId) {
+      const res = await fetch(`${PROXY}/Contacts/${formModalRecordId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    } else {
+      const res = await fetch(`${PROXY}/Contacts`,
+        { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    }
+    closeFormModal();
+    allContacts = await fetchAll('Contacts',
+      'fields[]=Contact Name&fields[]=First Name&fields[]=Last Name&fields[]=Title' +
+      '&fields[]=Email&fields[]=Phone&fields[]=Alt Phone' +
+      '&fields[]=Preferred Contact Method&fields[]=Is Primary Contact' +
+      '&fields[]=Customers&fields[]=Active&fields[]=Notes' +
+      '&sort[0][field]=Contact Name&sort[0][direction]=asc');
+    allContacts = allContacts.filter(c => c.fields['Active'] !== false);
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch(err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = formModalRecordId ? 'Save Changes' : 'Add Contact';
+  }
+}
+
+async function editContact(contactId) {
+  try {
+    const res = await fetch(`${PROXY}/Contacts/${contactId}`);
+    if (!res.ok) throw new Error('Could not load contact');
+    const rec = await res.json();
+    openContactForm(rec);
+  } catch(err) { alert('Error: ' + err.message); }
+}
+
+// ── Link Existing modal ────────────────────────────────────────────────────────
+let _linkType = null;
+
+function openLinkModal(type) {
+  _linkType = type;
+  const isContact  = type === 'contact';
+  const title      = isContact ? 'Link Existing Contact' : 'Link Existing Property';
+  const placeholder = isContact ? 'Search by name or email…' : 'Search by name or address…';
+
+  // Build candidate list — exclude already-linked records
+  const linkedIds = isContact
+    ? currentContacts.map(c => c.id)
+    : currentProperties.map(p => p.id);
+  const candidates = isContact
+    ? allContacts.filter(c => !linkedIds.includes(c.id))
+    : allProperties.filter(p => !linkedIds.includes(p.id));
+
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="modal-title">${title}</div>
+    <div class="modal-sub">${esc(selectedCustomer?.fields['Customer Name'] || '')}</div>
+    <input class="link-search" id="link-search" type="text" placeholder="${placeholder}"
+      oninput="filterLinkList()" autocomplete="off">
+    <div class="link-list" id="link-list"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
+    </div>`;
+  document.getElementById('form-modal').classList.remove('hidden');
+
+  // Store candidates on the modal for filtering
+  document.getElementById('link-list')._candidates = candidates;
+  filterLinkList();
+}
+
+function filterLinkList() {
+  const q    = (document.getElementById('link-search')?.value || '').toLowerCase().trim();
+  const list = document.getElementById('link-list');
+  if (!list) return;
+  const candidates = list._candidates || [];
+  const isContact  = _linkType === 'contact';
+
+  const matches = candidates.filter(r => {
+    const f = r.fields;
+    if (isContact) {
+      return !q
+        || (f['Contact Name']||'').toLowerCase().includes(q)
+        || (f['Email']||'').toLowerCase().includes(q)
+        || (f['Phone']||'').toLowerCase().includes(q);
+    } else {
+      return !q
+        || (f['Property Name']||'').toLowerCase().includes(q)
+        || (f['Service Address']||'').toLowerCase().includes(q)
+        || (f['City']||'').toLowerCase().includes(q);
+    }
+  }).slice(0, 50);
+
+  if (!matches.length) {
+    list.innerHTML = `<div class="link-empty">${q ? 'No matches found' : 'All records already linked'}</div>`;
+    return;
+  }
+
+  list.innerHTML = matches.map(r => {
+    const f = r.fields;
+    let name, meta;
+    if (isContact) {
+      name = esc(f['Contact Name'] || [f['First Name'],f['Last Name']].filter(Boolean).join(' ') || '(no name)');
+      meta = [f['Title'], f['Email'], f['Phone']].filter(Boolean).join(' · ');
+    } else {
+      name = esc(f['Property Name'] || '(unnamed)');
+      meta = [f['Service Address'], f['City'], f['State']].filter(Boolean).join(', ');
+    }
+    return `<div class="link-item">
+      <div class="link-item-info">
+        <div class="link-item-name">${name}</div>
+        ${meta ? `<div class="link-item-meta">${esc(meta)}</div>` : ''}
+      </div>
+      <button class="btn btn-red btn-sm" onclick="confirmLink('${r.id}')">Link</button>
+    </div>`;
+  }).join('');
+  list.innerHTML && (list._candidates = candidates); // re-attach after innerHTML wipe
+  document.getElementById('link-list')._candidates = candidates;
+}
+
+async function confirmLink(recordId) {
+  if (!selectedCustomer) return;
+  const custId = selectedCustomer.id;
+  try {
+    let fields, url;
+    if (_linkType === 'contact') {
+      const existing = allContacts.find(c => c.id === recordId);
+      const current  = existing?.fields['Customers'] || [];
+      fields = { 'Customers': [...new Set([...current, custId])] };
+      url    = `${PROXY}/Contacts/${recordId}`;
+    } else {
+      fields = { 'Customer': [custId] };
+      url    = `${PROXY}/Properties/${recordId}`;
+    }
+    const res = await fetch(url,
+      { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    closeFormModal();
+    // Refresh local cache and re-render
+    if (_linkType === 'contact') {
+      allContacts = await fetchAll('Contacts',
+        'fields[]=Contact Name&fields[]=First Name&fields[]=Last Name&fields[]=Title' +
+        '&fields[]=Email&fields[]=Phone&fields[]=Alt Phone' +
+        '&fields[]=Preferred Contact Method&fields[]=Is Primary Contact' +
+        '&fields[]=Customers&fields[]=Active&fields[]=Notes' +
+        '&sort[0][field]=Contact Name&sort[0][direction]=asc');
+      allContacts = allContacts.filter(c => c.fields['Active'] !== false);
+    } else {
+      allProperties = await fetchAll('Properties',
+        'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
+        '&fields[]=Customer Email&fields[]=Customer&fields[]=Active');
+      allProperties = allProperties.filter(p => p.fields['Active'] !== false);
+    }
+    selectCustomer(custId);
+  } catch(err) { alert('Error: ' + err.message); }
 }
 
 // ── Work Order form ───────────────────────────────────────────────────────────
