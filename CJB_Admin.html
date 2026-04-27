@@ -114,6 +114,37 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .notes-inp:focus { outline: none; border-color: #c81f25; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 
+/* ── FORM MODAL ── */
+.form-group { margin-bottom: 14px; }
+.form-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #999; margin-bottom: 5px; }
+.form-inp { width: 100%; border: 1px solid #ddd; border-radius: 7px; padding: 9px 12px; font-size: 13px; font-family: inherit; color: #2e2e2e; background: #fff; }
+.form-inp:focus { outline: none; border-color: #c81f25; box-shadow: 0 0 0 2px rgba(200,31,37,0.08); }
+.form-inp:disabled { background: #f5f5f5; color: #aaa; }
+textarea.form-inp { resize: vertical; min-height: 58px; }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+.form-section-hd { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin: 18px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0; }
+.same-addr-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13px; color: #444; cursor: pointer; user-select: none; }
+.same-addr-row input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: #c81f25; flex-shrink: 0; }
+.form-warn { font-size: 12px; color: #b05e00; background: #fff8ed; border: 1px solid #f5d9a8; border-radius: 6px; padding: 8px 12px; margin-bottom: 14px; }
+
+/* ── SIDEBAR ADD BUTTON ── */
+.sidebar-add-btn { display: block; width: 100%; padding: 7px 14px; border: 1px dashed #ddd; background: none; border-radius: 7px; font-size: 12px; font-weight: 600; color: #888; cursor: pointer; text-align: left; margin-top: 8px; font-family: inherit; }
+.sidebar-add-btn:hover { background: #fff5f5; border-color: #c81f25; color: #c81f25; }
+
+/* ── SECTION TITLE WITH ADD BUTTON ── */
+.section-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.section-title-row .section-title { margin-bottom: 0; }
+.add-link { font-size: 11px; font-weight: 700; color: #c81f25; cursor: pointer; background: none; border: none; padding: 0; font-family: inherit; }
+.add-link:hover { text-decoration: underline; }
+
+/* ── INLINE EDIT BUTTON ── */
+.btn-edit { background: #f4f4f4; color: #555; border: 1px solid #e0e0e0; border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+.btn-edit:hover { background: #e8e8e8; }
+.prop-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f2f2f2; }
+.prop-row:last-child { border-bottom: none; }
+.prop-row-text { flex: 1; min-width: 0; }
+
 /* Job summary panel inside invoice modal */
 .job-summary-panel { background: #f7f9fc; border: 1px solid #dce6f5; border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; }
 .job-summary-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #7a9ccf; font-weight: 700; margin-bottom: 10px; }
@@ -137,6 +168,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
     <div class="sidebar-hd">
       <h2>Customers <span id="cust-count"></span></h2>
       <input class="search-box" id="search" type="text" placeholder="Search name or email…" oninput="filterCustomers()">
+      <button class="sidebar-add-btn" onclick="openCustomerForm()">+ New Customer</button>
     </div>
     <div class="cust-list" id="cust-list">
       <div class="empty-list">Loading…</div>
@@ -149,6 +181,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
       <span>Select a customer</span>
     </div>
   </div>
+</div>
+
+<!-- Data entry form modal -->
+<div class="modal-bg hidden" id="form-modal" onclick="if(event.target===this)closeFormModal()">
+  <div class="modal" style="max-width:620px;" id="form-modal-body"></div>
 </div>
 
 <!-- Invoice modal -->
@@ -208,7 +245,9 @@ async function init() {
   try {
     const [custs, props] = await Promise.all([
       fetchAll('Customers',
-        'fields[]=Customer Name&fields[]=Email&fields[]=Phone&fields[]=Type&fields[]=Active' +
+        'fields[]=Customer Name&fields[]=First Name&fields[]=Last Name' +
+        '&fields[]=Email&fields[]=Phone&fields[]=Type&fields[]=Active&fields[]=Notes' +
+        '&fields[]=Billing Address&fields[]=Billing City&fields[]=Billing State&fields[]=Billing Zip' +
         '&sort[0][field]=Customer Name&sort[0][direction]=asc'),
       fetchAll('Properties',
         'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
@@ -319,8 +358,11 @@ function renderDetail(customer, props, wos) {
         const pf = p.fields;
         const addr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(', ');
         return `<div class="prop-row">
-          <div class="prop-row-name">${esc(pf['Property Name'] || '')}</div>
-          ${addr ? `<div class="prop-row-addr">📍 ${esc(addr)}</div>` : ''}
+          <div class="prop-row-text">
+            <div class="prop-row-name">${esc(pf['Property Name'] || '')}</div>
+            ${addr ? `<div class="prop-row-addr">📍 ${esc(addr)}</div>` : ''}
+          </div>
+          <button class="btn-edit" onclick="editProperty('${p.id}')">Edit</button>
         </div>`;
       }).join('')
     : '<div style="color:#bbb;font-size:13px;">No properties on file</div>';
@@ -353,6 +395,7 @@ function renderDetail(customer, props, wos) {
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
+          <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit</button>
           ${invoiceBtn}
         </div>`;
       }).join('')
@@ -360,19 +403,29 @@ function renderDetail(customer, props, wos) {
 
   document.getElementById('detail').innerHTML = `
     <div class="cust-card">
-      <div class="cust-card-name">${esc(f['Customer Name'] || '')}</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+        <div class="cust-card-name">${esc(f['Customer Name'] || '')}</div>
+        <button class="btn-edit" style="margin-top:4px;flex-shrink:0;" onclick="openCustomerForm(selectedCustomer)">Edit</button>
+      </div>
       <div class="cust-card-meta">
         ${f['Email'] ? `<span>✉️ ${esc(f['Email'])}</span>` : ''}
         ${f['Phone'] ? `<span>📞 ${esc(f['Phone'])}</span>` : ''}
         ${f['Type']  ? `<span>🏷 ${esc(f['Type'])}</span>` : ''}
+        ${f['Billing Address'] ? `<span>📬 ${esc([f['Billing Address'],f['Billing City'],f['Billing State']].filter(Boolean).join(', '))}</span>` : ''}
       </div>
     </div>
     <div class="section">
-      <div class="section-title">Properties (${props.length})</div>
+      <div class="section-title-row">
+        <div class="section-title">Properties (${props.length})</div>
+        <button class="add-link" onclick="openPropertyForm()">+ Add Property</button>
+      </div>
       ${propsHtml}
     </div>
     <div class="section">
-      <div class="section-title">Work Orders (${wos.length})</div>
+      <div class="section-title-row">
+        <div class="section-title">Work Orders (${wos.length})</div>
+        <button class="add-link" onclick="openWOForm()">+ Add Work Order</button>
+      </div>
       ${wosHtml}
     </div>`;
 }
@@ -733,6 +786,398 @@ async function submitInvoice(sendNow) {
     draftBtn.disabled = false;
     sendBtn.disabled  = false;
     sendBtn.textContent = 'Send Invoice Now';
+  }
+}
+
+// ── Form modal ───────────────────────────────────────────────────────────────
+let formModalRecordId = null;
+let _technicianOptions = null;
+
+function closeFormModal() {
+  document.getElementById('form-modal').classList.add('hidden');
+}
+
+// ── Customer form ─────────────────────────────────────────────────────────────
+function openCustomerForm(existingRecord) {
+  formModalRecordId = existingRecord?.id || null;
+  const f = existingRecord?.fields || {};
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="modal-title">${existingRecord ? 'Edit Customer' : 'New Customer'}</div>
+    <div class="modal-sub">Contact info and billing address</div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">First Name</label>
+        <input class="form-inp" id="cf-first" type="text" value="${escAttr(f['First Name']||'')}"></div>
+      <div class="form-group"><label class="form-label">Last Name</label>
+        <input class="form-inp" id="cf-last" type="text" value="${escAttr(f['Last Name']||'')}"></div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Phone</label>
+        <input class="form-inp" id="cf-phone" type="tel" value="${escAttr(f['Phone']||'')}"></div>
+      <div class="form-group"><label class="form-label">Email</label>
+        <input class="form-inp" id="cf-email" type="email" value="${escAttr(f['Email']||'')}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Customer Type</label>
+      <select class="form-inp" id="cf-type">
+        <option value="Residential" ${(f['Type']||'Residential')==='Residential'?'selected':''}>Residential</option>
+        <option value="Commercial" ${f['Type']==='Commercial'?'selected':''}>Commercial</option>
+      </select></div>
+    <div class="form-section-hd">Billing Address</div>
+    <div class="form-group"><label class="form-label">Street</label>
+      <input class="form-inp" id="cf-addr" type="text" value="${escAttr(f['Billing Address']||'')}"></div>
+    <div class="form-row-3">
+      <div class="form-group"><label class="form-label">City</label>
+        <input class="form-inp" id="cf-city" type="text" value="${escAttr(f['Billing City']||'')}"></div>
+      <div class="form-group"><label class="form-label">State</label>
+        <input class="form-inp" id="cf-state" type="text" maxlength="2" value="${escAttr(f['Billing State']||'AZ')}"></div>
+      <div class="form-group"><label class="form-label">Zip</label>
+        <input class="form-inp" id="cf-zip" type="text" maxlength="10" value="${escAttr(f['Billing Zip']||'')}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-inp" id="cf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
+      <button class="btn btn-red" id="form-submit-btn" onclick="submitCustomerForm()">
+        ${existingRecord ? 'Save Changes' : 'Create Customer'}</button>
+    </div>`;
+  document.getElementById('form-modal').classList.remove('hidden');
+}
+
+async function submitCustomerForm() {
+  const first = (document.getElementById('cf-first').value||'').trim();
+  const last  = (document.getElementById('cf-last').value ||'').trim();
+  if (!first && !last) { alert('Please enter at least a first or last name.'); return; }
+  const fields = {
+    'First Name':      first,
+    'Last Name':       last,
+    'Customer Name':   [first, last].filter(Boolean).join(' '),
+    'Phone':           (document.getElementById('cf-phone').value ||'').trim(),
+    'Email':           (document.getElementById('cf-email').value ||'').trim(),
+    'Type':            document.getElementById('cf-type').value,
+    'Billing Address': (document.getElementById('cf-addr').value  ||'').trim(),
+    'Billing City':    (document.getElementById('cf-city').value  ||'').trim(),
+    'Billing State':   (document.getElementById('cf-state').value ||'').trim().toUpperCase(),
+    'Billing Zip':     (document.getElementById('cf-zip').value   ||'').trim(),
+    'Notes':           (document.getElementById('cf-notes').value ||'').trim(),
+    'Active': true,
+  };
+  const btn = document.getElementById('form-submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    let recId;
+    if (formModalRecordId) {
+      const res = await fetch(`${PROXY}/Customers/${formModalRecordId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+      recId = formModalRecordId;
+    } else {
+      const res = await fetch(`${PROXY}/Customers`,
+        { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+      recId = data.id;
+    }
+    closeFormModal();
+    await init();
+    if (recId) selectCustomer(recId);
+  } catch(err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = formModalRecordId ? 'Save Changes' : 'Create Customer';
+  }
+}
+
+// ── Property form ─────────────────────────────────────────────────────────────
+let _propFormBilling = {};
+
+async function openPropertyForm(existingRecord) {
+  formModalRecordId = existingRecord?.id || null;
+  const f = existingRecord?.fields || {};
+  const cust = selectedCustomer?.fields || {};
+  const billingAddr  = cust['Billing Address'] || '';
+  const billingCity  = cust['Billing City']    || '';
+  const billingState = cust['Billing State']   || 'AZ';
+  const billingZip   = cust['Billing Zip']     || '';
+  _propFormBilling   = { addr: billingAddr, city: billingCity, state: billingState, zip: billingZip };
+
+  // If this is a new property and billing address exists, default to "same"
+  const defaultSame  = !existingRecord && !!billingAddr;
+  const defaultName  = existingRecord
+    ? (f['Property Name'] || '')
+    : (cust['Customer Name'] ? cust['Customer Name'] + ' — Property' : '');
+
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="modal-title">${existingRecord ? 'Edit Property' : 'Add Property'}</div>
+    <div class="modal-sub">${esc(cust['Customer Name'] || '')}</div>
+    <div class="form-group"><label class="form-label">Property Name</label>
+      <input class="form-inp" id="pf-name" type="text" value="${escAttr(defaultName)}"></div>
+    <div class="form-group"><label class="form-label">Property Type</label>
+      <select class="form-inp" id="pf-ptype">
+        ${['Residential','Light Commercial','Commercial','Industrial'].map(t =>
+          `<option value="${t}" ${(f['Property Type']||'Residential')===t?'selected':''}>${t}</option>`).join('')}
+      </select></div>
+    <div class="form-section-hd">Service Address</div>
+    ${!existingRecord && billingAddr ? `
+    <label class="same-addr-row">
+      <input type="checkbox" id="pf-same" ${defaultSame?'checked':''} onchange="toggleSameAddr()">
+      Same as customer billing address (${esc(billingAddr)}, ${esc(billingCity)} ${esc(billingState)})
+    </label>` : ''}
+    <div class="form-group"><label class="form-label">Street</label>
+      <input class="form-inp" id="pf-addr" type="text"
+        value="${escAttr(defaultSame ? billingAddr : (f['Service Address']||''))}"
+        ${defaultSame?'disabled':''}></div>
+    <div class="form-row-3">
+      <div class="form-group"><label class="form-label">City</label>
+        <input class="form-inp" id="pf-city" type="text"
+          value="${escAttr(defaultSame ? billingCity : (f['City']||''))}"
+          ${defaultSame?'disabled':''}></div>
+      <div class="form-group"><label class="form-label">State</label>
+        <input class="form-inp" id="pf-state" type="text" maxlength="2"
+          value="${escAttr(defaultSame ? billingState : (f['State']||'AZ'))}"
+          ${defaultSame?'disabled':''}></div>
+      <div class="form-group"><label class="form-label">Zip</label>
+        <input class="form-inp" id="pf-zip" type="text" maxlength="10"
+          value="${escAttr(defaultSame ? billingZip : (f['Zip']||''))}"
+          ${defaultSame?'disabled':''}></div>
+    </div>
+    <div class="form-group"><label class="form-label">Access Instructions</label>
+      <textarea class="form-inp" id="pf-access" rows="2">${esc(f['Access Instructions']||'')}</textarea></div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-inp" id="pf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
+      <button class="btn btn-red" id="form-submit-btn" onclick="submitPropertyForm()">
+        ${existingRecord ? 'Save Changes' : 'Add Property'}</button>
+    </div>`;
+  document.getElementById('form-modal').classList.remove('hidden');
+}
+
+function toggleSameAddr() {
+  const checked = document.getElementById('pf-same')?.checked;
+  const b = _propFormBilling;
+  [['addr',b.addr],['city',b.city],['state',b.state],['zip',b.zip]].forEach(([id, val]) => {
+    const el = document.getElementById('pf-' + id);
+    if (!el) return;
+    el.value    = checked ? val : '';
+    el.disabled = checked;
+  });
+}
+
+async function editProperty(propId) {
+  try {
+    const res = await fetch(`${PROXY}/Properties/${propId}`);
+    if (!res.ok) throw new Error('Could not load property');
+    const rec = await res.json();
+    openPropertyForm(rec);
+  } catch(err) { alert('Error: ' + err.message); }
+}
+
+async function submitPropertyForm() {
+  const name = (document.getElementById('pf-name').value||'').trim();
+  if (!name) { alert('Property name is required.'); return; }
+  const fields = {
+    'Property Name':       name,
+    'Property Type':       document.getElementById('pf-ptype').value,
+    'Service Address':     (document.getElementById('pf-addr').value  ||'').trim(),
+    'City':                (document.getElementById('pf-city').value  ||'').trim(),
+    'State':               (document.getElementById('pf-state').value ||'').trim().toUpperCase(),
+    'Zip':                 (document.getElementById('pf-zip').value   ||'').trim(),
+    'Access Instructions': (document.getElementById('pf-access').value||'').trim(),
+    'Notes':               (document.getElementById('pf-notes').value ||'').trim(),
+    'Active': true,
+  };
+  if (!formModalRecordId && selectedCustomer) {
+    fields['Customer']       = [selectedCustomer.id];
+    fields['Customer Email'] = selectedCustomer.fields['Email'] || '';
+  }
+  const btn = document.getElementById('form-submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    if (formModalRecordId) {
+      const res = await fetch(`${PROXY}/Properties/${formModalRecordId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    } else {
+      const res = await fetch(`${PROXY}/Properties`,
+        { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    }
+    closeFormModal();
+    // Refresh allProperties then re-render the customer detail
+    allProperties = await fetchAll('Properties',
+      'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
+      '&fields[]=Customer Email&fields[]=Active');
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch(err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = formModalRecordId ? 'Save Changes' : 'Add Property';
+  }
+}
+
+// ── Work Order form ───────────────────────────────────────────────────────────
+async function openWOForm(existingRecord) {
+  formModalRecordId = existingRecord?.id || null;
+  const f = existingRecord?.fields || {};
+  const cust = selectedCustomer?.fields || {};
+
+  // Load technicians once
+  if (!_technicianOptions) {
+    try {
+      const data = await fetchAll('Technicians',
+        'fields[]=Technician Name&fields[]=Active&sort[0][field]=Technician Name&sort[0][direction]=asc');
+      _technicianOptions = data.filter(t => t.fields['Active'] !== false);
+    } catch { _technicianOptions = []; }
+  }
+
+  // Properties for this customer
+  const email = (cust['Email']||'').toLowerCase();
+  const custProps = email
+    ? allProperties.filter(p => (p.fields['Customer Email']||'').toLowerCase() === email)
+    : [];
+
+  const fmtDTL = iso => iso ? iso.substring(0,16) : '';
+  const linkedPropId = (f['Property']||[])[0] || '';
+  const linkedTechId = (f['Technician']||[])[0] || '';
+
+  const defaultName = existingRecord
+    ? (f['Work Order Name']||'')
+    : (cust['Customer Name']
+        ? `${cust['Customer Name']} — ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
+        : '');
+
+  const propOptions = custProps.map(p =>
+    `<option value="${escAttr(p.id)}" ${p.id===linkedPropId?'selected':''}>${escAttr(p.fields['Property Name']||'')}</option>`
+  ).join('');
+  const techOptions = _technicianOptions.map(t =>
+    `<option value="${escAttr(t.id)}" ${t.id===linkedTechId?'selected':''}>${escAttr(t.fields['Technician Name']||'')}</option>`
+  ).join('');
+
+  const noPropWarn = (!custProps.length && !existingRecord)
+    ? '<div class="form-warn">⚠ No properties on file for this customer. Add a property first, or this work order won\'t have a service address.</div>' : '';
+
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="modal-title">${existingRecord ? 'Edit Work Order' : 'New Work Order'}</div>
+    <div class="modal-sub">${esc(cust['Customer Name']||'')}</div>
+    ${noPropWarn}
+    <div class="form-group"><label class="form-label">Work Order Name</label>
+      <input class="form-inp" id="wf-name" type="text" value="${escAttr(defaultName)}"></div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Type</label>
+        <select class="form-inp" id="wf-type">
+          ${['Maintenance','Repair','Installation','Inspection','Estimate Only','Warranty'].map(t =>
+            `<option value="${t}" ${(f['Work Order Type']||'Maintenance')===t?'selected':''}>${t}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label class="form-label">Priority</label>
+        <select class="form-inp" id="wf-priority">
+          ${['Routine','Urgent','Emergency'].map(p =>
+            `<option value="${p}" ${(f['Priority']||'Routine')===p?'selected':''}>${p}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Scheduled Start</label>
+        <input class="form-inp" id="wf-start" type="datetime-local" value="${escAttr(fmtDTL(f['Scheduled Date']))}"></div>
+      <div class="form-group"><label class="form-label">Scheduled End</label>
+        <input class="form-inp" id="wf-end" type="datetime-local" value="${escAttr(fmtDTL(f['Scheduled End']))}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Property</label>
+      <select class="form-inp" id="wf-prop">
+        <option value="">— Select property —</option>
+        ${propOptions}
+      </select></div>
+    <div class="form-group"><label class="form-label">Technician</label>
+      <select class="form-inp" id="wf-tech">
+        <option value="">— Select technician —</option>
+        ${techOptions}
+      </select></div>
+    <div class="form-group"><label class="form-label">Service Mode</label>
+      <select class="form-inp" id="wf-mode">
+        ${[' All Units','Specific Unit','Diagnostic'].map(m =>
+          `<option value="${escAttr(m)}" ${(f['Service Mode']||' All Units')===m?'selected':''}>${m.trim()}</option>`).join('')}
+      </select></div>
+    ${existingRecord ? `
+    <div class="form-group"><label class="form-label">Status</label>
+      <select class="form-inp" id="wf-status">
+        ${['Scheduled','In Progress','Complete','Invoiced','Paid','On Hold','Cancelled'].map(s =>
+          `<option value="${s}" ${(f['Status']||'Scheduled')===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>` : ''}
+    <div class="form-group"><label class="form-label">Problem Description</label>
+      <textarea class="form-inp" id="wf-problem" rows="3">${esc(f['Problem Description']||'')}</textarea></div>
+    <div class="form-group"><label class="form-label">Notes (internal)</label>
+      <textarea class="form-inp" id="wf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
+      <button class="btn btn-red" id="form-submit-btn" onclick="submitWOForm()">
+        ${existingRecord ? 'Save Changes' : 'Create Work Order'}</button>
+    </div>`;
+  document.getElementById('form-modal').classList.remove('hidden');
+
+  // Auto-select tech if only one option
+  if (!linkedTechId && _technicianOptions.length === 1) {
+    document.getElementById('wf-tech').value = _technicianOptions[0].id;
+  }
+  // Auto-select property if only one
+  if (!linkedPropId && custProps.length === 1) {
+    document.getElementById('wf-prop').value = custProps[0].id;
+  }
+}
+
+async function editWorkOrder(woId) {
+  try {
+    const res = await fetch(`${PROXY}/Work%20Orders/${woId}`);
+    if (!res.ok) throw new Error('Could not load work order');
+    const rec = await res.json();
+    openWOForm(rec);
+  } catch(err) { alert('Error: ' + err.message); }
+}
+
+async function submitWOForm() {
+  const startVal = (document.getElementById('wf-start').value||'').trim();
+  if (!startVal) { alert('Scheduled start date is required.'); return; }
+  const custName = selectedCustomer?.fields['Customer Name'] || '';
+  const fields = {
+    'Work Order Name':     (document.getElementById('wf-name').value||'').trim() || `${custName} — Work Order`,
+    'Work Order Type':     document.getElementById('wf-type').value,
+    'Priority':            document.getElementById('wf-priority').value,
+    'Scheduled Date':      new Date(startVal).toISOString(),
+    'Service Mode':        document.getElementById('wf-mode').value,
+    'Problem Description': (document.getElementById('wf-problem').value||'').trim(),
+    'Notes':               (document.getElementById('wf-notes').value   ||'').trim(),
+    'Active': true,
+  };
+  const endVal = (document.getElementById('wf-end').value||'').trim();
+  if (endVal) fields['Scheduled End'] = new Date(endVal).toISOString();
+  const propId = document.getElementById('wf-prop')?.value;
+  if (propId) fields['Property'] = [propId];
+  const techId = document.getElementById('wf-tech')?.value;
+  if (techId) fields['Technician'] = [techId];
+  if (selectedCustomer) fields['Customer'] = [selectedCustomer.id];
+  const statusEl = document.getElementById('wf-status');
+  if (statusEl) fields['Status'] = statusEl.value;
+  else fields['Status'] = 'Scheduled';
+
+  const btn = document.getElementById('form-submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    if (formModalRecordId) {
+      const res = await fetch(`${PROXY}/Work%20Orders/${formModalRecordId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    } else {
+      const res = await fetch(`${PROXY}/Work%20Orders`,
+        { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    }
+    closeFormModal();
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch(err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = formModalRecordId ? 'Save Changes' : 'Create Work Order';
   }
 }
 
