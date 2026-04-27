@@ -10,6 +10,8 @@ const WAVE_BUSINESS_ID       = 'QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVm
 const WAVE_INCOME_ACCOUNT_ID = 'QWNjb3VudDo2Mzg1NDYxMDc5MTUzNTU5MTg7QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVmYzZlZjRlNDY1';
 let _waveServiceProductId = null; // cached per Worker instance
 
+const R2_PUBLIC_URL = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
+
 const AIRTABLE_BASE_ID = 'appPv1xZIck89RxL2';
 const AIRTABLE_API_KEY = 'patwLtwCfaf4ctJu1.5e01386c6580cb6dae0a160c566563d287f4d54fa7489c73cf5a7a920fbcb17f';
 const CALENDLY_TOKEN   = 'eyJraWQiOiIxY2UxZTEzNjE3ZGNmNzY2YjNjZWJjY2Y4ZGM1YmFmYThhNjVlNjg0MDIzZjdjMzJiZTgzNDliMjM4MDEzNWI0IiwidHlwIjoiUEFUIiwiYWxnIjoiRVMyNTYifQ.eyJqdGkiOiI3ZDNlNmY5Zi1lMjZkLTQ3MDktYWJiYS05ZWUyNTFhMTg0ZjMiLCJzdWIiOiI2YzUxNjNhMy1mNDMwLTQ0NmUtOGJhNy01NjcxNzhhZWFlZTAiLCJpYXQiOjE3NDU1NDUzMTMsImV4cCI6MTkwMzMxMTMxM30.YfFCqkT7WDZ8nfbFT3oSQlX0qk5yH2Mt8a0OMWBjxz-Tf6iHdJvZKKjuPik2-YygsLKQhGCXQTaYIDqhMaBaYd5c5FwOI0ZbJBCsaZug';
@@ -255,6 +257,96 @@ export default {
           products: detail.business.products.edges.map(e => e.node),
           incomeAccounts: detail.business.accounts.edges.map(e => e.node)
         }, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── Equipment data-tag extraction (Claude Vision + R2 upload) ────────
+    if (path === '/api/extract-tag' && request.method === 'POST') {
+      try {
+        const ANTHROPIC_KEY = env.ANTHROPIC_API_KEY;
+        if (!ANTHROPIC_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+        if (!env.PHOTOS_BUCKET) throw new Error('PHOTOS_BUCKET R2 binding not configured');
+
+        const form        = await request.formData();
+        const imageFile   = form.get('image');
+        if (!imageFile) throw new Error('No image file provided');
+
+        const arrayBuffer = await imageFile.arrayBuffer();
+        const mediaType   = imageFile.type || 'image/jpeg';
+        const ext         = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
+        const photoKey    = `equipment/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+        // Upload to R2
+        await env.PHOTOS_BUCKET.put(photoKey, arrayBuffer, {
+          httpMetadata: { contentType: mediaType }
+        });
+        const photoUrl = `${R2_PUBLIC_URL}/${photoKey}`;
+
+        // Convert to base64 for Claude
+        const base64 = arrayBufferToBase64(arrayBuffer);
+
+        // Call Claude Vision
+        const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type':    'application/json',
+            'x-api-key':       ANTHROPIC_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model:      'claude-opus-4-5',
+            max_tokens: 512,
+            messages: [{
+              role: 'user',
+              content: [
+                {
+                  type: 'image',
+                  source: { type: 'base64', media_type: mediaType, data: base64 }
+                },
+                {
+                  type: 'text',
+                  text: `This is a photo of an HVAC equipment data tag or nameplate. Extract all visible information and return ONLY a JSON object with exactly these keys (use null for anything not clearly visible):
+
+{
+  "brand": "manufacturer name",
+  "model": "model number",
+  "serial": "serial number",
+  "equipmentType": "one of: WSHP, Split System, Package Unit, Mini Split, RTU, Air Handler, Condenser, Furnace, Heat Pump, Boiler, Chiller, Evaporative Cooler, Other",
+  "refrigerantType": "e.g. R-410A, R-22, R-32, R-454B, R-407C — or null",
+  "capacityTons": <number or null — from BTU/h ÷ 12000 or direct ton rating, round to nearest 0.5>,
+  "voltage": "e.g. 208/230V or null",
+  "manufactureYear": <4-digit year or null — check serial number date codes if no explicit year>
+}
+
+Return ONLY the raw JSON object. No markdown, no explanation.`
+                }
+              ]
+            }]
+          })
+        });
+
+        if (!claudeRes.ok) {
+          const errText = await claudeRes.text();
+          throw new Error('Claude API error: ' + errText.slice(0, 200));
+        }
+
+        const claudeData = await claudeRes.json();
+        const rawText    = claudeData.content?.[0]?.text || '{}';
+        let extracted    = {};
+        try {
+          const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+          extracted = JSON.parse(cleaned);
+        } catch {
+          extracted = { _parseError: rawText };
+        }
+
+        return new Response(JSON.stringify({ photoUrl, extracted }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), {
           status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -693,4 +785,15 @@ async function waveEnsureServiceProduct(apiKey) {
   }
   _waveServiceProductId = created.productCreate.product.id;
   return _waveServiceProductId;
+}
+
+// ── Utility: ArrayBuffer → base64 (chunked to avoid stack overflow) ──────────
+function arrayBufferToBase64(buffer) {
+  const bytes     = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary      = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }

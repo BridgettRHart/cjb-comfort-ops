@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CJB — Data Tag Batch Scanner</title>
+<!-- exifr for GPS/EXIF reading from browser -->
+<script src="https://cdn.jsdelivr.net/npm/exifr@7/dist/lite.umd.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f0f0; color: #2e2e2e; min-height: 100vh; }
+
+.header { background: #c81f25; color: #fff; padding: 0 24px; height: 54px; display: flex; align-items: center; gap: 14px; }
+.header h1 { font-size: 17px; font-weight: 700; }
+.header-sub { font-size: 12px; opacity: 0.75; margin-left: auto; }
+
+.main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed #ccc;
+  border-radius: 12px;
+  background: #fff;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 20px;
+}
+.drop-zone.over { border-color: #c81f25; background: #fff5f5; }
+.drop-zone-icon { font-size: 40px; margin-bottom: 10px; }
+.drop-zone h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.drop-zone p { font-size: 13px; color: #888; }
+.drop-zone input { display: none; }
+
+/* Stats bar */
+.stats-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.stat-chip { background: #fff; border-radius: 8px; padding: 10px 16px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: flex; align-items: center; gap: 8px; }
+.stat-chip strong { font-size: 18px; color: #c81f25; }
+
+/* Controls */
+.controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+.btn { border: none; border-radius: 7px; padding: 10px 20px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-red { background: #c81f25; color: #fff; }
+.btn-green { background: #1a6b35; color: #fff; }
+.btn-gray { background: #888; color: #fff; }
+.btn-outline { background: #fff; color: #444; border: 1px solid #ddd; }
+.progress-wrap { flex: 1; min-width: 200px; }
+.progress-bar-bg { background: #e0e0e0; border-radius: 20px; height: 8px; }
+.progress-bar { background: #c81f25; border-radius: 20px; height: 8px; width: 0; transition: width 0.3s; }
+.progress-text { font-size: 12px; color: #888; margin-top: 4px; }
+
+/* Review grid */
+.review-grid { display: flex; flex-direction: column; gap: 14px; }
+
+.review-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 160px 1fr;
+}
+.review-card.saved { border-left: 4px solid #1a6b35; opacity: 0.7; }
+.review-card.skipped { opacity: 0.45; }
+
+.card-photo { width: 160px; min-height: 140px; object-fit: cover; background: #f0f0f0; display: block; }
+.card-photo-placeholder { width: 160px; min-height: 140px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; color: #bbb; font-size: 28px; }
+
+.card-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.card-filename { font-size: 12px; color: #999; word-break: break-all; }
+.card-status { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+.status-pending   { background: #e3f0ff; color: #1a4f8a; }
+.status-scanning  { background: #fff3cd; color: #7a5500; }
+.status-review    { background: #fff8ed; color: #8a5000; }
+.status-saved     { background: #d4edda; color: #155724; }
+.status-skipped   { background: #f0f0f0; color: #888; }
+.status-error     { background: #fde8e8; color: #8a0000; }
+
+.card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+.cf-group { display: flex; flex-direction: column; gap: 2px; }
+.cf-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #999; }
+.cf-inp { border: 1px solid #ddd; border-radius: 5px; padding: 5px 8px; font-size: 12px; font-family: inherit; color: #2e2e2e; width: 100%; }
+.cf-inp:focus { outline: none; border-color: #c81f25; }
+.cf-inp.select { -webkit-appearance: none; background-color: #fff; }
+
+.prop-match { font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.prop-match select { border: 1px solid #ddd; border-radius: 5px; padding: 5px 8px; font-size: 12px; font-family: inherit; flex: 1; min-width: 140px; }
+.match-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+.match-good { background: #d4edda; color: #155724; }
+.match-ok   { background: #fff3cd; color: #7a5500; }
+.match-none { background: #fde8e8; color: #8a0000; }
+
+.card-actions { display: flex; gap: 8px; }
+.btn-sm { padding: 7px 14px; font-size: 12px; }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 24px; color: #aaa; }
+.empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+/* Save-all bar */
+.save-all-bar {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
+  display: none;
+}
+.save-all-info { font-size: 13px; color: #555; }
+.save-all-info strong { color: #1a6b35; }
+
+@media (max-width: 600px) {
+  .review-card { grid-template-columns: 100px 1fr; }
+  .card-photo, .card-photo-placeholder { width: 100px; min-height: 110px; }
+  .card-fields { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CJB — Data Tag Batch Scanner</h1>
+  <span class="header-sub" id="header-status">Drop photos to begin</span>
+</div>
+
+<div class="main">
+
+  <!-- Drop zone -->
+  <div class="drop-zone" id="drop-zone"
+    ondragover="event.preventDefault();this.classList.add('over')"
+    ondragleave="this.classList.remove('over')"
+    ondrop="handleDrop(event)"
+    onclick="document.getElementById('file-input').click()">
+    <div class="drop-zone-icon">📷</div>
+    <h2>Drop Cornell's data tag photos here</h2>
+    <p>Or click to browse — accepts JPEG, HEIC, PNG — reads GPS automatically</p>
+    <input type="file" id="file-input" multiple accept="image/*,.heic,.heif"
+      onchange="handleFiles(this.files)">
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-bar" id="stats-bar" style="display:none;">
+    <div class="stat-chip"><strong id="stat-total">0</strong> photos</div>
+    <div class="stat-chip"><strong id="stat-scanned">0</strong> scanned</div>
+    <div class="stat-chip"><strong id="stat-matched">0</strong> matched</div>
+    <div class="stat-chip"><strong id="stat-saved">0</strong> saved</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls" id="controls" style="display:none;">
+    <button class="btn btn-red" id="scan-all-btn" onclick="scanAll()">
+      🤖 Scan All with AI
+    </button>
+    <button class="btn btn-outline" onclick="addMorePhotos()">+ Add More Photos</button>
+    <div class="progress-wrap" id="scan-progress-wrap" style="display:none;">
+      <div class="progress-bar-bg"><div class="progress-bar" id="scan-progress-bar"></div></div>
+      <div class="progress-text" id="scan-progress-text">Scanning…</div>
+    </div>
+  </div>
+
+  <!-- Review grid -->
+  <div class="review-grid" id="review-grid">
+    <div class="empty" id="empty-state">
+      <div class="empty-icon">🖼</div>
+      <div>Drop photos above to get started</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Save all bar -->
+<div class="save-all-bar" id="save-all-bar">
+  <div class="save-all-info">
+    <strong id="ready-count">0</strong> records ready to save
+  </div>
+  <button class="btn btn-green" onclick="saveAll()">💾 Save All to Airtable</button>
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+let allProperties = [];
+let cards = [];       // { id, file, objectUrl, gps, address, matchedPropId, matchScore, extracted, photoUrl, status }
+let cardIdSeq = 0;
+let stats = { total: 0, scanned: 0, matched: 0, saved: 0 };
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    document.getElementById('header-status').textContent = 'Loading properties…';
+    allProperties = await fetchAllProperties();
+    document.getElementById('header-status').textContent =
+      `Ready — ${allProperties.length} properties loaded`;
+  } catch(err) {
+    document.getElementById('header-status').textContent = 'Error loading properties: ' + err.message;
+  }
+}
+
+async function fetchAllProperties() {
+  let all = [], offset = null;
+  do {
+    let url = `${PROXY}/Properties?pageSize=100` +
+      `&fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State` +
+      `&fields[]=Zip&fields[]=Customer&fields[]=Active`;
+    if (offset) url += '&offset=' + encodeURIComponent(offset);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Properties fetch failed: ' + res.status);
+    const data = await res.json();
+    all = all.concat((data.records || []).filter(r => r.fields['Active'] !== false));
+    offset = data.offset || null;
+  } while (offset);
+  return all;
+}
+
+// ── File handling ─────────────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('over');
+  handleFiles(e.dataTransfer.files);
+}
+
+function addMorePhotos() {
+  document.getElementById('file-input').click();
+}
+
+async function handleFiles(fileList) {
+  const files = [...fileList].filter(f =>
+    f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name));
+  if (!files.length) return;
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('stats-bar').style.display = 'flex';
+  document.getElementById('controls').style.display = 'flex';
+
+  for (const file of files) {
+    const id = ++cardIdSeq;
+    const objectUrl = URL.createObjectURL(file);
+    const card = { id, file, objectUrl, gps: null, address: null,
+      matchedPropId: null, matchScore: 0, extracted: null, photoUrl: null,
+      status: 'pending' };
+    cards.push(card);
+    renderCard(card);
+
+    // Read GPS async
+    readGPS(card);
+  }
+
+  stats.total = cards.length;
+  updateStats();
+}
+
+async function readGPS(card) {
+  try {
+    const exif = await exifr.parse(card.file, { gps: true, tiff: false });
+    if (exif?.latitude && exif?.longitude) {
+      card.gps = { lat: exif.latitude, lng: exif.longitude };
+      await matchPropertyByGPS(card);
+    }
+  } catch { /* no GPS — that's fine */ }
+  rerenderCard(card);
+}
+
+// ── Property matching ─────────────────────────────────────────────────────────
+async function matchPropertyByGPS(card) {
+  if (!card.gps) return;
+  const { lat, lng } = card.gps;
+
+  // Reverse-geocode via Nominatim (free, no key needed)
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'CJB-Comfort-Ops/1.0' } }
+    );
+    const geo = await res.json();
+    const addr = geo.address || {};
+    card.address = [
+      (addr.house_number ? addr.house_number + ' ' : '') + (addr.road || ''),
+      addr.city || addr.town || addr.village || addr.suburb,
+      addr.state
+    ].filter(Boolean).join(', ');
+  } catch { card.address = `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+
+  // Fuzzy-match against property service addresses
+  const query = card.address.toLowerCase();
+  let bestId = null, bestScore = 0;
+  for (const prop of allProperties) {
+    const pf = prop.fields;
+    const propAddr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(' ').toLowerCase();
+    const score = addressSimilarity(query, propAddr);
+    if (score > bestScore) { bestScore = score; bestId = prop.id; }
+  }
+  if (bestScore > 0.35) {
+    card.matchedPropId = bestId;
+    card.matchScore    = bestScore;
+    stats.matched = cards.filter(c => c.matchedPropId).length;
+    updateStats();
+  }
+}
+
+function addressSimilarity(a, b) {
+  // Token overlap score
+  const tokA = new Set(a.split(/\W+/).filter(t => t.length > 2));
+  const tokB = new Set(b.split(/\W+/).filter(t => t.length > 2));
+  let overlap = 0;
+  for (const t of tokA) if (tokB.has(t)) overlap++;
+  const total = tokA.size + tokB.size - overlap;
+  return total > 0 ? overlap / total : 0;
+}
+
+// ── AI Scanning ───────────────────────────────────────────────────────────────
+async function scanAll() {
+  const pending = cards.filter(c => c.status === 'pending' || c.status === 'error');
+  if (!pending.length) return;
+
+  document.getElementById('scan-all-btn').disabled = true;
+  document.getElementById('scan-progress-wrap').style.display = 'block';
+
+  for (let i = 0; i < pending.length; i++) {
+    const card = pending[i];
+    const pct  = Math.round((i / pending.length) * 100);
+    document.getElementById('scan-progress-bar').style.width = pct + '%';
+    document.getElementById('scan-progress-text').textContent =
+      `Scanning ${i + 1} of ${pending.length}…`;
+    await scanCard(card);
+    // Small delay to avoid hammering the API
+    if (i < pending.length - 1) await sleep(400);
+  }
+
+  document.getElementById('scan-progress-bar').style.width = '100%';
+  document.getElementById('scan-progress-text').textContent = 'Done!';
+  document.getElementById('scan-all-btn').disabled = false;
+  updateSaveBar();
+}
+
+async function scanCard(card) {
+  card.status = 'scanning';
+  rerenderCard(card);
+
+  try {
+    const formData = new FormData();
+    formData.append('image', card.file);
+    const res  = await fetch(`${PROXY}/extract-tag`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    card.extracted = data.extracted || {};
+    card.photoUrl  = data.photoUrl  || null;
+    card.status    = 'review';
+    stats.scanned  = cards.filter(c => c.status === 'review' || c.status === 'saved').length;
+    updateStats();
+  } catch(err) {
+    card.status      = 'error';
+    card.errorMsg    = err.message;
+  }
+  rerenderCard(card);
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+async function saveCard(id) {
+  const card = cards.find(c => c.id === id);
+  if (!card) return;
+
+  const propId = document.getElementById(`prop-sel-${id}`)?.value;
+  const type   = document.getElementById(`cf-type-${id}`)?.value;
+  if (!type) { alert('Select an equipment type before saving.'); return; }
+
+  const brand   = (document.getElementById(`cf-brand-${id}`)?.value   || '').trim();
+  const model   = (document.getElementById(`cf-model-${id}`)?.value   || '').trim();
+  const serial  = (document.getElementById(`cf-serial-${id}`)?.value  || '').trim();
+  const tons    = parseFloat(document.getElementById(`cf-tons-${id}`)?.value  || '') || null;
+  const refrig  = document.getElementById(`cf-refrig-${id}`)?.value   || '';
+
+  // Count existing equipment of this type for this property to number the unit
+  const unitNum = cards.filter(c => c.status === 'saved'
+    && c.matchedPropId === (propId || null)
+    && c.savedType === type).length + 1;
+  const tonsStr = tons ? `${tons} Ton ` : '';
+  const eqName  = `${tonsStr}${type} — Unit ${unitNum}`;
+
+  const fields = {
+    'Equipment Name': eqName,
+    'Equipment Type': type,
+    'Serial Number':  serial || 'SN-PENDING',
+    'Active': true,
+  };
+  if (brand)  fields['Brand']           = brand;
+  if (model)  fields['Model Number']    = model;
+  if (tons)   fields['Capacity (Tons)'] = tons;
+  if (refrig) fields['Refrigerant Type'] = refrig;
+  if (card.photoUrl) fields['Photo URLs'] = card.photoUrl;
+  if (propId) {
+    fields['Property'] = [propId];
+    // Link customer through property
+    const prop = allProperties.find(p => p.id === propId);
+    const custLinks = prop?.fields?.['Customer'];
+    if (custLinks?.length) fields['Customer'] = [custLinks[0]];
+  }
+
+  const btn = document.getElementById(`save-btn-${id}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    await fetch(`${PROXY}/Equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    });
+    card.status    = 'saved';
+    card.savedType = type;
+    stats.saved    = cards.filter(c => c.status === 'saved').length;
+    updateStats();
+    rerenderCard(card);
+    updateSaveBar();
+  } catch(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    alert('Save failed: ' + err.message);
+  }
+}
+
+async function saveAll() {
+  const ready = cards.filter(c => c.status === 'review');
+  for (const card of ready) await saveCard(card.id);
+}
+
+function skipCard(id) {
+  const card = cards.find(c => c.id === id);
+  if (card) { card.status = 'skipped'; rerenderCard(card); updateSaveBar(); }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderCard(card) {
+  const el = document.createElement('div');
+  el.id = `card-${card.id}`;
+  el.className = 'review-card';
+  el.innerHTML = cardHTML(card);
+  document.getElementById('review-grid').appendChild(el);
+}
+
+function rerenderCard(card) {
+  const el = document.getElementById(`card-${card.id}`);
+  if (!el) return;
+  el.className = `review-card ${card.status === 'saved' ? 'saved' : card.status === 'skipped' ? 'skipped' : ''}`;
+  el.innerHTML = cardHTML(card);
+}
+
+function cardHTML(card) {
+  const statusLabels = { pending:'Pending', scanning:'Scanning…', review:'Review', saved:'Saved', skipped:'Skipped', error:'Error' };
+  const statusCls    = { pending:'pending', scanning:'scanning', review:'review', saved:'saved', skipped:'skipped', error:'error' };
+  const ex = card.extracted || {};
+
+  // Photo column
+  const photoCol = `<img class="card-photo" src="${card.objectUrl}" alt="Equipment tag" onerror="this.style.display='none'">`;
+
+  // Property selector
+  const matchedProp = allProperties.find(p => p.id === card.matchedPropId);
+  const matchLabel  = matchedProp
+    ? `${matchedProp.fields['Property Name']} — ${matchedProp.fields['Service Address'] || matchedProp.fields['City'] || ''}`
+    : '';
+  const matchBadge  = card.matchedPropId
+    ? (card.matchScore > 0.6 ? `<span class="match-badge match-good">✓ ${Math.round(card.matchScore*100)}% match</span>`
+                             : `<span class="match-badge match-ok">~${Math.round(card.matchScore*100)}% match</span>`)
+    : `<span class="match-badge match-none">No match</span>`;
+
+  const propOptions = allProperties.map(p => {
+    const pf = p.fields;
+    const label = `${pf['Property Name'] || ''} — ${pf['Service Address'] || pf['City'] || ''}`;
+    const sel   = p.id === card.matchedPropId ? 'selected' : '';
+    return `<option value="${p.id}" ${sel}>${label}</option>`;
+  }).join('');
+
+  const eqTypes = ['Split System','Package Unit','Heat Pump','Mini Split','WSHP','Air Handler',
+    'Condenser','Furnace','Evaporative Cooler','RTU','Boiler','Chiller','Other'];
+  const typeOpts = eqTypes.map(t =>
+    `<option value="${t}" ${ex.equipmentType===t?'selected':''}>${t}</option>`).join('');
+  const refrigOpts = ['','R-410A','R-22','R-32','R-454B','R-407C','Other'].map(r =>
+    `<option value="${r}" ${ex.refrigerantType===r?'selected':''}>${r||'Unknown'}</option>`).join('');
+
+  const isEditable = card.status === 'review' || card.status === 'error';
+  const disabled   = isEditable ? '' : 'disabled';
+
+  const addressLine = card.address
+    ? `<div style="font-size:11px;color:#888;margin-bottom:4px;">📍 ${card.address}</div>` : '';
+  const errorLine   = card.status === 'error'
+    ? `<div style="font-size:11px;color:#c81f25;margin-bottom:6px;">⚠ ${card.errorMsg || 'Scan failed'}</div>` : '';
+
+  const actions = card.status === 'pending'
+    ? `<button class="btn btn-red btn-sm" onclick="scanCard(cards.find(c=>c.id===${card.id})).then(()=>updateSaveBar())">🤖 Scan This</button>`
+    : card.status === 'scanning'
+    ? `<button class="btn btn-gray btn-sm" disabled>Scanning…</button>`
+    : card.status === 'review' || card.status === 'error'
+    ? `<button class="btn btn-green btn-sm" id="save-btn-${card.id}" onclick="saveCard(${card.id})">Save</button>
+       <button class="btn btn-outline btn-sm" onclick="skipCard(${card.id})">Skip</button>`
+    : card.status === 'saved'
+    ? `<span style="color:#1a6b35;font-size:12px;font-weight:700;">✓ Saved</span>`
+    : `<span style="color:#888;font-size:12px;">Skipped</span>`;
+
+  return `
+    ${photoCol}
+    <div class="card-body">
+      <div class="card-header">
+        <div class="card-filename">${card.file.name}</div>
+        <span class="card-status status-${statusCls[card.status]}">${statusLabels[card.status]}</span>
+      </div>
+      ${errorLine}
+      ${addressLine}
+      <div class="prop-match">
+        <span style="font-size:11px;font-weight:700;color:#999;white-space:nowrap;">Property:</span>
+        <select id="prop-sel-${card.id}" ${disabled} style="border:1px solid #ddd;border-radius:5px;padding:5px 8px;font-size:12px;font-family:inherit;flex:1;min-width:140px;">
+          <option value="">— Select property —</option>
+          ${propOptions}
+        </select>
+        ${matchBadge}
+      </div>
+      <div class="card-fields">
+        <div class="cf-group" style="grid-column:1/-1;">
+          <div class="cf-label">Equipment Type</div>
+          <select class="cf-inp cf-inp-select" id="cf-type-${card.id}" ${disabled}>
+            <option value="">Select type…</option>
+            ${typeOpts}
+          </select>
+        </div>
+        <div class="cf-group">
+          <div class="cf-label">Brand</div>
+          <input class="cf-inp" id="cf-brand-${card.id}" value="${esc(ex.brand||'')}" ${disabled} placeholder="e.g. Carrier">
+        </div>
+        <div class="cf-group">
+          <div class="cf-label">Model #</div>
+          <input class="cf-inp" id="cf-model-${card.id}" value="${esc(ex.model||'')}" ${disabled} placeholder="Model number">
+        </div>
+        <div class="cf-group">
+          <div class="cf-label">Serial #</div>
+          <input class="cf-inp" id="cf-serial-${card.id}" value="${esc(ex.serial||'')}" ${disabled} placeholder="Serial number">
+        </div>
+        <div class="cf-group">
+          <div class="cf-label">Tons</div>
+          <input class="cf-inp" type="number" id="cf-tons-${card.id}" value="${ex.capacityTons||''}" ${disabled} placeholder="e.g. 3.5" step="0.5">
+        </div>
+        <div class="cf-group">
+          <div class="cf-label">Refrigerant</div>
+          <select class="cf-inp cf-inp-select" id="cf-refrig-${card.id}" ${disabled}>
+            ${refrigOpts}
+          </select>
+        </div>
+        ${ex.manufactureYear ? `<div class="cf-group"><div class="cf-label">Mfr Year</div><input class="cf-inp" value="${ex.manufactureYear}" readonly style="background:#f5f5f5;color:#777;"></div>` : ''}
+        ${ex.voltage ? `<div class="cf-group"><div class="cf-label">Voltage</div><input class="cf-inp" value="${esc(ex.voltage)}" readonly style="background:#f5f5f5;color:#777;"></div>` : ''}
+      </div>
+      <div class="card-actions">${actions}</div>
+    </div>`;
+}
+
+function updateStats() {
+  document.getElementById('stat-total').textContent   = stats.total;
+  document.getElementById('stat-scanned').textContent = stats.scanned;
+  document.getElementById('stat-matched').textContent = stats.matched;
+  document.getElementById('stat-saved').textContent   = stats.saved;
+  document.getElementById('header-status').textContent =
+    `${stats.saved} saved · ${stats.scanned} scanned · ${stats.total} photos`;
+}
+
+function updateSaveBar() {
+  const readyCount = cards.filter(c => c.status === 'review').length;
+  document.getElementById('ready-count').textContent = readyCount;
+  document.getElementById('save-all-bar').style.display = readyCount > 0 ? 'flex' : 'none';
+}
+
+function esc(s) {
+  return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+init();
+</script>
+</body>
+</html>

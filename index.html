@@ -661,6 +661,47 @@
     border: 2px solid var(--gray-mid);
   }
 
+  /* Scan Tag button */
+  .btn-scan-tag {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 13px;
+    background: var(--charcoal);
+    color: var(--gold);
+    border: none;
+    border-radius: 10px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 14px;
+    letter-spacing: 0.3px;
+  }
+  .btn-scan-tag:active { opacity: 0.85; }
+  .scan-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f0f4ff;
+    border: 1px solid #c0d0f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #1a3a8a;
+    margin-bottom: 14px;
+  }
+  .tag-photo-preview {
+    width: 100%;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    max-height: 160px;
+    object-fit: cover;
+    display: none;
+  }
+
   /* Follow-up radio buttons */
   .radio-group {
     display: flex;
@@ -1247,6 +1288,18 @@
     <div style="margin-top:8px;">
       <button class="btn btn-outline btn-full" style="font-size:13px;" onclick="toggleAddEquipmentActive()">+ Add Unlisted Unit</button>
       <div class="add-equipment-form" id="add-equipment-form-active" style="margin-top:8px; display:none;">
+        <!-- Scan Tag -->
+        <button class="btn-scan-tag" onclick="triggerTagScan('active')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M3 9V6a1 1 0 0 1 1-1h3M3 15v3a1 1 0 0 0 1 1h3M21 9V6a1 1 0 0 0-1-1h-3M21 15v3a1 1 0 0 1-1 1h-3"/></svg>
+          📷 Scan Data Tag
+        </button>
+        <div class="scan-loading" id="scan-loading-active" style="display:none;">
+          <div class="spinner"></div> Reading data tag with AI…
+        </div>
+        <img class="tag-photo-preview" id="tag-preview-active" alt="Scanned tag">
+        <input type="file" id="tag-input-active" accept="image/*" capture="environment" style="display:none"
+          onchange="handleTagScan(this,'active')">
+
         <div class="form-label" style="margin-bottom:12px;">Add Equipment — New Unit</div>
         <div class="form-field">
           <label class="form-label" for="eq-type-active">Type</label>
@@ -1273,16 +1326,23 @@
         </div>
         <div class="form-field" style="margin-bottom:10px;">
           <label class="form-label" for="eq-brand-active">Brand</label>
-          <input type="text" class="form-input" id="eq-brand-active" placeholder="Carrier, Goodman, Lennox...">
+          <input type="text" class="form-input" id="eq-brand-active" placeholder="Carrier, Goodman, Lennox…">
         </div>
-        <div class="form-field" style="margin-bottom:10px;">
-          <label class="form-label" for="eq-model-active">Model / Serial</label>
-          <input type="text" class="form-input" id="eq-model-active" placeholder="From nameplate or control board">
+        <div style="display:flex;gap:10px;">
+          <div class="form-field" style="flex:1;margin-bottom:10px;">
+            <label class="form-label" for="eq-model-active">Model #</label>
+            <input type="text" class="form-input" id="eq-model-active" placeholder="From nameplate">
+          </div>
+          <div class="form-field" style="flex:1;margin-bottom:10px;">
+            <label class="form-label" for="eq-serial-active">Serial #</label>
+            <input type="text" class="form-input" id="eq-serial-active" placeholder="From nameplate">
+          </div>
         </div>
         <div class="form-field" style="margin-bottom:12px;">
           <label class="form-label" for="eq-location-active">Location</label>
           <input type="text" class="form-input" id="eq-location-active" placeholder="e.g. Rooftop Zone 1">
         </div>
+        <input type="hidden" id="eq-photo-url-active">
         <div style="display:flex;gap:8px;">
           <button class="btn btn-dark" style="flex:1;padding:10px;" onclick="saveNewEquipmentActive()">Save & Add to Visit</button>
           <button class="btn btn-outline" style="flex:1;padding:10px;" onclick="toggleAddEquipmentActive()">Cancel</button>
@@ -2363,6 +2423,73 @@ async function unskipUnit(eqId, jobId) {
 // ═══════════════════════
 // ADD EQUIPMENT ON SITE
 // ═══════════════════════
+// ═══════════════════════
+// DATA TAG SCANNER
+// ═══════════════════════
+function triggerTagScan(context) {
+  document.getElementById(`tag-input-${context}`).click();
+}
+
+async function handleTagScan(input, context) {
+  const file = input.files?.[0];
+  if (!file) return;
+
+  // Show thumbnail immediately
+  const preview = document.getElementById(`tag-preview-${context}`);
+  if (preview) {
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+  }
+
+  // Show loading
+  const loadEl = document.getElementById(`scan-loading-${context}`);
+  if (loadEl) loadEl.style.display = 'flex';
+
+  try {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res  = await fetch(`${PROXY}/extract-tag`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    const ex = data.extracted || {};
+
+    // Fill form fields
+    const setField = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el || val == null) return;
+      if (el.tagName === 'SELECT') {
+        // Try exact match then case-insensitive
+        const opt = [...el.options].find(o => o.value === val) ||
+                    [...el.options].find(o => o.value.toLowerCase() === String(val).toLowerCase());
+        if (opt) el.value = opt.value;
+      } else {
+        el.value = val;
+      }
+    };
+
+    setField(`eq-type-${context}`,        ex.equipmentType);
+    setField(`eq-brand-${context}`,        ex.brand);
+    setField(`eq-model-${context}`,        ex.model);
+    setField(`eq-serial-${context}`,       ex.serial);
+    setField(`eq-tons-${context}`,         ex.capacityTons);
+    setField(`eq-refrigerant-${context}`,  ex.refrigerantType);
+
+    // Store photo URL
+    const photoInp = document.getElementById(`eq-photo-url-${context}`);
+    if (photoInp && data.photoUrl) photoInp.value = data.photoUrl;
+
+    showToast('✓ Tag data extracted — review and confirm', 'success');
+  } catch (err) {
+    showToast('⚠ Could not read tag: ' + err.message, 'error');
+  } finally {
+    if (loadEl) loadEl.style.display = 'none';
+    // Reset file input so same photo can be re-scanned if needed
+    input.value = '';
+  }
+}
+
 function toggleAddEquipmentActive() {
   const form = document.getElementById('add-equipment-form-active');
   if (form) form.style.display = form.style.display === 'block' ? 'none' : 'block';
@@ -2378,12 +2505,15 @@ async function saveNewEquipmentActive() {
   const tons = document.getElementById('eq-tons-active').value;
   const tonsStr = tons ? tons + ' Ton ' : '';
   const sameType = currentWorkOrderEquipment.filter(e => e.fields['Equipment Type'] === type).length;
-  const eqName = '' + (tonsStr) + '' + (type) + ' — Unit ' + (sameType + 1) + '';
+  const eqName = `${tonsStr}${type} — Unit ${sameType + 1}`;
+
+  const serial   = (document.getElementById('eq-serial-active')?.value   || '').trim();
+  const photoUrl = (document.getElementById('eq-photo-url-active')?.value || '').trim();
 
   const fields = {
     'Equipment Name': eqName,
     'Equipment Type': type,
-    'Serial Number': 'SN-PENDING',
+    'Serial Number':  serial || 'SN-PENDING',
     'Active': true,
   };
   if (tons) fields['Capacity (Tons)'] = parseFloat(tons);
@@ -2395,6 +2525,7 @@ async function saveNewEquipmentActive() {
   if (model) fields['Model Number'] = model;
   const location = document.getElementById('eq-location-active').value.trim();
   if (location) fields['Location in Building'] = location;
+  if (photoUrl) fields['Photo URLs'] = photoUrl;
   if (custLinks && custLinks.length > 0) fields['Customer'] = [custLinks[0]];
   if (propLinks && propLinks.length > 0) fields['Property'] = [propLinks[0]];
 
@@ -2403,6 +2534,11 @@ async function saveNewEquipmentActive() {
     currentWorkOrderEquipment.push({ id: result.id, fields: { ...fields, 'Equipment Name': eqName } });
     showToast('✓ Unit added', 'success');
     toggleAddEquipmentActive();
+    // Reset scan state
+    const prev = document.getElementById('tag-preview-active');
+    if (prev) { prev.style.display = 'none'; prev.src = ''; }
+    const photoInp = document.getElementById('eq-photo-url-active');
+    if (photoInp) photoInp.value = '';
     await renderActiveEquipmentList();
   } catch(err) {
     showToast('⚠ Could not save unit', 'error');
