@@ -218,6 +218,8 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .sched-time { font-size: 12px; font-weight: 700; color: #555; width: 54px; flex-shrink: 0; padding-top: 2px; }
 .sched-info { flex: 1; min-width: 0; }
 .sched-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-link { cursor: pointer; }
+.dash-link:hover .sched-name, .dash-link:hover .inv-name { color: #c81f25; text-decoration: underline; }
 .sched-meta { font-size: 11px; color: #999; margin-top: 2px; }
 .sched-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding-top: 1px; }
 
@@ -524,7 +526,7 @@ function renderDashboard(wos, flaggedJobs) {
             : '';
           return `<div class="sched-row">
             <div class="sched-time">${esc(time)}</div>
-            <div class="sched-info">
+            <div class="sched-info dash-link" onclick="dashGoCustomer('${w.id}')">
               <div class="sched-name">${esc(f['Customer Name'] || '(no customer)')}</div>
               <div class="sched-meta">${esc(addr)}${f['Work Order Type'] ? ' · ' + f['Work Order Type'] : ''}${tech ? ' · ' + tech : ''}</div>
             </div>
@@ -547,7 +549,7 @@ function renderDashboard(wos, flaggedJobs) {
       : needsInvoice.map(w => {
           const f = w.fields;
           return `<div class="inv-row">
-            <div class="inv-info">
+            <div class="inv-info dash-link" onclick="dashGoCustomer('${w.id}')">
               <div class="inv-name">${esc(f['Customer Name'] || f['Work Order Name'] || '(unnamed)')}</div>
               <div class="inv-meta">${esc(fmtDate(f['Scheduled Date']))}${f['Work Order Type'] ? ' · ' + f['Work Order Type'] : ''}</div>
             </div>
