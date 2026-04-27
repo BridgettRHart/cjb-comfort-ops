@@ -597,7 +597,10 @@ async function fetchAll(table, qs) {
     let url = `${PROXY}/${encodeURIComponent(table)}?pageSize=100&${qs}`;
     if (offset) url += '&offset=' + encodeURIComponent(offset);
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch ' + table + ': ' + res.status);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error('Failed to fetch ' + table + ': ' + res.status + ' — ' + body);
+    }
     const data = await res.json();
     all = all.concat(data.records || []);
     offset = data.offset || null;
