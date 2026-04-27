@@ -218,6 +218,46 @@ export default {
       }
     }
 
+    // ── Wave setup diagnostic ─────────────────────────────────────────────
+    if (path === '/api/wave-setup' && request.method === 'GET') {
+      const WAVE_KEY = env.WAVE_API_KEY;
+      if (!WAVE_KEY) return new Response(JSON.stringify({ error: 'WAVE_API_KEY not set' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+      try {
+        const data = await waveQuery(WAVE_KEY, `{
+          businesses(page: 1, pageSize: 5) {
+            edges { node { id name } }
+          }
+        }`);
+        const bizId = data.businesses.edges[0]?.node.id;
+        const bizName = data.businesses.edges[0]?.node.name;
+
+        const detail = await waveQuery(WAVE_KEY, `
+          query($bizId: ID!) {
+            business(id: $bizId) {
+              products(page: 1, pageSize: 50) {
+                edges { node { id name isArchived defaultSalesTaxes { id name } } }
+              }
+              accounts(subtypes: [INCOME]) {
+                edges { node { id name subtype { value } } }
+              }
+            }
+          }`, { bizId });
+
+        return new Response(JSON.stringify({
+          businessId: bizId,
+          businessName: bizName,
+          products: detail.business.products.edges.map(e => e.node),
+          incomeAccounts: detail.business.accounts.edges.map(e => e.node)
+        }, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // ── Stripe Invoice — fetch existing draft ────────────────────────────
     if (path.startsWith('/api/invoice/') && request.method === 'GET') {
       const stripeInvoiceId = path.split('/api/invoice/')[1];
@@ -508,4 +548,19 @@ async function stripeDelete(apiKey, path) {
   const data = await res.json();
   if (!res.ok) throw new Error(`Stripe DELETE ${path}: ${data.error?.message || JSON.stringify(data)}`);
   return data;
+}
+
+// ── Wave helper ───────────────────────────────────────────────────────────
+async function waveQuery(apiKey, query, variables = {}) {
+  const res = await fetch('https://gql.waveapps.com/graphql/public', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ query, variables })
+  });
+  const data = await res.json();
+  if (data.errors?.length) throw new Error(`Wave: ${data.errors[0].message}`);
+  return data.data;
 }
