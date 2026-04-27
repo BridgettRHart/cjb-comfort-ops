@@ -147,6 +147,34 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /* ── SCHEDULE TOGGLE ── */
+  .schedule-toggle-bar {
+    display: flex;
+    background: var(--light-bg, #f3f4f6);
+    border-radius: 10px;
+    padding: 3px;
+    gap: 3px;
+    margin-bottom: 14px;
+  }
+  .sched-tab {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-text);
+    padding: 8px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sched-tab.active {
+    background: var(--white);
+    color: var(--charcoal);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+
   /* ── SECTION LABEL ── */
   .section-label {
     font-family: 'Barlow Condensed', sans-serif;
@@ -1128,7 +1156,7 @@
     <div class="logo" aria-label="CJB Comfort">
       <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
-    <div class="header-name" aria-label="Logged in as Technician">Technician</div>
+    <div class="header-name" id="header-tech-name" aria-label="Logged in as Technician"></div>
   </header>
 
   <div class="greeting-strip" role="region" aria-label="Schedule summary">
@@ -1141,7 +1169,11 @@
 
   <div class="scroll-content">
     <div class="error-banner" id="home-error" role="alert"></div>
-    <h2 class="section-label">Today's Jobs</h2>
+    <div class="schedule-toggle-bar">
+      <button class="sched-tab active" id="tab-today" onclick="switchScheduleTab('today')" aria-pressed="true">Today</button>
+      <button class="sched-tab" id="tab-week" onclick="switchScheduleTab('week')" aria-pressed="false">This Week</button>
+    </div>
+    <h2 class="section-label" id="schedule-section-label">Today's Jobs</h2>
     <div id="jobs-list" aria-live="polite" aria-label="Job list">
       <div class="loading-state" role="status">
         <div class="spinner" aria-hidden="true"></div>
@@ -1492,11 +1524,48 @@ let followupSelected = 'no';
 // ═══════════════════════
 // INIT
 // ═══════════════════════
+let scheduleView = 'today'; // 'today' | 'week'
+
 document.addEventListener('DOMContentLoaded', () => {
   setGreeting();
   buildPartsGrid();
+  loadTechName();
   loadTodaysJobs();
 });
+
+async function loadTechName() {
+  try {
+    const data = await apiGet('Technicians', {
+      filterByFormula: '{Active}=1',
+      'fields[]': 'Technician Name',
+      maxRecords: '1',
+    });
+    const rec = (data.records || [])[0];
+    const name = rec?.fields?.['Technician Name'] || 'Technician';
+    // Show first name only (everything before the first space)
+    const firstName = name.split(' ')[0];
+    const el = document.getElementById('header-tech-name');
+    if (el) el.textContent = firstName;
+  } catch {
+    const el = document.getElementById('header-tech-name');
+    if (el) el.textContent = 'Technician';
+  }
+}
+
+function switchScheduleTab(tab) {
+  scheduleView = tab;
+  document.getElementById('tab-today').classList.toggle('active', tab === 'today');
+  document.getElementById('tab-week').classList.toggle('active', tab === 'week');
+  document.getElementById('tab-today').setAttribute('aria-pressed', tab === 'today');
+  document.getElementById('tab-week').setAttribute('aria-pressed', tab === 'week');
+  document.getElementById('schedule-section-label').textContent =
+    tab === 'today' ? "Today's Jobs" : "This Week's Jobs";
+  const badge = document.getElementById('jobs-badge');
+  badge.textContent = 'Loading...';
+  document.getElementById('jobs-list').innerHTML =
+    `<div class="loading-state" role="status"><div class="spinner" aria-hidden="true"></div><div>Loading schedule…</div></div>`;
+  loadTodaysJobs();
+}
 
 function setGreeting() {
   const now = new Date();
@@ -1560,43 +1629,86 @@ async function loadTodaysJobs() {
   const listEl = document.getElementById('jobs-list');
   const badgeEl = document.getElementById('jobs-badge');
   const errorEl = document.getElementById('home-error');
+  errorEl.style.display = 'none';
 
   try {
-    const today = new Date();
-    const y = today.getFullYear();
-    const mo = String(today.getMonth() + 1).padStart(2, '0');
-    const d = String(today.getDate()).padStart(2, '0');
+    const now = new Date();
+    const y = now.getFullYear();
+    const mo = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
     const todayStr = `${y}-${mo}-${d}`;
 
+    // For week view: get Monday–Sunday of the current week
+    const dayOfWeek = now.getDay(); // 0=Sun
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const weekStart = monday.toISOString().split('T')[0];
+    const weekEnd   = sunday.toISOString().split('T')[0];
+
     const data = await apiGet('Work Orders', {
-      maxRecords: '100',
+      maxRecords: '200',
     });
 
     const allRecords = data.records || [];
 
-    // Filter by today's date in JS — avoids Airtable formula issues
+    // Filter by today or this week in JS
     const records = allRecords.filter(r => {
       const f = r.fields;
       const status = (f['Status'] || '').toLowerCase();
       if (status === 'cancelled' || status === 'paid') return false;
       const scheduled = f['Scheduled Date'];
       if (!scheduled) return false;
-      return scheduled.startsWith(todayStr);
+      const dateStr = scheduled.substring(0, 10);
+      if (scheduleView === 'week') return dateStr >= weekStart && dateStr <= weekEnd;
+      return dateStr === todayStr;
     });
 
+    // For week view, sort by scheduled date so days appear in order
+    if (scheduleView === 'week') {
+      records.sort((a, b) => {
+        const da = a.fields['Scheduled Date'] || '';
+        const db = b.fields['Scheduled Date'] || '';
+        return da < db ? -1 : da > db ? 1 : 0;
+      });
+    }
+
+    const isWeekView = scheduleView === 'week';
     if (records.length === 0) {
-      badgeEl.textContent = 'No jobs today';
+      badgeEl.textContent = isWeekView ? 'No jobs this week' : 'No jobs today';
       listEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon" aria-hidden="true">☀️</div>
-          <h3>No jobs scheduled today</h3>
+          <h3>${isWeekView ? 'No jobs scheduled this week' : 'No jobs scheduled today'}</h3>
           <p>Enjoy the downtime or check with the office for any new bookings.</p>
         </div>`;
       return;
     }
 
-    badgeEl.textContent = `${records.length} job${records.length !== 1 ? 's' : ''} today`;
-    listEl.innerHTML = records.map(r => buildJobCard(r)).join('');
+    const label = scheduleView === 'week' ? 'this week' : 'today';
+    badgeEl.textContent = `${records.length} job${records.length !== 1 ? 's' : ''} ${label}`;
+
+    // For week view, group cards by day with a date divider
+    if (scheduleView === 'week') {
+      const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      let html = '';
+      let lastDay = '';
+      for (const r of records) {
+        const dateStr = (r.fields['Scheduled Date'] || '').substring(0, 10);
+        if (dateStr && dateStr !== lastDay) {
+          lastDay = dateStr;
+          const d = new Date(dateStr + 'T12:00:00');
+          const isToday = dateStr === todayStr;
+          html += `<div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:${isToday ? 'var(--red)' : 'var(--gray-text)'};margin:16px 0 8px 2px;">${isToday ? 'TODAY — ' : ''}${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}</div>`;
+        }
+        html += buildJobCard(r);
+      }
+      listEl.innerHTML = html;
+    } else {
+      listEl.innerHTML = records.map(r => buildJobCard(r)).join('');
+    }
 
   } catch (err) {
     console.error(err);
