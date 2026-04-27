@@ -6,6 +6,10 @@
 //    STRIPE_SECRET_KEY  →  sk_live_...
 // ═══════════════════════════════════════════════════════════════════════════
 
+const WAVE_BUSINESS_ID       = 'QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVmYzZlZjRlNDY1';
+const WAVE_INCOME_ACCOUNT_ID = 'QWNjb3VudDo2Mzg1NDYxMDc5MTUzNTU5MTg7QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVmYzZlZjRlNDY1';
+let _waveServiceProductId = null; // cached per Worker instance
+
 const AIRTABLE_BASE_ID = 'appPv1xZIck89RxL2';
 const AIRTABLE_API_KEY = 'patwLtwCfaf4ctJu1.5e01386c6580cb6dae0a160c566563d287f4d54fa7489c73cf5a7a920fbcb17f';
 const CALENDLY_TOKEN   = 'eyJraWQiOiIxY2UxZTEzNjE3ZGNmNzY2YjNjZWJjY2Y4ZGM1YmFmYThhNjVlNjg0MDIzZjdjMzJiZTgzNDliMjM4MDEzNWI0IiwidHlwIjoiUEFUIiwiYWxnIjoiRVMyNTYifQ.eyJqdGkiOiI3ZDNlNmY5Zi1lMjZkLTQ3MDktYWJiYS05ZWUyNTFhMTg0ZjMiLCJzdWIiOiI2YzUxNjNhMy1mNDMwLTQ0NmUtOGJhNy01NjcxNzhhZWFlZTAiLCJpYXQiOjE3NDU1NDUzMTMsImV4cCI6MTkwMzMxMTMxM30.YfFCqkT7WDZ8nfbFT3oSQlX0qk5yH2Mt8a0OMWBjxz-Tf6iHdJvZKKjuPik2-YygsLKQhGCXQTaYIDqhMaBaYd5c5FwOI0ZbJBCsaZug';
@@ -387,8 +391,56 @@ export default {
           finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
         }
 
-        // 9. Store Stripe ID in Work Order Internal Notes (always — so admin detects draft)
-        //    On sendNow also flip Work Order status to Invoiced
+        // 9. Create Wave invoice (only on sendNow — drafts don't go to Wave yet)
+        let waveInvoiceId = null;
+        if (sendNow && env.WAVE_API_KEY) {
+          try {
+            const WAVE_KEY   = env.WAVE_API_KEY;
+            const waveCustId = await waveEnsureCustomer(WAVE_KEY, custName, custEmail, customerId);
+            const waveProdId = await waveEnsureServiceProduct(WAVE_KEY);
+            const today2     = new Date().toISOString().split('T')[0];
+            const due2       = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+            const waveInv    = await waveQuery(WAVE_KEY, `
+              mutation($input: InvoiceCreateInput!) {
+                invoiceCreate(input: $input) {
+                  invoice { id invoiceNumber viewUrl }
+                  didSucceed
+                  inputErrors { message path code }
+                }
+              }`, {
+              input: {
+                businessId:  WAVE_BUSINESS_ID,
+                customerId:  waveCustId,
+                invoiceDate: today2,
+                dueDate:     due2,
+                memo:        notes || '',
+                items: lineItems.map(li => ({
+                  productId:   waveProdId,
+                  description: li.productName || 'Service',
+                  quantity:    String(Math.max(1, Math.round(li.quantity || 1))),
+                  unitPrice:   String((li.unitPrice || 0).toFixed(2))
+                }))
+              }
+            });
+            if (!waveInv.invoiceCreate.didSucceed) {
+              throw new Error(waveInv.invoiceCreate.inputErrors?.[0]?.message || 'Wave invoiceCreate failed');
+            }
+            waveInvoiceId = waveInv.invoiceCreate.invoice.id;
+            // Approve the invoice so it shows as Accounts Receivable in Wave
+            await waveQuery(WAVE_KEY, `
+              mutation($input: InvoiceApproveInput!) {
+                invoiceApprove(input: $input) { didSucceed inputErrors { message } }
+              }`, { input: { invoiceId: waveInvoiceId } });
+            // Store Wave Customer ID back to Airtable so future invoices skip the search
+            await airtablePatch('Customers', customerId, { 'Wave Customer ID': waveCustId });
+          } catch (waveErr) {
+            // Wave failure doesn't block the Stripe invoice — log and continue
+            console.error('Wave sync failed:', waveErr.message);
+          }
+        }
+
+        // 10. Store Stripe ID in Work Order Internal Notes (always — so admin detects draft)
+        //     On sendNow also flip Work Order status to Invoiced
         if (workOrderId) {
           const woUpdate = {
             'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
@@ -397,7 +449,7 @@ export default {
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
 
-        // 10. Create Airtable Invoice record
+        // 11. Create Airtable Invoice record
         const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
         const today   = new Date().toISOString().split('T')[0];
         const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
@@ -410,7 +462,7 @@ export default {
           'Due Date':       dueDate,
           'Subtotal':       subtotal,
           'Total':          subtotal,
-          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
+          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
         };
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
@@ -420,6 +472,7 @@ export default {
           ok:              true,
           stripeInvoiceId: finalInv.id,
           hostedUrl:       finalInv.hosted_invoice_url || null,
+          waveInvoiceId:   waveInvoiceId,
           isDraft:         !sendNow,
           airtableId:      atInv.id
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -550,7 +603,7 @@ async function stripeDelete(apiKey, path) {
   return data;
 }
 
-// ── Wave helper ───────────────────────────────────────────────────────────
+// ── Wave helpers ──────────────────────────────────────────────────────────
 async function waveQuery(apiKey, query, variables = {}) {
   const res = await fetch('https://gql.waveapps.com/graphql/public', {
     method: 'POST',
@@ -563,4 +616,81 @@ async function waveQuery(apiKey, query, variables = {}) {
   const data = await res.json();
   if (data.errors?.length) throw new Error(`Wave: ${data.errors[0].message}`);
   return data.data;
+}
+
+async function waveEnsureCustomer(apiKey, name, email, airtableCustomerId) {
+  // Check if Airtable already has the Wave Customer ID cached
+  const custRec = await airtableGetById('Customers', airtableCustomerId);
+  const cachedId = custRec.fields?.['Wave Customer ID'];
+  if (cachedId) return cachedId;
+
+  // Search Wave by email (up to 200 customers)
+  if (email) {
+    const data = await waveQuery(apiKey, `
+      query($bizId: ID!) {
+        business(id: $bizId) {
+          customers(page: 1, pageSize: 200) {
+            edges { node { id name email } }
+          }
+        }
+      }`, { bizId: WAVE_BUSINESS_ID });
+    const match = (data.business.customers.edges || [])
+      .find(e => (e.node.email || '').toLowerCase() === email.toLowerCase());
+    if (match) return match.node.id;
+  }
+
+  // Create new Wave customer
+  const created = await waveQuery(apiKey, `
+    mutation($input: CustomerCreateInput!) {
+      customerCreate(input: $input) {
+        customer { id }
+        didSucceed
+        inputErrors { message }
+      }
+    }`, { input: { businessId: WAVE_BUSINESS_ID, name, email } });
+  if (!created.customerCreate.didSucceed) {
+    throw new Error('Wave customer create: ' + created.customerCreate.inputErrors?.[0]?.message);
+  }
+  return created.customerCreate.customer.id;
+}
+
+async function waveEnsureServiceProduct(apiKey) {
+  if (_waveServiceProductId) return _waveServiceProductId;
+
+  // Search for existing generic product
+  const data = await waveQuery(apiKey, `
+    query($bizId: ID!) {
+      business(id: $bizId) {
+        products(page: 1, pageSize: 200) {
+          edges { node { id name isArchived } }
+        }
+      }
+    }`, { bizId: WAVE_BUSINESS_ID });
+  const existing = (data.business.products.edges || [])
+    .find(e => e.node.name === 'CJB Comfort Services' && !e.node.isArchived);
+  if (existing) {
+    _waveServiceProductId = existing.node.id;
+    return _waveServiceProductId;
+  }
+
+  // Create it
+  const created = await waveQuery(apiKey, `
+    mutation($input: ProductCreateInput!) {
+      productCreate(input: $input) {
+        product { id }
+        didSucceed
+        inputErrors { message }
+      }
+    }`, {
+    input: {
+      businessId:       WAVE_BUSINESS_ID,
+      name:             'CJB Comfort Services',
+      incomeAccountId:  WAVE_INCOME_ACCOUNT_ID
+    }
+  });
+  if (!created.productCreate.didSucceed) {
+    throw new Error('Wave product create: ' + created.productCreate.inputErrors?.[0]?.message);
+  }
+  _waveServiceProductId = created.productCreate.product.id;
+  return _waveServiceProductId;
 }
