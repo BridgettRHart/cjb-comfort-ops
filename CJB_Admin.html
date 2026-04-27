@@ -344,6 +344,7 @@ function switchTab(tab) {
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 let _dashWOs = null;
+let _dashFlaggedJobs = null;
 let _dashLoadedAt = 0;
 
 const _pad = n => String(n).padStart(2, '0');
@@ -367,28 +368,34 @@ const _azTime = iso => {
 
 async function loadDashboard(force) {
   if (!force && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderDashboard(_dashWOs);
+    renderDashboard(_dashWOs, _dashFlaggedJobs);
     return;
   }
   document.getElementById('dash-content').innerHTML =
     '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
   try {
-    const formula = encodeURIComponent(`NOT({Status}="Cancelled")`);
-    _dashWOs = await fetchAll('Work Orders',
-      `filterByFormula=${formula}` +
-      `&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type` +
-      `&fields[]=Scheduled Date&fields[]=Customer Name&fields[]=Service Address` +
-      `&fields[]=City&fields[]=Technician Name&fields[]=Total Amount&fields[]=Internal Notes` +
-      `&sort[0][field]=Scheduled Date&sort[0][direction]=asc`);
+    const woFormula  = encodeURIComponent(`NOT({Status}="Cancelled")`);
+    const jobFormula = encodeURIComponent(`{Follow-Up Required?}=TRUE()`);
+    [_dashWOs, _dashFlaggedJobs] = await Promise.all([
+      fetchAll('Work Orders',
+        `filterByFormula=${woFormula}` +
+        `&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type` +
+        `&fields[]=Scheduled Date&fields[]=Customer Name&fields[]=Service Address` +
+        `&fields[]=City&fields[]=Technician Name&fields[]=Total Amount&fields[]=Internal Notes` +
+        `&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
+      fetchAll('Jobs',
+        `filterByFormula=${jobFormula}` +
+        `&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status`)
+    ]);
     _dashLoadedAt = Date.now();
-    renderDashboard(_dashWOs);
+    renderDashboard(_dashWOs, _dashFlaggedJobs);
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
       `<div style="color:#c81f25;padding:20px;">${esc(err.message)}</div>`;
   }
 }
 
-function renderDashboard(wos) {
+function renderDashboard(wos, flaggedJobs) {
   const now      = new Date();
   const todayStr = _azDate(now.toISOString());
   const monthStr = todayStr.substring(0, 7);
@@ -411,9 +418,15 @@ function renderDashboard(wos) {
   const needsInvoice = wos.filter(w =>
     w.fields['Status'] === 'Complete' &&
     !(w.fields['Internal Notes'] || '').includes('Stripe Invoice ID:'));
-  const flagged = wos.filter(w =>
-    !['Paid','Cancelled'].includes(w.fields['Status']) &&
-    (w.fields['Internal Notes'] || '').toLowerCase().includes('flag'));
+
+  // Build WO lookup map for joining flagged jobs to customer/date info
+  const woById = {};
+  wos.forEach(w => { woById[w.id] = w; });
+  const flagged = (flaggedJobs || []).map(job => {
+    const woId = (job.fields['Work Order'] || [])[0] || null;
+    const wo   = woId ? (woById[woId] || null) : null;
+    return { job, wo, woId };
+  });
 
   // Stats
   const completedCount = thisMonthWOs.filter(w => ['Complete','Invoiced','Paid'].includes(w.fields['Status'])).length;
@@ -528,20 +541,23 @@ function renderDashboard(wos) {
     </div>
     ${!flagged.length
       ? '<div class="widget-empty">Nothing flagged</div>'
-      : flagged.map(w => {
-          const f       = w.fields;
-          const notes   = f['Internal Notes'] || '';
-          const match   = notes.match(/flag[^a-z]*[:\-]?\s*([^\n]{1,120})/i);
-          const flagMsg = match ? match[1].trim() : notes.substring(0, 100);
-          const status  = f['Status'] || '';
-          const cls     = badgeCls[status] || 'b-scheduled';
+      : flagged.map(({job, wo, woId}) => {
+          const jf       = job.fields;
+          const wf       = wo?.fields || {};
+          const custName = Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : (wf['Customer Name'] || '(unknown)');
+          const date     = fmtDate(wf['Scheduled Date']);
+          const woType   = wf['Work Order Type'] || '';
+          const note     = jf['Follow Up Notes'] || '';
+          const viewBtn  = woId
+            ? `<button class="btn btn-gray btn-sm" onclick="dashGoCustomer('${woId}')">View</button>`
+            : '';
           return `<div class="inv-row">
             <div class="inv-info">
-              <div class="inv-name">${esc(f['Customer Name'] || f['Work Order Name'] || '(unknown)')}</div>
-              <div class="inv-meta">${esc(fmtDate(f['Scheduled Date']))} · <span class="badge ${cls}" style="font-size:10px;padding:1px 6px;">${esc(status)}</span></div>
-              ${flagMsg ? `<span class="flag-note">⚑ ${esc(flagMsg)}</span>` : ''}
+              <div class="inv-name">${esc(custName)}</div>
+              <div class="inv-meta">${esc(date)}${woType ? ' · ' + woType : ''}</div>
+              ${note ? `<span class="flag-note">⚑ ${esc(note)}</span>` : ''}
             </div>
-            <button class="btn btn-gray btn-sm" onclick="dashGoCustomer('${w.id}')">View</button>
+            ${viewBtn}
           </div>`;
         }).join('')}
   </div>`;
