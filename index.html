@@ -1720,15 +1720,22 @@ async function loadTodaysJobs() {
 
     const allRecords = data.records || [];
 
-    // Filter by today or this week — parse Airtable timestamps as LOCAL dates
+    // Filter by today or this week
+    // Safe date parsing: date-only strings (YYYY-MM-DD) must NOT be passed to new Date()
+    // because JS treats them as UTC midnight, shifting the date by timezone offset.
+    // Full ISO timestamps (with T and Z or offset) are safe to parse locally.
+    const scheduledDateStr = (val) => {
+      if (!val) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val; // already a local date string
+      return localDateStr(new Date(val));               // datetime — convert to local date
+    };
+
     const records = allRecords.filter(r => {
       const f = r.fields;
       const status = (f['Status'] || '').toLowerCase();
       if (status === 'cancelled' || status === 'paid') return false;
-      const scheduled = f['Scheduled Date'];
-      if (!scheduled) return false;
-      // Convert Airtable UTC timestamp to local date string for comparison
-      const dateStr = localDateStr(new Date(scheduled));
+      const dateStr = scheduledDateStr(f['Scheduled Date']);
+      if (!dateStr) return false;
       if (scheduleView === 'week') return dateStr >= weekStart && dateStr <= weekEnd;
       return dateStr === todayStr;
     });
