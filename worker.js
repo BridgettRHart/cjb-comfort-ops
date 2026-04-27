@@ -557,17 +557,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           }
         }
 
-        // 10. Store Stripe ID in Work Order Internal Notes (always — so admin detects draft)
-        //     On sendNow also flip Work Order status to Invoiced
-        if (workOrderId) {
-          const woUpdate = {
-            'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
-          };
-          if (sendNow) woUpdate['Status'] = 'Invoiced';
-          await airtablePatch('Work Orders', workOrderId, woUpdate);
-        }
-
-        // 11. Create Airtable Invoice record
+        // 10. Create or update Airtable Invoice record
         const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
         const today   = new Date().toISOString().split('T')[0];
         const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
@@ -584,7 +574,25 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         };
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
-        const atInv = await airtablePost('Invoices', atFields);
+
+        const existingAtInvoiceId = woNotes.match(/Airtable Invoice ID: (rec[^\s\n]+)/)?.[1];
+        let atInvId;
+        if (existingAtInvoiceId) {
+          await airtablePatch('Invoices', existingAtInvoiceId, atFields);
+          atInvId = existingAtInvoiceId;
+        } else {
+          const atInv = await airtablePost('Invoices', atFields);
+          atInvId = atInv.id;
+        }
+
+        // 11. Store Stripe ID + Airtable Invoice ID in Work Order Internal Notes
+        if (workOrderId) {
+          const woUpdate = {
+            'Internal Notes': `Stripe Invoice ID: ${finalInv.id}\nAirtable Invoice ID: ${atInvId}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
+          };
+          if (sendNow) woUpdate['Status'] = 'Invoiced';
+          await airtablePatch('Work Orders', workOrderId, woUpdate);
+        }
 
         return new Response(JSON.stringify({
           ok:              true,
@@ -592,7 +600,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           hostedUrl:       finalInv.hosted_invoice_url || null,
           waveInvoiceId:   waveInvoiceId,
           isDraft:         !sendNow,
-          airtableId:      atInv.id
+          airtableId:      atInvId
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch (err) {

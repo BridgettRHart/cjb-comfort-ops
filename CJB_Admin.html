@@ -882,7 +882,7 @@ async function openInvoiceModal(workOrderId, customerId) {
 
     // Auto-fill customer notes from job details (new invoices only)
     if (!existingStripeId && jobs.length > 0) {
-      const parts = jobs.map(j => j.fields['Work Performed']).filter(Boolean);
+      const parts = jobs.map(j => j.fields['Diagnosis']).filter(Boolean);
       if (parts.length) {
         const full = parts.join('\n\n');
         document.getElementById('inv-notes').value = full.length > 500 ? full.slice(0, 497) + '…' : full;
