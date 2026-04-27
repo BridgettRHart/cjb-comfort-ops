@@ -378,14 +378,9 @@ async function loadDashboard(force) {
     const jobFormula = encodeURIComponent(`{Follow-Up Required?}=TRUE()`);
     [_dashWOs, _dashFlaggedJobs] = await Promise.all([
       fetchAll('Work Orders',
-        `filterByFormula=${woFormula}` +
-        `&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type` +
-        `&fields[]=Scheduled Date&fields[]=Customer Name&fields[]=Service Address` +
-        `&fields[]=City&fields[]=Technician Name&fields[]=Total Amount&fields[]=Internal Notes` +
-        `&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
+        `filterByFormula=${woFormula}&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
       fetchAll('Jobs',
-        `filterByFormula=${jobFormula}` +
-        `&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status`)
+        `filterByFormula=${jobFormula}&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status`)
     ]);
     _dashLoadedAt = Date.now();
     renderDashboard(_dashWOs, _dashFlaggedJobs);
