@@ -230,6 +230,80 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .inv-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inv-meta { font-size: 11px; color: #999; margin-top: 2px; }
 .flag-note { font-size: 11px; color: #7a5000; background: #fff8e0; border-radius: 4px; padding: 3px 8px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
+
+/* ── MOBILE BACK BUTTON ── */
+.mobile-back { display: none; width: 100%; padding: 12px 16px; background: #fff; border: none; border-bottom: 1px solid #e0e0e0; font-size: 14px; font-weight: 600; color: #c81f25; cursor: pointer; text-align: left; flex-shrink: 0; font-family: inherit; }
+
+/* ── MOBILE RESPONSIVE ── */
+@media (max-width: 768px) {
+  body { overflow: hidden; }
+
+  /* Header */
+  .header { padding: 0 14px; height: 48px; }
+  .header h1 { font-size: 15px; }
+  .header-sub { font-size: 11px; }
+
+  /* Tab bar */
+  .tab-bar { padding: 0; }
+  .tab-btn { flex: 1; text-align: center; padding: 12px 8px; font-size: 13px; }
+
+  /* Dashboard */
+  .dash { padding: 12px; }
+  .dash-grid-3 { grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
+  .dash-row { grid-template-columns: 1fr; gap: 10px; }
+  .week-strip { overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+  .week-strip::-webkit-scrollbar { height: 3px; }
+  .week-day { min-width: 44px; flex-shrink: 0; }
+  .stat-value { font-size: 26px; }
+
+  /* Customers — single panel */
+  .app { position: relative; overflow: hidden; }
+  .sidebar { width: 100%; position: absolute; inset: 0; z-index: 10; transition: transform 0.22s ease; }
+  .sidebar.mobile-hidden { transform: translateX(-100%); }
+  .detail { position: absolute; inset: 0; z-index: 10; background: #f0f0f0; overflow-y: auto; transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; padding: 0; }
+  .detail.mobile-visible { transform: translateX(0); }
+  .detail > *:not(.mobile-back) { padding: 0 12px; }
+  .detail > .mobile-back { display: block; position: sticky; top: 0; z-index: 5; }
+  .cust-card { margin: 12px 12px 12px; border-radius: 8px; }
+  .section { margin: 0 12px 12px; border-radius: 8px; }
+
+  /* Customer card — wrap meta on mobile */
+  .cust-card-meta { gap: 10px; }
+  .cust-card-name { font-size: 18px; }
+
+  /* Work order rows — wrap buttons */
+  .wo-row { flex-wrap: wrap; gap: 8px; }
+  .wo-info { width: 100%; }
+
+  /* Bigger touch targets */
+  .cust-item { padding: 13px 14px; }
+  .btn { padding: 11px 18px; }
+  .btn-sm { padding: 9px 14px; font-size: 13px; }
+  .btn-edit { padding: 7px 12px; font-size: 12px; }
+
+  /* Modals — full screen */
+  .modal-bg { padding: 0; align-items: flex-end; }
+  .modal { border-radius: 16px 16px 0 0; max-height: 94vh; max-width: 100%; padding: 20px 16px; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions .btn { width: 100%; text-align: center; }
+
+  /* Invoice modal — line items table scroll */
+  .li-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .li-table { min-width: 440px; }
+  .inp-name { min-width: 160px; }
+
+  /* Form grids — single column */
+  .form-row-2 { grid-template-columns: 1fr; }
+  .form-row-3 { grid-template-columns: 1fr; }
+
+  /* Sched row — wrap actions */
+  .sched-row { flex-wrap: wrap; }
+  .sched-actions { width: 100%; justify-content: flex-end; margin-top: 4px; }
+
+  /* Sidebar search area */
+  .sidebar-hd { padding: 10px 12px 8px; }
+  .search-box { font-size: 16px; } /* prevents iOS zoom on focus */
+}
 </style>
 </head>
 <body>
@@ -263,6 +337,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   </div>
 
   <div class="detail" id="detail">
+    <button class="mobile-back" id="mobile-back" onclick="mobileBack()" style="display:none;">← Customers</button>
     <div class="empty-state">
       <span class="arrow">←</span>
       <span>Select a customer</span>
@@ -284,6 +359,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <!-- Job summary — what Cornell recorded -->
     <div id="job-summary"></div>
 
+    <div class="li-table-wrap">
     <table class="li-table">
       <thead>
         <tr>
@@ -296,6 +372,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       </thead>
       <tbody id="li-body"></tbody>
     </table>
+    </div><!-- /.li-table-wrap -->
 
     <button class="btn btn-gray btn-sm" onclick="addLineItem()" style="margin-bottom:16px;">+ Add Line Item</button>
 
@@ -369,6 +446,13 @@ function switchTab(tab) {
   document.getElementById('dash-view').style.display      = tab === 'dash'      ? '' : 'none';
   document.getElementById('app-customers').style.display  = tab === 'customers' ? '' : 'none';
   if (tab === 'dash') loadDashboard();
+  if (tab === 'customers' && isMobile()) {
+    // Always land on the list view when switching to customers on mobile
+    document.querySelector('.sidebar').classList.remove('mobile-hidden');
+    document.getElementById('detail').classList.remove('mobile-visible');
+    selectedCustomer = null;
+    renderCustList();
+  }
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
@@ -672,14 +756,31 @@ function renderCustList() {
   }).join('');
 }
 
+function isMobile() { return window.innerWidth <= 768; }
+
+function mobileBack() {
+  document.getElementById('detail').classList.remove('mobile-visible');
+  document.querySelector('.sidebar').classList.remove('mobile-hidden');
+  selectedCustomer = null;
+  renderCustList();
+}
+
 // ── Customer detail ─────────────────────────────────────────────────────────
 async function selectCustomer(id) {
   selectedCustomer = allCustomers.find(c => c.id === id);
   if (!selectedCustomer) return;
   renderCustList();
 
+  if (isMobile()) {
+    document.querySelector('.sidebar').classList.add('mobile-hidden');
+    const det = document.getElementById('detail');
+    det.classList.add('mobile-visible');
+    document.getElementById('mobile-back').style.display = 'block';
+  }
+
   const det = document.getElementById('detail');
-  det.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+  det.innerHTML = (isMobile() ? '<button class="mobile-back" onclick="mobileBack()">← Customers</button>' : '') +
+    '<div class="empty-state"><span class="spinner"></span></div>';
 
   try {
     const email = (selectedCustomer.fields['Email'] || '').toLowerCase();
@@ -786,6 +887,7 @@ function renderDetail(customer, props, wos, contacts) {
     : '<div style="color:#bbb;font-size:13px;">No work orders found</div>';
 
   document.getElementById('detail').innerHTML = `
+    ${isMobile() ? '<button class="mobile-back" onclick="mobileBack()">← Customers</button>' : ''}
     <div class="cust-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
         <div class="cust-card-name">${esc(f['Customer Name'] || '')}</div>
