@@ -640,7 +640,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // 11. Store Stripe ID + Airtable Invoice ID in Work Order Internal Notes
         if (workOrderId) {
           const woUpdate = {
-            'Internal Notes': `Stripe Invoice ID: ${finalInv.id}\nAirtable Invoice ID: ${atInvId}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
+            'Internal Notes': `Stripe Invoice ID: ${finalInv.id}\nAirtable Invoice ID: ${atInvId}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`,
+            'Total Amount':   subtotal
           };
           if (sendNow) woUpdate['Status'] = 'Invoiced';
           await airtablePatch('Work Orders', workOrderId, woUpdate);
