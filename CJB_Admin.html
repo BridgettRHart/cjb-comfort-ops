@@ -1117,15 +1117,16 @@ function renderEquipmentSection(equipment, props) {
 let _eqRelated = []; // [{id, name}] chips for Related Equipment
 
 async function openEquipmentForm(equipId, presetPropId) {
+  try {
   formModalRecordId = equipId || null;
   _eqRelated = [];
 
   let rec = null;
   if (equipId) {
-    try {
-      const r = await fetch(`${PROXY}/Equipment/${equipId}`);
-      rec = await r.json();
-    } catch(e) { alert('Could not load equipment record.'); return; }
+    const r = await fetch(`${PROXY}/Equipment/${equipId}`);
+    if (!r.ok) { alert(`Could not load equipment (${r.status})`); return; }
+    rec = await r.json();
+    if (rec.error) { alert(`Airtable error: ${JSON.stringify(rec.error)}`); return; }
   }
   const f = rec?.fields || {};
 
@@ -1214,6 +1215,7 @@ async function openEquipmentForm(equipId, presetPropId) {
         ${equipId ? 'Save Changes' : 'Add Equipment'}</button>
     </div>`;
   document.getElementById('form-modal').classList.remove('hidden');
+  } catch(err) { alert('Equipment form error: ' + err.message); }
 }
 
 function renderEqChips() {
