@@ -376,6 +376,24 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .sp-body { padding: 14px 16px; }
   .sp-foot { padding: 12px 16px; }
 }
+
+/* ── EQUIPMENT ──────────────────────────────────────────────────────────────── */
+.eq-prop-group { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin: 10px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #f0f0f0; }
+.eq-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
+.eq-card:last-child { border-bottom: none; }
+.eq-type-badge { flex-shrink: 0; background: #e8f0fe; color: #1a4f8a; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 5px; padding: 3px 6px; margin-top: 2px; white-space: nowrap; }
+.eq-info { flex: 1; min-width: 0; }
+.eq-name { font-size: 13px; font-weight: 600; }
+.eq-meta { font-size: 11px; color: #888; margin-top: 3px; line-height: 1.5; }
+.eq-related-tag { display: inline-flex; align-items: center; gap: 4px; background: #fff8e0; border: 1px solid #f5d088; border-radius: 4px; padding: 2px 7px; font-size: 10px; color: #7a5500; margin-top: 4px; }
+.eq-related-tag::before { content: '⚡'; }
+/* Related equipment chips in form */
+.eq-chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.eq-chip { display: inline-flex; align-items: center; gap: 6px; background: #f0f6ff; border: 1px solid #b8d0f0; border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #1a4f8a; }
+.eq-chip-x { background: none; border: none; color: #7a9ccf; cursor: pointer; font-size: 14px; line-height: 1; padding: 0; }
+.eq-chip-x:hover { color: #c81f25; }
+.cond-excellent { color: #1a6b35; } .cond-good { color: #1a4f8a; }
+.cond-fair { color: #8a6500; } .cond-poor { color: #c81f25; } .cond-eol { color: #888; }
 </style>
 </head>
 <body>
@@ -492,6 +510,7 @@ let selectedCustomer  = null;
 let currentWorkOrders = [];
 let currentProperties = [];
 let currentContacts   = [];
+let currentEquipment  = [];
 let liCount = 0;
 let invoiceWOId   = null;
 let invoiceCustId = null;
@@ -884,9 +903,10 @@ async function selectCustomer(id) {
     );
     currentContacts = contacts;
 
-    // Fetch customer record to get linked Work Order IDs
-    const custDetail = await fetch(`${PROXY}/Customers/${id}?fields[]=Work+Orders`).then(r => r.json());
+    // Fetch customer record to get linked Work Order + Equipment IDs
+    const custDetail = await fetch(`${PROXY}/Customers/${id}?fields[]=Work+Orders&fields[]=Equipment`).then(r => r.json());
     const woIds = custDetail.fields?.['Work Orders'] || [];
+    const eqIds = custDetail.fields?.['Equipment']   || [];
 
     currentWorkOrders = [];
     if (woIds.length > 0) {
@@ -900,6 +920,25 @@ async function selectCustomer(id) {
         '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
       const woData = await fetch(woUrl).then(r => r.json());
       currentWorkOrders = woData.records || [];
+    }
+
+    currentEquipment = [];
+    if (eqIds.length > 0) {
+      const formula = eqIds.length === 1
+        ? `RECORD_ID()="${eqIds[0]}"`
+        : `OR(${eqIds.map(eid => `RECORD_ID()="${eid}"`).join(',')})`;
+      const eqUrl = `${PROXY}/Equipment` +
+        `?filterByFormula=${encodeURIComponent(formula)}` +
+        '&fields[]=Equipment Name&fields[]=Equipment Type&fields[]=Brand' +
+        '&fields[]=Model Number&fields[]=Serial Number&fields[]=Install Date' +
+        '&fields[]=Equipment Age&fields[]=Condition&fields[]=Refrigerant Type' +
+        '&fields[]=Capacity (Tons)&fields[]=Location in Building' +
+        '&fields[]=Under Warranty&fields[]=Warranty Expiration' +
+        '&fields[]=Property&fields[]=Customer&fields[]=Related Equipment' +
+        '&fields[]=Notes&fields[]=Active' +
+        '&sort[0][field]=Equipment Name&sort[0][direction]=asc';
+      const eqData = await fetch(eqUrl).then(r => r.json());
+      currentEquipment = (eqData.records || []).filter(e => e.fields['Active'] !== false);
     }
 
     renderDetail(selectedCustomer, props, currentWorkOrders, contacts);
@@ -1011,11 +1050,269 @@ function renderDetail(customer, props, wos, contacts) {
     </div>
     <div class="section">
       <div class="section-title-row">
+        <div class="section-title">Equipment (${currentEquipment.length})</div>
+        <button class="add-link" onclick="openEquipmentForm(null, null)">+ Add</button>
+      </div>
+      ${renderEquipmentSection(currentEquipment, props)}
+    </div>
+    <div class="section">
+      <div class="section-title-row">
         <div class="section-title">Work Orders (${wos.length})</div>
         <button class="add-link" onclick="openWOForm()">+ Add Work Order</button>
       </div>
       ${wosHtml}
     </div>`;
+}
+
+// ── Equipment ────────────────────────────────────────────────────────────────
+const EQ_TYPE_SHORT = {
+  'Air Handler':'AH','Condenser':'COND','WSHP':'WSHP','Split System':'SPLIT',
+  'Package Unit':'PKG','Mini Split':'MINI','RTU':'RTU','Furnace':'FURN',
+  'Heat Pump':'HP','Boiler':'BOILER','Chiller':'CHILL','Evaporative Cooler':'EVAP','Other':'—'
+};
+const COND_CLS = { 'Excellent':'cond-excellent','Good':'cond-good','Fair':'cond-fair','Poor':'cond-poor','End of Life':'cond-eol' };
+
+function renderEquipmentSection(equipment, props) {
+  if (!equipment.length) return '<div style="color:#bbb;font-size:13px;">No equipment on file</div>';
+
+  // Build property name lookup from currentProperties
+  const propName = {};
+  props.forEach(p => { propName[p.id] = p.fields['Property Name'] || 'Property'; });
+
+  // Group by first linked property ID
+  const groups = {};
+  equipment.forEach(e => {
+    const pid = (e.fields['Property'] || [])[0] || '__none__';
+    if (!groups[pid]) groups[pid] = [];
+    groups[pid].push(e);
+  });
+
+  return Object.entries(groups).map(([pid, items]) => {
+    const label = pid === '__none__' ? 'No Property Assigned' : (propName[pid] || 'Property');
+    const cards = items.map(e => {
+      const f = e.fields;
+      const type  = f['Equipment Type'] || '';
+      const badge = EQ_TYPE_SHORT[type] || type.slice(0,4).toUpperCase();
+      const meta  = [
+        f['Brand'],
+        f['Model Number'] ? `Mod: ${f['Model Number']}` : null,
+        f['Serial Number'] ? `S/N: ${f['Serial Number']}` : null,
+      ].filter(Boolean).join(' · ');
+      const specs = [
+        f['Equipment Age'] ? `${f['Equipment Age']} yrs` : (f['Install Date'] ? new Date(f['Install Date']).getFullYear() : null),
+        f['Refrigerant Type'],
+        f['Capacity (Tons)'] ? `${f['Capacity (Tons)']} ton` : null,
+        f['Location in Building'],
+      ].filter(Boolean).join(' · ');
+      const cond     = f['Condition'] || '';
+      const condCls  = COND_CLS[cond] || '';
+      const relIds   = f['Related Equipment'] || [];
+      const relNames = relIds.map(rid => { const r = currentEquipment.find(x => x.id === rid); return r ? esc(r.fields['Equipment Name'] || 'Unit') : null; }).filter(Boolean);
+      return `<div class="eq-card">
+        <div class="eq-type-badge">${esc(badge)}</div>
+        <div class="eq-info">
+          <div class="eq-name">${esc(f['Equipment Name'] || '(unnamed)')}</div>
+          ${meta  ? `<div class="eq-meta">${esc(meta)}</div>` : ''}
+          ${specs ? `<div class="eq-meta">${esc(specs)}${cond ? ` · <span class="${condCls}">${esc(cond)}</span>` : ''}</div>` : ''}
+          ${relNames.map(n => `<div class="eq-related-tag">${n}</div>`).join('')}
+        </div>
+        <button class="btn-edit" onclick="openEquipmentForm('${e.id}', null)">Edit</button>
+      </div>`;
+    }).join('');
+    return `<div class="eq-prop-group">${esc(label)}</div>${cards}`;
+  }).join('');
+}
+
+// ── Equipment Form ────────────────────────────────────────────────────────────
+let _eqRelated = []; // [{id, name}] chips for Related Equipment
+
+async function openEquipmentForm(equipId, presetPropId) {
+  formModalRecordId = equipId || null;
+  _eqRelated = [];
+
+  let rec = null;
+  if (equipId) {
+    try {
+      const r = await fetch(`${PROXY}/Equipment/${equipId}`);
+      rec = await r.json();
+    } catch(e) { alert('Could not load equipment record.'); return; }
+  }
+  const f = rec?.fields || {};
+
+  // Pre-populate related equipment chips from existing record
+  const relIds = f['Related Equipment'] || [];
+  relIds.forEach(rid => {
+    const found = currentEquipment.find(e => e.id === rid);
+    if (found) _eqRelated.push({ id: rid, name: found.fields['Equipment Name'] || 'Unit' });
+  });
+
+  const propOpts = currentProperties.map(p => {
+    const pid = (f['Property'] || [])[0] || presetPropId || '';
+    return `<option value="${escAttr(p.id)}"${p.id === pid ? ' selected' : ''}>${esc(p.fields['Property Name'] || '')}</option>`;
+  }).join('');
+
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="modal-title">${equipId ? 'Edit Equipment' : 'Add Equipment'}</div>
+    <div class="modal-sub">${esc(selectedCustomer?.fields['Customer Name'] || '')}</div>
+    <div class="form-group"><label class="form-label">Equipment Name</label>
+      <input class="form-inp" id="eqf-name" type="text" value="${escAttr(f['Equipment Name'] || '')}"></div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Type</label>
+        <select class="form-inp" id="eqf-type">
+          <option value="">— Select —</option>
+          ${['WSHP','Split System','Package Unit','Mini Split','RTU','Air Handler','Condenser','Furnace','Heat Pump','Boiler','Chiller','Other','Evaporative Cooler'].map(t =>
+            `<option${(f['Equipment Type']||'')=== t?' selected':''}>${t}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label class="form-label">Condition</label>
+        <select class="form-inp" id="eqf-cond">
+          <option value="">— Select —</option>
+          ${['Excellent','Good','Fair','Poor','End of Life'].map(c =>
+            `<option${(f['Condition']||'')===c?' selected':''}>${c}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-group"><label class="form-label">Brand</label>
+        <input class="form-inp" id="eqf-brand" type="text" value="${escAttr(f['Brand']||'')}"></div>
+      <div class="form-group"><label class="form-label">Model #</label>
+        <input class="form-inp" id="eqf-model" type="text" value="${escAttr(f['Model Number']||'')}"></div>
+      <div class="form-group"><label class="form-label">Serial #</label>
+        <input class="form-inp" id="eqf-serial" type="text" value="${escAttr(f['Serial Number']||'')}"></div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-group"><label class="form-label">Install Date</label>
+        <input class="form-inp" id="eqf-install" type="date" value="${escAttr((f['Install Date']||'').slice(0,10))}"></div>
+      <div class="form-group"><label class="form-label">Refrigerant</label>
+        <select class="form-inp" id="eqf-ref">
+          <option value="">— Select —</option>
+          ${['R-22','R-410A','R-32','R-454B','R-407C','Other'].map(r =>
+            `<option${(f['Refrigerant Type']||'')===r?' selected':''}>${r}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label class="form-label">Tons</label>
+        <input class="form-inp" id="eqf-tons" type="number" step="0.5" min="0" value="${escAttr(f['Capacity (Tons)']!=null?f['Capacity (Tons)']:'')}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Location in Building</label>
+      <input class="form-inp" id="eqf-loc" type="text" value="${escAttr(f['Location in Building']||'')}"></div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Property</label>
+        <select class="form-inp" id="eqf-prop">
+          <option value="">— Select —</option>${propOpts}
+        </select></div>
+      <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:4px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="eqf-warranty" style="width:16px;height:16px;accent-color:#c81f25;"${f['Under Warranty']?' checked':''} onchange="document.getElementById('eqf-warr-wrap').style.display=this.checked?'block':'none'">
+          Under Warranty
+        </label>
+      </div>
+    </div>
+    <div id="eqf-warr-wrap" style="display:${f['Under Warranty']?'block':'none'};">
+      <div class="form-group"><label class="form-label">Warranty Expiration</label>
+        <input class="form-inp" id="eqf-warr-exp" type="date" value="${escAttr((f['Warranty Expiration']||'').slice(0,10))}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Related Equipment (paired units)</label>
+      <div class="eq-chip-list" id="eqf-chip-list">${renderEqChips()}</div>
+      <div class="sp-ta-wrap">
+        <input class="form-inp" id="eqf-rel-search" type="text" placeholder="Search equipment to pair…"
+          oninput="eqRelSearch(this.value)" autocomplete="off">
+        <div class="sp-ta-drop" id="eqf-rel-drop"></div>
+      </div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-inp" id="eqf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
+      <button class="btn btn-red" id="form-submit-btn" onclick="submitEquipmentForm()">
+        ${equipId ? 'Save Changes' : 'Add Equipment'}</button>
+    </div>`;
+  document.getElementById('form-modal').classList.remove('hidden');
+}
+
+function renderEqChips() {
+  if (!_eqRelated.length) return '';
+  return _eqRelated.map(r =>
+    `<div class="eq-chip">${esc(r.name)}<button class="eq-chip-x" onclick="eqRemoveRelated('${r.id}')">×</button></div>`
+  ).join('');
+}
+
+function eqRelSearch(q) {
+  const drop = document.getElementById('eqf-rel-drop');
+  q = (q || '').toLowerCase().trim();
+  if (!q) { drop.classList.remove('open'); return; }
+  const excluded = new Set([formModalRecordId, ..._eqRelated.map(r => r.id)].filter(Boolean));
+  const matches = currentEquipment.filter(e =>
+    !excluded.has(e.id) &&
+    (e.fields['Equipment Name'] || '').toLowerCase().includes(q)
+  ).slice(0, 6);
+  drop.innerHTML = !matches.length
+    ? '<div style="padding:10px 14px;font-size:13px;color:#bbb;">No matches</div>'
+    : matches.map(e => `<div class="sp-ta-item" onclick="eqPickRelated('${e.id}','${escAttr(e.fields['Equipment Name']||'')}')">
+        <div class="sp-ta-name">${esc(e.fields['Equipment Name']||'')}</div>
+        <div class="sp-ta-meta">${esc(e.fields['Equipment Type']||'')}${e.fields['Brand']?' · '+e.fields['Brand']:''}</div>
+      </div>`).join('');
+  drop.classList.add('open');
+}
+
+function eqPickRelated(id, name) {
+  if (!_eqRelated.find(r => r.id === id)) _eqRelated.push({ id, name });
+  document.getElementById('eqf-rel-drop').classList.remove('open');
+  document.getElementById('eqf-rel-search').value = '';
+  document.getElementById('eqf-chip-list').innerHTML = renderEqChips();
+}
+
+function eqRemoveRelated(id) {
+  _eqRelated = _eqRelated.filter(r => r.id !== id);
+  document.getElementById('eqf-chip-list').innerHTML = renderEqChips();
+}
+
+async function submitEquipmentForm() {
+  const name = (document.getElementById('eqf-name')?.value || '').trim();
+  if (!name) { alert('Equipment name is required.'); return; }
+  const btn = document.getElementById('form-submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const propId  = document.getElementById('eqf-prop')?.value  || null;
+    const tons    = document.getElementById('eqf-tons')?.value;
+    const fields = {
+      'Equipment Name':      name,
+      'Equipment Type':      document.getElementById('eqf-type')?.value    || null,
+      'Condition':           document.getElementById('eqf-cond')?.value    || null,
+      'Brand':               (document.getElementById('eqf-brand')?.value  || '').trim() || null,
+      'Model Number':        (document.getElementById('eqf-model')?.value  || '').trim() || null,
+      'Serial Number':       (document.getElementById('eqf-serial')?.value || '').trim() || null,
+      'Refrigerant Type':    document.getElementById('eqf-ref')?.value     || null,
+      'Location in Building':(document.getElementById('eqf-loc')?.value    || '').trim() || null,
+      'Notes':               (document.getElementById('eqf-notes')?.value  || '').trim() || null,
+      'Under Warranty':      document.getElementById('eqf-warranty')?.checked || false,
+      'Active':              true,
+    };
+    const installVal = document.getElementById('eqf-install')?.value;
+    if (installVal) fields['Install Date'] = installVal;
+    const warrVal = document.getElementById('eqf-warr-exp')?.value;
+    if (warrVal && fields['Under Warranty']) fields['Warranty Expiration'] = warrVal;
+    if (tons) fields['Capacity (Tons)'] = parseFloat(tons);
+    if (propId)              fields['Property'] = [propId];
+    if (selectedCustomer)    fields['Customer'] = [selectedCustomer.id];
+    if (_eqRelated.length)   fields['Related Equipment'] = _eqRelated.map(r => r.id);
+    else if (formModalRecordId) fields['Related Equipment'] = []; // clear if editing and none selected
+
+    // Remove null values to avoid overwriting with empty
+    Object.keys(fields).forEach(k => { if (fields[k] === null) delete fields[k]; });
+
+    if (formModalRecordId) {
+      const res = await fetch(`${PROXY}/Equipment/${formModalRecordId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error?.message || 'Save failed'); }
+    } else {
+      const res = await fetch(`${PROXY}/Equipment`,
+        { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error?.message || 'Save failed'); }
+    }
+    closeFormModal();
+    selectCustomer(selectedCustomer.id);
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = formModalRecordId ? 'Save Changes' : 'Add Equipment';
+    alert('Error: ' + err.message);
+  }
 }
 
 // ── Invoice modal ───────────────────────────────────────────────────────────
@@ -1099,6 +1396,7 @@ async function openInvoiceModal(workOrderId, customerId) {
         existingStripeId = null;
         if (jobs.length > 0) {
           addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
+          addLaborItem(jobs);
           for (const job of jobs) addPartsFromJob(job);
           const parts = jobs.map(j => j.fields['Diagnosis']).filter(Boolean);
           if (parts.length) {
@@ -1114,6 +1412,7 @@ async function openInvoiceModal(workOrderId, customerId) {
       // ── New invoice: derive line items from job data ──
       if (jobs.length > 0) {
         addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
+        addLaborItem(jobs);
         for (const job of jobs) addPartsFromJob(job);
       } else {
         addLineItem();
@@ -1238,6 +1537,31 @@ function addPartsFromJob(job) {
   }
 }
 
+let _invoiceLaborHours = 0; // shared so pdSelect can auto-fill if user manually picks labor
+
+function addLaborItem(jobs) {
+  // Sum Labor Hours (formula field, can be decimal e.g. 1.3 for 1h 18m)
+  _invoiceLaborHours = jobs.reduce((sum, j) => sum + (Number(j.fields['Labor Hours']) || 0), 0);
+  if (!_invoiceLaborHours) return;
+  const hrs = Math.round(_invoiceLaborHours * 100) / 100;
+
+  const isCommercial = (selectedCustomer?.fields['Type'] || '').toLowerCase() === 'commercial';
+  const laborKey     = isCommercial ? 'commercial' : 'residential';
+
+  // Find matching labor product: name must include "labor" and the customer type keyword
+  const product = allProducts?.find(p => {
+    const n = (p.fields['Product Name'] || '').toLowerCase();
+    return n.includes('labor') && n.includes(laborKey);
+  }) || allProducts?.find(p => (p.fields['Product Name'] || '').toLowerCase().includes('labor hour'));
+
+  fillLineItem(
+    product ? product.fields['Product Name'] : (isCommercial ? 'Labor Hours — Commercial' : 'Labor Hours — Residential'),
+    hrs,
+    product ? (product.fields['Unit Price'] || null) : null,
+    product?.id || null
+  );
+}
+
 function closeModal() {
   document.getElementById('invoice-modal').classList.add('hidden');
 }
@@ -1309,8 +1633,13 @@ function pdSelect(el) {
   const price = parseFloat(el.dataset.price) || 0;
   const nameEl  = document.getElementById('lin-' + idx);
   const priceEl = document.getElementById('lip-' + idx);
+  const qtyEl   = document.getElementById('liq-' + idx);
   if (nameEl)  { nameEl.value = name; nameEl.dataset.pid = el.dataset.id; }
   if (priceEl) priceEl.value = price.toFixed(2);
+  // Auto-fill qty with recorded labor hours when user manually picks a labor product
+  if (qtyEl && _invoiceLaborHours > 0 && name.toLowerCase().includes('labor')) {
+    qtyEl.value = Math.round(_invoiceLaborHours * 100) / 100;
+  }
   liCalc(idx);
   pdHide(idx);
 }
