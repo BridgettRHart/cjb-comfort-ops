@@ -304,12 +304,85 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .sidebar-hd { padding: 10px 12px 8px; }
   .search-box { font-size: 16px; } /* prevents iOS zoom on focus */
 }
+
+/* ── SCHEDULE SLIDE-IN PANEL ───────────────────────────────────────────────── */
+.sched-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 400; opacity: 0; pointer-events: none; transition: opacity 0.22s; }
+.sched-overlay.open { opacity: 1; pointer-events: all; }
+.sched-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 460px; background: #fff; z-index: 401; transform: translateX(100%); transition: transform 0.24s ease; display: flex; flex-direction: column; box-shadow: -4px 0 28px rgba(0,0,0,0.18); }
+.sched-panel.open { transform: translateX(0); }
+.sp-hd { background: #c81f25; color: #fff; padding: 0 18px; height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.sp-hd-title { font-size: 16px; font-weight: 700; }
+.sp-close { background: none; border: none; color: #fff; font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 6px; opacity: 0.8; font-family: inherit; }
+.sp-close:hover { opacity: 1; }
+.sp-steps { display: flex; border-bottom: 1px solid #ebebeb; flex-shrink: 0; }
+.sp-step { flex: 1; padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #ccc; border-bottom: 2px solid transparent; }
+.sp-step.sp-active { color: #c81f25; border-bottom-color: #c81f25; }
+.sp-step.sp-done { color: #1a6b35; }
+.sp-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+.sp-foot { padding: 14px 20px; border-top: 1px solid #ebebeb; display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; background: #fff; }
+/* Typeahead */
+.sp-ta-wrap { position: relative; }
+.sp-ta-drop { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px; max-height: 220px; overflow-y: auto; z-index: 500; box-shadow: 0 6px 18px rgba(0,0,0,0.1); display: none; }
+.sp-ta-drop.open { display: block; }
+.sp-ta-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f5f5f5; }
+.sp-ta-item:last-child { border-bottom: none; }
+.sp-ta-item:hover { background: #f7f7f7; }
+.sp-ta-name { font-size: 13px; font-weight: 600; }
+.sp-ta-meta { font-size: 11px; color: #999; margin-top: 2px; }
+.sp-sel-cust { display: flex; align-items: center; gap: 10px; background: #f4faf5; border: 1.5px solid #1a6b35; border-radius: 8px; padding: 11px 14px; margin-top: 10px; }
+.sp-sel-info { flex: 1; }
+.sp-sel-name { font-size: 13px; font-weight: 700; color: #1a2e1f; }
+.sp-sel-meta { font-size: 11px; color: #555; margin-top: 2px; }
+.sp-x-btn { background: none; border: none; font-size: 18px; color: #aaa; cursor: pointer; line-height: 1; padding: 2px; }
+.sp-x-btn:hover { color: #c81f25; }
+.sp-new-sect { margin-top: 20px; padding-top: 16px; border-top: 1px solid #f0f0f0; }
+.sp-new-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #aaa; margin-bottom: 10px; }
+/* Week nav */
+.sp-week-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.sp-week-arr { background: none; border: 1px solid #e0e0e0; border-radius: 6px; padding: 6px 12px; font-size: 16px; cursor: pointer; color: #555; font-family: inherit; line-height: 1; }
+.sp-week-arr:hover { background: #f5f5f5; }
+.sp-week-lbl { flex: 1; text-align: center; font-size: 12px; font-weight: 700; color: #555; }
+.sp-days { display: flex; gap: 5px; margin-bottom: 14px; }
+.sp-day-btn { flex: 1; border: 1.5px solid #e8e8e8; border-radius: 8px; padding: 7px 3px; text-align: center; cursor: pointer; background: #fafafa; font-family: inherit; transition: border-color 0.1s, background 0.1s; }
+.sp-day-btn:hover { border-color: #c81f25; background: #fff5f5; }
+.sp-day-btn.sp-has-wos { background: #f0f6ff; border-color: #c0d8f5; }
+.sp-day-btn.sp-sel-day { background: #c81f25; border-color: #c81f25; }
+.sp-day-btn.sp-sel-day .sp-db-n, .sp-day-btn.sp-sel-day .sp-db-d { color: #fff; }
+.sp-db-n { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #aaa; }
+.sp-db-d { font-size: 15px; font-weight: 700; color: #2e2e2e; margin: 2px 0 1px; }
+.sp-db-dot { width: 5px; height: 5px; border-radius: 50%; background: #4a90d9; margin: 0 auto; visibility: hidden; }
+.sp-day-btn.sp-has-wos:not(.sp-sel-day) .sp-db-dot { visibility: visible; }
+/* Time grid */
+.sp-tgrid { display: flex; flex-direction: column; }
+.sp-trow { display: flex; align-items: stretch; }
+.sp-tlbl { width: 54px; flex-shrink: 0; font-size: 11px; color: #bbb; padding: 0 8px 0 0; line-height: 26px; text-align: right; }
+.sp-tslot { flex: 1; min-height: 26px; border-radius: 4px; margin: 1px 0; cursor: pointer; border: 1px solid transparent; transition: background 0.08s, border-color 0.08s; }
+.sp-tslot.sp-biz { background: #f9f9f9; }
+.sp-tslot.sp-biz:hover { background: #edf4ff; border-color: #b8d0f0; }
+.sp-tslot:not(.sp-biz):not(.sp-blocked):not(.sp-sel):hover { background: #fafafa; border-color: #e0e0e0; }
+.sp-tslot.sp-sel { background: #c81f25; border-color: #a8181d; cursor: default; }
+.sp-tslot.sp-blocked { background: #e3f0ff; border-color: #b8d0f0; cursor: default; }
+.sp-tslot-lbl { font-size: 10px; padding: 4px 8px; line-height: 1.3; pointer-events: none; }
+.sp-tslot.sp-sel .sp-tslot-lbl { color: #fff; font-weight: 600; }
+.sp-tslot.sp-blocked .sp-tslot-lbl { color: #1a4f8a; font-weight: 600; }
+.sp-ah-warn { background: #fff8e0; border: 1px solid #f5d088; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #7a5500; margin: 12px 0; display: none; }
+.sp-end-row { display: none; align-items: center; gap: 10px; background: #f7f7f7; border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+.sp-end-row.visible { display: flex; }
+.sp-end-lbl { font-size: 12px; color: #555; flex-shrink: 0; }
+.sp-end-sel { flex: 1; border: 1px solid #ddd; border-radius: 6px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+.sp-end-sel:focus { outline: none; border-color: #c81f25; }
+@media (max-width: 768px) {
+  .sched-panel { width: 100%; }
+  .sp-body { padding: 14px 16px; }
+  .sp-foot { padding: 12px 16px; }
+}
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1>CJB Comfort — Admin</h1>
+  <button onclick="openSchedPanel()" style="background:rgba(255,255,255,0.18);border:1.5px solid rgba(255,255,255,0.55);color:#fff;border-radius:7px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;">+ Schedule</button>
   <span class="header-sub" id="load-status"><span class="spinner"></span> Loading…</span>
 </div>
 
@@ -389,6 +462,22 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <button class="btn btn-green" id="send-btn" onclick="submitInvoice(true)">Send Invoice Now</button>
     </div>
   </div>
+</div>
+
+<!-- Schedule slide-in panel -->
+<div class="sched-overlay" id="sched-overlay" onclick="closeSchedPanel()"></div>
+<div class="sched-panel" id="sched-panel">
+  <div class="sp-hd">
+    <span class="sp-hd-title">Schedule Appointment</span>
+    <button class="sp-close" onclick="closeSchedPanel()">✕</button>
+  </div>
+  <div class="sp-steps">
+    <div class="sp-step sp-active" id="sp-s1">1. Who</div>
+    <div class="sp-step" id="sp-s2">2. Details</div>
+    <div class="sp-step" id="sp-s3">3. When</div>
+  </div>
+  <div class="sp-body" id="sp-body"></div>
+  <div class="sp-foot" id="sp-foot"></div>
 </div>
 
 <script>
@@ -1948,6 +2037,486 @@ function esc(s) {
 }
 function escAttr(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── SCHEDULE PANEL ──────────────────────────────────────────────────────────
+let _sp = {};
+
+function openSchedPanel() {
+  const now = new Date();
+  const dow = now.getDay();
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+  mon.setHours(0,0,0,0);
+  _sp = {
+    step: 1,
+    cust: null, custProps: [], custContacts: [],
+    newName: '', newPhone: '',
+    woType: 'Maintenance', priority: 'Routine', mode: ' All Units',
+    propId: null, contId: null, prob: '', notes: '',
+    weekStart: mon,
+    selDate: _azDate(now.toISOString()),
+    weekWOs: null,
+    startH: null, startM: null,
+  };
+  if (!_technicianOptions) {
+    fetchAll('Technicians', 'fields[]=Technician Name&fields[]=Active')
+      .then(d => { _technicianOptions = d.filter(t => t.fields['Active'] !== false); });
+  }
+  document.getElementById('sched-overlay').classList.add('open');
+  document.getElementById('sched-panel').classList.add('open');
+  spRender();
+}
+
+function closeSchedPanel() {
+  document.getElementById('sched-overlay').classList.remove('open');
+  document.getElementById('sched-panel').classList.remove('open');
+}
+
+function spRender() {
+  ['1','2','3'].forEach((n, i) => {
+    const el = document.getElementById('sp-s' + n);
+    if (!el) return;
+    const s = i + 1;
+    el.className = 'sp-step' + (s === _sp.step ? ' sp-active' : s < _sp.step ? ' sp-done' : '');
+  });
+  const foot = document.getElementById('sp-foot');
+  if (_sp.step === 1) {
+    foot.innerHTML = `<button class="btn btn-gray" onclick="closeSchedPanel()">Cancel</button>
+      <button class="btn btn-red" onclick="spGoNext()">Next: Details →</button>`;
+  } else if (_sp.step === 2) {
+    foot.innerHTML = `<button class="btn btn-gray" onclick="spGoBack()">← Back</button>
+      <button class="btn btn-red" onclick="spGoNext()">Next: Schedule →</button>`;
+  } else {
+    foot.innerHTML = `<button class="btn btn-gray" onclick="spGoBack()">← Back</button>
+      <button class="btn btn-green" id="sp-book-btn" onclick="spBook()">Book Appointment</button>`;
+  }
+  if (_sp.step === 1) spRenderStep1();
+  else if (_sp.step === 2) spRenderStep2();
+  else spRenderStep3();
+}
+
+// ── Step 1: Who ──
+function spRenderStep1() {
+  document.getElementById('sp-body').innerHTML = `
+    <div class="form-group">
+      <label class="form-label">Find Existing Customer</label>
+      <div class="sp-ta-wrap">
+        <input class="form-inp" id="sp-search" type="text" placeholder="Name, phone, or email…"
+          oninput="spSearchCust(this.value)" autocomplete="off">
+        <div class="sp-ta-drop" id="sp-drop"></div>
+      </div>
+      <div id="sp-sel-area"></div>
+    </div>
+    <div class="sp-new-sect">
+      <div class="sp-new-lbl">Or add a new customer</div>
+      <div class="form-row-2">
+        <div class="form-group" style="margin-bottom:0;"><label class="form-label">Name</label>
+          <input class="form-inp" id="sp-nname" type="text" placeholder="Full name" value="${escAttr(_sp.newName)}"></div>
+        <div class="form-group" style="margin-bottom:0;"><label class="form-label">Phone</label>
+          <input class="form-inp" id="sp-nphone" type="tel" placeholder="(480) 555-1234" value="${escAttr(_sp.newPhone)}"></div>
+      </div>
+    </div>`;
+  if (_sp.cust) {
+    document.getElementById('sp-search').value = _sp.cust.fields['Customer Name'] || '';
+    spShowSelCust();
+  }
+}
+
+function spSearchCust(q) {
+  const drop = document.getElementById('sp-drop');
+  q = (q || '').toLowerCase().trim();
+  if (!q) { drop.classList.remove('open'); return; }
+  const matches = allCustomers.filter(c =>
+    (c.fields['Customer Name'] || '').toLowerCase().includes(q) ||
+    (c.fields['Phone'] || '').toLowerCase().includes(q) ||
+    (c.fields['Email'] || '').toLowerCase().includes(q)
+  ).slice(0, 8);
+  drop.innerHTML = !matches.length
+    ? '<div style="padding:12px 14px;font-size:13px;color:#bbb;">No matches</div>'
+    : matches.map(c => {
+        const f = c.fields;
+        const meta = [f['Phone'], f['Email'], f['Type']].filter(Boolean).join(' · ');
+        return `<div class="sp-ta-item" onclick="spPickCust('${c.id}')">
+          <div class="sp-ta-name">${esc(f['Customer Name'] || '')}</div>
+          ${meta ? `<div class="sp-ta-meta">${esc(meta)}</div>` : ''}
+        </div>`;
+      }).join('');
+  drop.classList.add('open');
+}
+
+function spPickCust(id) {
+  _sp.cust = allCustomers.find(c => c.id === id);
+  if (!_sp.cust) return;
+  const cid = _sp.cust.id;
+  const email = (_sp.cust.fields['Email'] || '').toLowerCase();
+  _sp.custProps = allProperties.filter(p =>
+    (p.fields['Customer'] || []).includes(cid) ||
+    (email && (p.fields['Customer Email'] || '').toLowerCase() === email)
+  );
+  _sp.custContacts = allContacts.filter(c => (c.fields['Customers'] || []).includes(cid));
+  document.getElementById('sp-drop').classList.remove('open');
+  document.getElementById('sp-search').value = _sp.cust.fields['Customer Name'] || '';
+  spShowSelCust();
+}
+
+function spShowSelCust() {
+  const area = document.getElementById('sp-sel-area');
+  if (!area) return;
+  if (!_sp.cust) { area.innerHTML = ''; return; }
+  const f = _sp.cust.fields;
+  const meta = [f['Phone'], f['Email'], f['Type']].filter(Boolean).join(' · ');
+  area.innerHTML = `<div class="sp-sel-cust">
+    <div class="sp-sel-info">
+      <div class="sp-sel-name">${esc(f['Customer Name'] || '')}</div>
+      ${meta ? `<div class="sp-sel-meta">${esc(meta)}</div>` : ''}
+    </div>
+    <button class="sp-x-btn" onclick="spClearCust()" title="Clear">✕</button>
+  </div>`;
+}
+
+function spClearCust() {
+  _sp.cust = null; _sp.custProps = []; _sp.custContacts = [];
+  const s = document.getElementById('sp-search');
+  if (s) { s.value = ''; s.focus(); }
+  spShowSelCust();
+}
+
+// ── Step 2: Details ──
+function spRenderStep2() {
+  const custLabel = _sp.cust?.fields['Customer Name'] || _sp.newName || 'New Customer';
+  const propOpts = _sp.custProps.map(p =>
+    `<option value="${escAttr(p.id)}">${esc(p.fields['Property Name'] || '')}</option>`
+  ).join('');
+  const contactOpts = _sp.custContacts.map(c => {
+    const cn = c.fields['Contact Name'] || [c.fields['First Name'], c.fields['Last Name']].filter(Boolean).join(' ') || '';
+    return `<option value="${escAttr(c.id)}">${esc(cn)}</option>`;
+  }).join('');
+
+  document.getElementById('sp-body').innerHTML = `
+    <div style="background:#f4faf5;border:1.5px solid #1a6b35;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;font-weight:700;color:#1a2e1f;">${esc(custLabel)}</div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Type</label>
+        <select class="form-inp" id="sp-type">
+          ${['Maintenance','Repair','Installation','Inspection','Estimate Only','Warranty'].map(t => `<option>${t}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label class="form-label">Priority</label>
+        <select class="form-inp" id="sp-pri">
+          ${['Routine','Urgent','Emergency'].map(p => `<option>${p}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-group"><label class="form-label">Service Mode</label>
+      <select class="form-inp" id="sp-mode">
+        ${[' All Units','Specific Unit','Diagnostic'].map(m => `<option value="${escAttr(m)}">${m.trim()}</option>`).join('')}
+      </select></div>
+    ${_sp.custProps.length ? `<div class="form-group"><label class="form-label">Property</label>
+      <select class="form-inp" id="sp-prop">
+        <option value="">— Select property —</option>${propOpts}
+      </select></div>` : ''}
+    ${_sp.custContacts.length ? `<div class="form-group"><label class="form-label">Contact</label>
+      <select class="form-inp" id="sp-contact">
+        <option value="">— Select contact —</option>${contactOpts}
+      </select></div>` : ''}
+    <div class="form-group"><label class="form-label">Problem Description</label>
+      <textarea class="form-inp" id="sp-prob" rows="3" placeholder="What's the issue?"></textarea></div>
+    <div class="form-group"><label class="form-label">Internal Notes</label>
+      <textarea class="form-inp" id="sp-notes" rows="2" placeholder="Office notes…"></textarea></div>`;
+
+  // Restore saved values or auto-select
+  setTimeout(() => {
+    const tsel = document.getElementById('sp-type');
+    const psel = document.getElementById('sp-pri');
+    const msel = document.getElementById('sp-mode');
+    const prsel = document.getElementById('sp-prop');
+    const cosel = document.getElementById('sp-contact');
+    const probEl = document.getElementById('sp-prob');
+    const notesEl = document.getElementById('sp-notes');
+    if (tsel)  tsel.value  = _sp.woType;
+    if (psel)  psel.value  = _sp.priority;
+    if (msel)  msel.value  = _sp.mode;
+    if (probEl)  probEl.value  = _sp.prob;
+    if (notesEl) notesEl.value = _sp.notes;
+    if (prsel) {
+      if (_sp.propId) prsel.value = _sp.propId;
+      else if (_sp.custProps.length === 1) prsel.value = _sp.custProps[0].id;
+    }
+    if (cosel) {
+      if (_sp.contId) cosel.value = _sp.contId;
+      else {
+        const primary = _sp.custContacts.find(c => c.fields['Is Primary Contact']);
+        if (primary) cosel.value = primary.id;
+      }
+    }
+  }, 0);
+}
+
+// ── Step 3: When ──
+function spRenderStep3() {
+  const techOpts = (_technicianOptions || []).map(t =>
+    `<option value="${escAttr(t.id)}">${esc(t.fields['Technician Name'] || '')}</option>`
+  ).join('');
+
+  document.getElementById('sp-body').innerHTML = `
+    <div class="sp-week-nav">
+      <button class="sp-week-arr" onclick="spNavWeek(-1)">‹</button>
+      <span class="sp-week-lbl" id="sp-wlbl"></span>
+      <button class="sp-week-arr" onclick="spNavWeek(1)">›</button>
+    </div>
+    <div class="sp-days" id="sp-days"></div>
+    <div id="sp-tarea"><div style="text-align:center;padding:30px 0;color:#bbb;font-size:13px;">Select a day above to see available times</div></div>
+    <div class="sp-ah-warn" id="sp-ah">⚠️ <strong>After-hours or weekend.</strong> Emergency pricing will be suggested on the invoice.</div>
+    <div class="sp-end-row" id="sp-endrow">
+      <span class="sp-end-lbl">End time:</span>
+      <select class="sp-end-sel" id="sp-endsel"></select>
+    </div>
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label">Technician</label>
+      <select class="form-inp" id="sp-tech">
+        <option value="">— Select —</option>${techOpts}
+      </select>
+    </div>`;
+
+  if (_technicianOptions?.length === 1)
+    setTimeout(() => { const s = document.getElementById('sp-tech'); if (s) s.value = _technicianOptions[0].id; }, 0);
+
+  spRenderWeek();
+  spLoadWeekWOs();
+  // If a date was already selected (e.g. going back then forward), render grid
+  if (_sp.selDate) setTimeout(() => spRenderTimeGrid(), 100);
+}
+
+function spRenderWeek() {
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const todayStr = _azDate(new Date().toISOString());
+  const lbl = document.getElementById('sp-wlbl');
+  if (lbl) {
+    const wEnd = new Date(_sp.weekStart.getTime() + 6 * 24 * 3600000);
+    const o = { month: 'short', day: 'numeric' };
+    lbl.textContent = _sp.weekStart.toLocaleDateString('en-US', o) + ' – ' + wEnd.toLocaleDateString('en-US', o);
+  }
+  const container = document.getElementById('sp-days');
+  if (!container) return;
+  container.innerHTML = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(_sp.weekStart.getTime() + i * 24 * 3600000);
+    const ds = _azDate(d.toISOString());
+    const isSel = ds === _sp.selDate;
+    const hasWOs = (_sp.weekWOs || []).some(w => _azDate(w.fields['Scheduled Date']) === ds);
+    return `<button class="sp-day-btn${isSel ? ' sp-sel-day' : ''}${hasWOs && !isSel ? ' sp-has-wos' : ''}" onclick="spPickDay('${ds}')">
+      <div class="sp-db-n">${DAYS[d.getDay()]}</div>
+      <div class="sp-db-d">${d.getDate()}</div>
+      <div class="sp-db-dot"></div>
+    </button>`;
+  }).join('');
+}
+
+function spPickDay(ds) {
+  _sp.selDate = ds;
+  _sp.startH = null; _sp.startM = null;
+  const ah = document.getElementById('sp-ah');
+  const er = document.getElementById('sp-endrow');
+  if (ah) ah.style.display = 'none';
+  if (er) er.classList.remove('visible');
+  spRenderWeek();
+  spRenderTimeGrid();
+}
+
+async function spLoadWeekWOs() {
+  let source = _dashWOs;
+  if (!source) {
+    try {
+      source = await fetchAll('Work Orders',
+        `filterByFormula=${encodeURIComponent('NOT({Status}="Cancelled")')}&sort[0][field]=Scheduled Date&sort[0][direction]=asc`);
+      _dashWOs = source; _dashLoadedAt = Date.now();
+    } catch (e) { source = []; }
+  }
+  const mon = _azDate(_sp.weekStart.toISOString());
+  const sun = _azDate(new Date(_sp.weekStart.getTime() + 6 * 24 * 3600000).toISOString());
+  _sp.weekWOs = source.filter(w => {
+    const d = _azDate(w.fields['Scheduled Date']);
+    return d >= mon && d <= sun;
+  });
+  spRenderWeek();
+  if (_sp.selDate) spRenderTimeGrid();
+}
+
+function spRenderTimeGrid() {
+  const area = document.getElementById('sp-tarea');
+  if (!area) return;
+  const dayWOs = (_sp.weekWOs || []).filter(w => _azDate(w.fields['Scheduled Date']) === _sp.selDate);
+
+  const blocked = dayWOs.map(w => {
+    const st = w.fields['Scheduled Date'];
+    if (!st) return null;
+    const azSt = new Date(new Date(st).getTime() - 7 * 3600000);
+    const sh = azSt.getUTCHours(), sm = azSt.getUTCMinutes();
+    let eh = sh + 2, em = sm;
+    const en = w.fields['Scheduled End'];
+    if (en) {
+      const azEn = new Date(new Date(en).getTime() - 7 * 3600000);
+      eh = azEn.getUTCHours(); em = azEn.getUTCMinutes();
+    }
+    const custName = Array.isArray(w.fields['Customer Name']) ? w.fields['Customer Name'][0] : (w.fields['Customer Name'] || 'Scheduled');
+    return { sh, sm, eh, em, lbl: custName };
+  }).filter(Boolean);
+
+  let html = '<div class="sp-tgrid">';
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const isSel = _sp.startH === h && _sp.startM === m;
+      const isBiz = h >= 8 && h < 17;
+      const slotMin = h * 60 + m;
+      const block = blocked.find(b => slotMin >= b.sh * 60 + b.sm && slotMin < b.eh * 60 + b.em);
+      const isBlocked = !!block;
+      const isFirst = isBlocked && slotMin === block.sh * 60 + block.sm;
+      const ap = h >= 12 ? 'PM' : 'AM', dh = h % 12 || 12;
+      const tlbl = m === 0 ? `${dh}:00 ${ap}` : '';
+      let cls = 'sp-tslot' + (isBiz && !isBlocked ? ' sp-biz' : '') + (isSel ? ' sp-sel' : '') + (isBlocked ? ' sp-blocked' : '');
+      const click = isBlocked ? '' : `onclick="spPickSlot(${h},${m})"`;
+      const slabel = isSel ? `✓ ${dh}:${_pad(m)} ${ap}` : (isFirst ? esc(block.lbl) : '');
+      html += `<div class="sp-trow">
+        <div class="sp-tlbl">${esc(tlbl)}</div>
+        <div class="${cls}" ${click}>${slabel ? `<div class="sp-tslot-lbl">${slabel}</div>` : ''}</div>
+      </div>`;
+    }
+  }
+  html += '</div>';
+  area.innerHTML = html;
+
+  // Scroll body to 7:30am (slot index 15)
+  setTimeout(() => {
+    const rows = area.querySelectorAll('.sp-trow');
+    if (rows[15]) {
+      const body = document.getElementById('sp-body');
+      if (body) body.scrollTop = rows[15].offsetTop - 10;
+    }
+  }, 50);
+}
+
+function spPickSlot(h, m) {
+  _sp.startH = h; _sp.startM = m;
+  // After-hours: before 6am, at/after 6pm, or weekend
+  const dow = _sp.selDate ? new Date(_sp.selDate + 'T12:00:00').getDay() : -1;
+  const isAH = h < 6 || h >= 18 || dow === 0 || dow === 6;
+  const ah = document.getElementById('sp-ah');
+  const er = document.getElementById('sp-endrow');
+  if (ah) ah.style.display = isAH ? 'block' : 'none';
+  if (er) er.classList.add('visible');
+  // Build end-time options (+30min to +8h in 30-min steps, default +2h)
+  const sel = document.getElementById('sp-endsel');
+  if (sel) {
+    let opts = '';
+    for (let delta = 30; delta <= 480; delta += 30) {
+      const totMin = h * 60 + m + delta;
+      const eh = Math.floor(totMin / 60) % 24, em = totMin % 60;
+      const ap2 = eh >= 12 ? 'PM' : 'AM', dh2 = eh % 12 || 12;
+      opts += `<option value="${delta}"${delta === 120 ? ' selected' : ''}>${dh2}:${_pad(em)} ${ap2} (+${delta >= 60 ? delta / 60 + 'h' : delta + 'm'})</option>`;
+    }
+    sel.innerHTML = opts;
+  }
+  spRenderTimeGrid();
+}
+
+function spNavWeek(dir) {
+  _sp.weekStart = new Date(_sp.weekStart.getTime() + dir * 7 * 24 * 3600000);
+  _sp.weekWOs = null; _sp.selDate = null; _sp.startH = null; _sp.startM = null;
+  const area = document.getElementById('sp-tarea');
+  if (area) area.innerHTML = '<div style="text-align:center;padding:30px 0;color:#bbb;font-size:13px;">Select a day above to see available times</div>';
+  const ah = document.getElementById('sp-ah');
+  const er = document.getElementById('sp-endrow');
+  if (ah) ah.style.display = 'none';
+  if (er) er.classList.remove('visible');
+  spRenderWeek();
+  spLoadWeekWOs();
+}
+
+function spGoNext() {
+  if (_sp.step === 1) {
+    _sp.newName  = (document.getElementById('sp-nname')?.value  || '').trim();
+    _sp.newPhone = (document.getElementById('sp-nphone')?.value || '').trim();
+    if (!_sp.cust && !_sp.newName) { alert('Select an existing customer or enter a new customer name.'); return; }
+    _sp.step = 2;
+  } else if (_sp.step === 2) {
+    _sp.woType   = document.getElementById('sp-type')?.value    || 'Maintenance';
+    _sp.priority = document.getElementById('sp-pri')?.value     || 'Routine';
+    _sp.mode     = document.getElementById('sp-mode')?.value    || ' All Units';
+    _sp.propId   = document.getElementById('sp-prop')?.value    || null;
+    _sp.contId   = document.getElementById('sp-contact')?.value || null;
+    _sp.prob     = (document.getElementById('sp-prob')?.value   || '').trim();
+    _sp.notes    = (document.getElementById('sp-notes')?.value  || '').trim();
+    _sp.step = 3;
+  }
+  spRender();
+}
+
+function spGoBack() {
+  _sp.step = Math.max(1, _sp.step - 1);
+  spRender();
+}
+
+async function spBook() {
+  if (_sp.startH === null || !_sp.selDate) { alert('Please select a date and time slot.'); return; }
+  const btn = document.getElementById('sp-book-btn');
+  btn.disabled = true; btn.textContent = 'Booking…';
+  try {
+    let custId = _sp.cust?.id || null;
+    if (!custId) {
+      const res = await fetch(`${PROXY}/Customers`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { 'Customer Name': _sp.newName, ...(_sp.newPhone ? { 'Phone': _sp.newPhone } : {}), 'Active': true } })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to create customer');
+      custId = data.id;
+      allCustomers.push(data);
+      filteredCustomers = [...allCustomers];
+      renderCustList();
+    }
+
+    // AZ local time → UTC: AZ date midnight UTC + slot offset + 7h
+    const startMs = new Date(_sp.selDate + 'T00:00:00Z').getTime()
+                  + (_sp.startH * 60 + _sp.startM) * 60000
+                  + 7 * 3600000;
+    const delta = parseInt(document.getElementById('sp-endsel')?.value || '120');
+    const startUTC = new Date(startMs).toISOString();
+    const endUTC   = new Date(startMs + delta * 60000).toISOString();
+
+    const techId = document.getElementById('sp-tech')?.value || null;
+    const custName = _sp.cust?.fields['Customer Name'] || _sp.newName;
+    const dateStr  = new Date(_sp.selDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const fields = {
+      'Work Order Name':  `${custName} — ${dateStr}`,
+      'Customer':         [custId],
+      'Work Order Type':  _sp.woType,
+      'Priority':         _sp.priority,
+      'Service Mode':     _sp.mode,
+      'Scheduled Date':   startUTC,
+      'Scheduled End':    endUTC,
+      'Status':           'Scheduled',
+      'Active':           true,
+    };
+    if (_sp.propId)  fields['Property']            = [_sp.propId];
+    if (_sp.contId)  fields['Primary Contact']     = [_sp.contId];
+    if (techId)      fields['Technician']          = [techId];
+    if (_sp.prob)    fields['Problem Description'] = _sp.prob;
+    if (_sp.notes)   fields['Notes']              = _sp.notes;
+
+    const res = await fetch(`${PROXY}/Work%20Orders`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    closeSchedPanel();
+    _dashWOs = null;
+    loadDashboard(true);
+    if (selectedCustomer?.id === custId) selectCustomer(custId);
+
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Book Appointment';
+    alert('Error: ' + err.message);
+  }
 }
 
 init();
