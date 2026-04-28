@@ -903,19 +903,9 @@ async function selectCustomer(id) {
     );
     currentContacts = contacts;
 
-    // Fetch customer record to get linked Work Order + Equipment IDs
-    const custDetail = await fetch(`${PROXY}/Customers/${id}?fields[]=Work+Orders&fields[]=Equipment`).then(r => r.json());
+    // Fetch customer record to get linked Work Order IDs
+    const custDetail = await fetch(`${PROXY}/Customers/${id}`).then(r => r.json());
     const woIds = custDetail.fields?.['Work Orders'] || [];
-    // Merge equipment IDs from Customer record + each linked Property (covers cases where
-    // equipment was linked to Property only, not directly to Customer)
-    const eqIdSet = new Set(custDetail.fields?.['Equipment'] || []);
-    if (props.length > 0) {
-      const propDetails = await Promise.all(
-        props.map(p => fetch(`${PROXY}/Properties/${p.id}?fields[]=Equipment`).then(r => r.json()))
-      );
-      propDetails.forEach(pd => (pd.fields?.['Equipment'] || []).forEach(eid => eqIdSet.add(eid)));
-    }
-    const eqIds = [...eqIdSet];
 
     currentWorkOrders = [];
     if (woIds.length > 0) {
@@ -931,21 +921,12 @@ async function selectCustomer(id) {
       currentWorkOrders = woData.records || [];
     }
 
+    // Query Equipment directly by customer name — Airtable linked field formulas match
+    // on the linked record's primary field value (name), not the record ID.
     currentEquipment = [];
-    if (eqIds.length > 0) {
-      const formula = eqIds.length === 1
-        ? `RECORD_ID()="${eqIds[0]}"`
-        : `OR(${eqIds.map(eid => `RECORD_ID()="${eid}"`).join(',')})`;
-      const eqUrl = `${PROXY}/Equipment` +
-        `?filterByFormula=${encodeURIComponent(formula)}` +
-        '&fields[]=Equipment Name&fields[]=Equipment Type&fields[]=Brand' +
-        '&fields[]=Model Number&fields[]=Serial Number&fields[]=Install Date' +
-        '&fields[]=Equipment Age&fields[]=Condition&fields[]=Refrigerant Type' +
-        '&fields[]=Capacity (Tons)&fields[]=Location in Building' +
-        '&fields[]=Under Warranty&fields[]=Warranty Expiration' +
-        '&fields[]=Property&fields[]=Customer&fields[]=Related Equipment' +
-        '&fields[]=Notes&fields[]=Active' +
-        '&sort[0][field]=Equipment Name&sort[0][direction]=asc';
+    const custName = (selectedCustomer.fields['Customer Name'] || '').replace(/"/g, '\\"');
+    if (custName) {
+      const eqUrl = `${PROXY}/Equipment?filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`;
       const eqData = await fetch(eqUrl).then(r => r.json());
       currentEquipment = (eqData.records || []).filter(e => e.fields['Active'] !== false);
     }
