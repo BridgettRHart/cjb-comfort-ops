@@ -906,7 +906,16 @@ async function selectCustomer(id) {
     // Fetch customer record to get linked Work Order + Equipment IDs
     const custDetail = await fetch(`${PROXY}/Customers/${id}?fields[]=Work+Orders&fields[]=Equipment`).then(r => r.json());
     const woIds = custDetail.fields?.['Work Orders'] || [];
-    const eqIds = custDetail.fields?.['Equipment']   || [];
+    // Merge equipment IDs from Customer record + each linked Property (covers cases where
+    // equipment was linked to Property only, not directly to Customer)
+    const eqIdSet = new Set(custDetail.fields?.['Equipment'] || []);
+    if (props.length > 0) {
+      const propDetails = await Promise.all(
+        props.map(p => fetch(`${PROXY}/Properties/${p.id}?fields[]=Equipment`).then(r => r.json()))
+      );
+      propDetails.forEach(pd => (pd.fields?.['Equipment'] || []).forEach(eid => eqIdSet.add(eid)));
+    }
+    const eqIds = [...eqIdSet];
 
     currentWorkOrders = [];
     if (woIds.length > 0) {
