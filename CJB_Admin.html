@@ -2519,7 +2519,14 @@ async function spBook() {
   }
 }
 
-init();
+init().then(() => {
+  // Silently refresh dashboard data every 3 minutes
+  setInterval(() => {
+    _dashWOs = null;
+    const dashVisible = document.getElementById('dash-view').style.display !== 'none';
+    if (dashVisible) loadDashboard(true);
+  }, 3 * 60 * 1000);
+});
 </script>
 </body>
 </html>

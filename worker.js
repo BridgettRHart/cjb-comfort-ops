@@ -385,6 +385,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const wo     = (woData.records || [])[0];
           if (wo) {
             await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
+            // Mirror Paid to linked Jobs
+            const jobIds = wo.fields['Jobs'] || [];
+            if (jobIds.length) {
+              await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': 'Paid' })));
+            }
             // Get linked Airtable Invoice record from Work Order
             const atInvId = (wo.fields['Invoice'] || [])[0];
             if (atInvId) {
@@ -516,14 +521,21 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         } catch (e) { /* best effort */ }
 
         // 6. Create fresh pending items — Stripe requires items to exist before invoice creation
+        // Stripe requires integer quantity — fold fractional qty into unit_amount and note in description
         const woName = woRecord?.fields?.['Work Order Name'] || '';
         for (const item of lineItems) {
+          const qty     = Number(item.quantity) || 1;
+          const isWhole = Number.isInteger(qty);
+          const stripeAmt  = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
+          const stripeDesc = isWhole
+            ? (item.productName || 'Service')
+            : `${item.productName || 'Service'} (${qty}x)`;
           await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
             customer:    stripeCustId,
-            unit_amount: String(Math.round((item.unitPrice || 0) * 100)),
-            quantity:    String(Math.max(1, Math.round(item.quantity || 1))),
+            unit_amount: String(stripeAmt),
+            quantity:    isWhole ? String(Math.max(1, qty)) : '1',
             currency:    'usd',
-            description: item.productName || 'Service'
+            description: stripeDesc
           });
         }
 
@@ -585,7 +597,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 items: lineItems.map(li => ({
                   productId:   waveProdId,
                   description: li.productName || 'Service',
-                  quantity:    String(Math.max(1, Math.round(li.quantity || 1))),
+                  quantity:    String(Number(li.quantity) || 1),
                   unitPrice:   String((li.unitPrice || 0).toFixed(2))
                 }))
               }
@@ -642,7 +654,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'Total Amount':      subtotal
           };
           if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
-          if (sendNow) woUpdate['Status'] = 'Invoiced';
+          if (sendNow) {
+            woUpdate['Status'] = 'Invoiced';
+            // Mirror status to linked Jobs
+            const jobIds = woRecord?.fields?.['Jobs'] || [];
+            if (jobIds.length) {
+              await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': 'Invoiced' })));
+            }
+          }
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
 
