@@ -518,7 +518,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             const waveCustId = await waveEnsureCustomer(WAVE_KEY, custName, custEmail, customerId);
             const waveProdId = await waveEnsureServiceProduct(WAVE_KEY);
             const today2     = new Date().toISOString().split('T')[0];
-            const due2       = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+            const due2       = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
             const waveInv    = await waveQuery(WAVE_KEY, `
               mutation($input: InvoiceCreateInput!) {
                 invoiceCreate(input: $input) {
@@ -812,7 +812,8 @@ async function waveEnsureServiceProduct(apiKey) {
     input: {
       businessId:       WAVE_BUSINESS_ID,
       name:             'CJB Comfort Services',
-      incomeAccountId:  WAVE_INCOME_ACCOUNT_ID
+      incomeAccountId:  WAVE_INCOME_ACCOUNT_ID,
+      unitPrice:        '0'
     }
   });
   if (!created.productCreate.didSucceed) {
