@@ -354,6 +354,56 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Stripe Webhook — invoice.paid ────────────────────────────────────
+    if (path === '/api/stripe-webhook' && request.method === 'POST') {
+      try {
+        const rawBody      = await request.text();
+        const sigHeader    = request.headers.get('Stripe-Signature') || '';
+        const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+
+        // Verify signature if secret is configured
+        if (webhookSecret && sigHeader) {
+          const parts = Object.fromEntries(sigHeader.split(',').map(p => { const [k,...v] = p.split('='); return [k, v.join('=')]; }));
+          const t = parts.t; const v1 = parts.v1;
+          if (!t || !v1) throw new Error('Invalid Stripe-Signature header');
+          const key     = await crypto.subtle.importKey('raw', new TextEncoder().encode(webhookSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+          const signed  = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${rawBody}`));
+          const computed = Array.from(new Uint8Array(signed)).map(b => b.toString(16).padStart(2, '0')).join('');
+          if (computed !== v1) throw new Error('Stripe signature verification failed');
+        }
+
+        const event = JSON.parse(rawBody);
+
+        if (event.type === 'invoice.paid') {
+          const inv            = event.data.object;
+          const stripeInvId    = inv.id;
+          const amountPaid     = (inv.amount_paid || 0) / 100;
+          const paidDate       = new Date().toISOString().split('T')[0];
+
+          // Find Work Order with this Stripe Invoice ID in Internal Notes
+          const woData = await airtableGet('Work Orders', `FIND("${stripeInvId}", {Internal Notes})`);
+          const wo     = (woData.records || [])[0];
+          if (wo) await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
+
+          // Find Airtable Invoice record and mark paid
+          const atInvData = await airtableGet('Invoices', `FIND("${stripeInvId}", {Internal Notes})`);
+          const atInv     = (atInvData.records || [])[0];
+          if (atInv) {
+            await airtablePatch('Invoices', atInv.id, {
+              'Status':       'Paid in Full',
+              'Paid Date':    paidDate,
+              'Amount Paid':  amountPaid
+            });
+          }
+        }
+
+        return new Response('ok', { status: 200 });
+      } catch (err) {
+        console.error('Stripe webhook error:', err.message);
+        return new Response(err.message, { status: 400 });
+      }
+    }
+
     // ── Stripe Invoice — fetch existing draft ────────────────────────────
     if (path.startsWith('/api/invoice/') && request.method === 'GET') {
       const stripeInvoiceId = path.split('/api/invoice/')[1];
@@ -528,11 +578,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 }
               }`, {
               input: {
-                businessId:  WAVE_BUSINESS_ID,
-                customerId:  waveCustId,
-                invoiceDate: today2,
-                dueDate:     due2,
-                memo:        notes || '',
+                businessId:    WAVE_BUSINESS_ID,
+                customerId:    waveCustId,
+                invoiceDate:   today2,
+                dueDate:       due2,
+                memo:          notes || '',
+                ...(finalInv.number ? { invoiceNumber: finalInv.number } : {}),
                 items: lineItems.map(li => ({
                   productId:   waveProdId,
                   description: li.productName || 'Service',
