@@ -1088,8 +1088,9 @@ function renderEquipmentSection(equipment, props) {
         f['Model Number'] ? `Mod: ${f['Model Number']}` : null,
         f['Serial Number'] ? `S/N: ${f['Serial Number']}` : null,
       ].filter(Boolean).join(' · ');
+      const age = Number(f['Equipment Age']);
       const specs = [
-        f['Equipment Age'] ? `${f['Equipment Age']} yrs` : (f['Install Date'] ? new Date(f['Install Date']).getFullYear() : null),
+        age > 0 ? `${Math.round(age)} yrs` : (f['Install Date'] ? new Date(f['Install Date']).getFullYear() : null),
         f['Refrigerant Type'],
         f['Capacity (Tons)'] ? `${f['Capacity (Tons)']} ton` : null,
         f['Location in Building'],
@@ -1179,7 +1180,7 @@ async function openEquipmentForm(equipId, presetPropId) {
             `<option${(f['Refrigerant Type']||'')===r?' selected':''}>${r}</option>`).join('')}
         </select></div>
       <div class="form-group"><label class="form-label">Tons</label>
-        <input class="form-inp" id="eqf-tons" type="number" step="0.5" min="0" value="${escAttr(f['Capacity (Tons)']!=null?f['Capacity (Tons)']:'')}"></div>
+        <input class="form-inp" id="eqf-tons" type="number" step="0.5" min="0" value="${f['Capacity (Tons)'] != null ? Number(f['Capacity (Tons)']) : ''}"></div>
     </div>
     <div class="form-group"><label class="form-label">Location in Building</label>
       <input class="form-inp" id="eqf-loc" type="text" value="${escAttr(f['Location in Building']||'')}"></div>
