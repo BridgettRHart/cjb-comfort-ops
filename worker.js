@@ -492,11 +492,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (notes)   descParts.push(notes);
         const fullDesc = descParts.join('\n\n').slice(0, 500);
 
+        const isCommercial = (custRec.fields['Type'] || '').toLowerCase() === 'commercial';
         const invParams = {
           customer:          stripeCustId,
           auto_advance:      'false',
           collection_method: 'send_invoice',
-          days_until_due:    '30'
+          days_until_due:    isCommercial ? '30' : '0'
         };
         if (fullDesc) invParams.description              = fullDesc;
         if (woName)   invParams['metadata[work_order]'] = woName;
