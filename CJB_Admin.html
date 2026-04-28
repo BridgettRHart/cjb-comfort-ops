@@ -893,16 +893,33 @@ async function openInvoiceModal(workOrderId, customerId) {
       // ── Edit Draft: load line items + notes from the saved Stripe draft ──
       const draftRes = await fetch(`${PROXY}/invoice/${existingStripeId}`);
       const draft    = await draftRes.json();
-      if (!draftRes.ok || draft.error) throw new Error(draft.error || `HTTP ${draftRes.status}`);
+      const draftGone = !draftRes.ok || draft.error;
 
-      // Restore notes from the Stripe invoice description
-      if (draft.footer) document.getElementById('inv-notes').value = draft.footer;
+      if (!draftGone) {
+        // Restore notes from the Stripe invoice description
+        const savedNotes = draft.description || draft.footer || '';
+        if (savedNotes) document.getElementById('inv-notes').value = savedNotes;
 
-      // Restore line items exactly as saved
-      for (const line of (draft.lines || [])) {
-        fillLineItem(line.description, line.quantity, line.unitPrice, null);
+        // Restore line items exactly as saved
+        for (const line of (draft.lines || [])) {
+          fillLineItem(line.description, line.quantity, line.unitPrice, null);
+        }
+        if (!draft.lines?.length) addLineItem();
+      } else {
+        // Draft no longer exists in Stripe — fall back to fresh invoice
+        existingStripeId = null;
+        if (jobs.length > 0) {
+          addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
+          for (const job of jobs) addPartsFromJob(job);
+          const parts = jobs.map(j => j.fields['Diagnosis']).filter(Boolean);
+          if (parts.length) {
+            const full = parts.join('\n\n');
+            document.getElementById('inv-notes').value = full.length > 500 ? full.slice(0, 497) + '…' : full;
+          }
+        } else {
+          addLineItem();
+        }
       }
-      if (!draft.lines?.length) addLineItem(); // blank fallback
 
     } else {
       // ── New invoice: derive line items from job data ──
