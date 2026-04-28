@@ -440,7 +440,7 @@ function renderDashboard(wos, flaggedJobs) {
 
   const thisMonthWOs = wos.filter(w => _azDate(w.fields['Scheduled Date']).startsWith(monthStr));
   const needsInvoice = wos.filter(w => w.fields['Status'] === 'Complete');
-  const hasDraftId   = w => (w.fields['Internal Notes'] || '').includes('Stripe Invoice ID:');
+  const hasDraftId   = w => !!(w.fields['Stripe Invoice ID']);
 
   // Build WO lookup map for joining flagged jobs to customer/date info
   const woById = {};
@@ -765,7 +765,7 @@ function renderDetail(customer, props, wos, contacts) {
         const total  = wf['Total Amount'] != null ? ' · $' + Number(wf['Total Amount']).toFixed(2) : '';
         let invoiceBtn = '';
         if (status === 'Complete') {
-          const hasDraft = (wf['Internal Notes'] || '').includes('Stripe Invoice ID:');
+          const hasDraft = !!(wf['Stripe Invoice ID']);
           invoiceBtn = hasDraft
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`;
@@ -847,9 +847,7 @@ async function openInvoiceModal(workOrderId, customerId) {
 
   // Check if there's an existing Stripe draft for this work order
   const woForModal = currentWorkOrders.find(w => w.id === workOrderId);
-  const woInternalNotes = woForModal?.fields?.['Internal Notes'] || '';
-  const stripeIdMatch = woInternalNotes.match(/Stripe Invoice ID: (in_[^\s\n]+)/);
-  const existingStripeId = stripeIdMatch ? stripeIdMatch[1] : null;
+  let existingStripeId = (woForModal?.fields?.['Stripe Invoice ID'] || '').trim() || null;
 
   try {
     // Always load products + job details (jobs shown in summary panel regardless)

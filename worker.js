@@ -380,20 +380,20 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const amountPaid     = (inv.amount_paid || 0) / 100;
           const paidDate       = new Date().toISOString().split('T')[0];
 
-          // Find Work Order with this Stripe Invoice ID in Internal Notes
-          const woData = await airtableGet('Work Orders', `FIND("${stripeInvId}", {Internal Notes})`);
+          // Find Work Order by Stripe Invoice ID field
+          const woData = await airtableGet('Work Orders', `{Stripe Invoice ID}="${stripeInvId}"`);
           const wo     = (woData.records || [])[0];
-          if (wo) await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
-
-          // Find Airtable Invoice record and mark paid
-          const atInvData = await airtableGet('Invoices', `FIND("${stripeInvId}", {Internal Notes})`);
-          const atInv     = (atInvData.records || [])[0];
-          if (atInv) {
-            await airtablePatch('Invoices', atInv.id, {
-              'Status':       'Paid in Full',
-              'Paid Date':    paidDate,
-              'Amount Paid':  amountPaid
-            });
+          if (wo) {
+            await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
+            // Get linked Airtable Invoice record from Work Order
+            const atInvId = (wo.fields['Invoice'] || [])[0];
+            if (atInvId) {
+              await airtablePatch('Invoices', atInvId, {
+                'Status':      'Paid in Full',
+                'Paid Date':   paidDate,
+                'Amount Paid': amountPaid
+              });
+            }
           }
         }
 
@@ -490,14 +490,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // 4. Delete any existing Stripe draft for this Work Order
-        //    Items attached to a deleted draft become pending — cleaned up in step 5
-        const woNotes = woRecord?.fields?.['Internal Notes'] || '';
-        const existingIdMatch = woNotes.match(/Stripe Invoice ID: (in_[^\s\n]+)/);
-        if (existingIdMatch) {
+        const existingStripeId = (woRecord?.fields?.['Stripe Invoice ID'] || '').trim();
+        if (existingStripeId) {
           try {
-            const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingIdMatch[1]}`);
+            const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
             if (existingInv.status === 'draft') {
-              await stripeDelete(STRIPE_KEY, `/v1/invoices/${existingIdMatch[1]}`);
+              await stripeDelete(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
             }
           } catch (e) { /* invoice already gone — continue */ }
         }
@@ -627,7 +625,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
 
-        const existingAtInvoiceId = woNotes.match(/Airtable Invoice ID: (rec[^\s\n]+)/)?.[1];
+        const existingAtInvoiceId = (woRecord?.fields?.['Invoice'] || [])[0] || null;
         let atInvId;
         if (existingAtInvoiceId) {
           await airtablePatch('Invoices', existingAtInvoiceId, atFields);
@@ -640,9 +638,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // 11. Store Stripe ID + Airtable Invoice ID in Work Order Internal Notes
         if (workOrderId) {
           const woUpdate = {
-            'Internal Notes': `Stripe Invoice ID: ${finalInv.id}\nAirtable Invoice ID: ${atInvId}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`,
-            'Total Amount':   subtotal
+            'Stripe Invoice ID': finalInv.id,
+            'Total Amount':      subtotal
           };
+          if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
           if (sendNow) woUpdate['Status'] = 'Invoiced';
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
