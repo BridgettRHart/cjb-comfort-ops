@@ -1356,6 +1356,8 @@ function openCustomerForm(existingRecord) {
       <div class="form-group"><label class="form-label">Zip</label>
         <input class="form-inp" id="cf-zip" type="text" maxlength="10" value="${escAttr(f['Billing Zip']||'')}"></div>
     </div>
+    <div class="form-group"><label class="form-label">Referred By</label>
+      <input class="form-inp" id="cf-referred" type="text" value="${escAttr(f['Referred By']||'')}"></div>
     <div class="form-group"><label class="form-label">Notes</label>
       <textarea class="form-inp" id="cf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
     <div class="modal-actions">
@@ -1381,7 +1383,8 @@ async function submitCustomerForm() {
     'Billing City':    (document.getElementById('cf-city').value  ||'').trim(),
     'Billing State':   (document.getElementById('cf-state').value ||'').trim().toUpperCase(),
     'Billing Zip':     (document.getElementById('cf-zip').value   ||'').trim(),
-    'Notes':           (document.getElementById('cf-notes').value ||'').trim(),
+    'Referred By':     (document.getElementById('cf-referred').value||'').trim(),
+    'Notes':           (document.getElementById('cf-notes').value  ||'').trim(),
     'Active': true,
   };
   const btn = document.getElementById('form-submit-btn');
@@ -1781,11 +1784,13 @@ async function openWOForm(existingRecord) {
     } catch { _technicianOptions = []; }
   }
 
-  // Properties for this customer
-  const email = (cust['Email']||'').toLowerCase();
-  const custProps = email
-    ? allProperties.filter(p => (p.fields['Customer Email']||'').toLowerCase() === email)
-    : [];
+  // Properties for this customer — match by linked Customer ID or Customer Email
+  const custId  = selectedCustomer?.id || '';
+  const email   = (cust['Email']||'').toLowerCase();
+  const custProps = allProperties.filter(p =>
+    (custId && (p.fields['Customer'] || []).includes(custId)) ||
+    (email  && (p.fields['Customer Email']||'').toLowerCase() === email)
+  );
 
   const fmtDTL = iso => iso ? iso.substring(0,16) : '';
   const linkedPropId = (f['Property']||[])[0] || '';
