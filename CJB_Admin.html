@@ -1203,8 +1203,8 @@ async function openEquipmentForm(equipId, presetPropId) {
     <div class="form-group"><label class="form-label">Related Equipment (paired units)</label>
       <div class="eq-chip-list" id="eqf-chip-list">${renderEqChips()}</div>
       <div class="sp-ta-wrap">
-        <input class="form-inp" id="eqf-rel-search" type="text" placeholder="Search equipment to pair…"
-          oninput="eqRelSearch(this.value)" autocomplete="off">
+        <input class="form-inp" id="eqf-rel-search" type="text" placeholder="Tap to see all equipment…"
+          oninput="eqRelSearch(this.value)" onfocus="eqRelSearch(this.value)" autocomplete="off">
         <div class="sp-ta-drop" id="eqf-rel-drop"></div>
       </div>
     </div>
@@ -1229,12 +1229,11 @@ function renderEqChips() {
 function eqRelSearch(q) {
   const drop = document.getElementById('eqf-rel-drop');
   q = (q || '').toLowerCase().trim();
-  if (!q) { drop.classList.remove('open'); return; }
   const excluded = new Set([formModalRecordId, ..._eqRelated.map(r => r.id)].filter(Boolean));
   const matches = currentEquipment.filter(e =>
     !excluded.has(e.id) &&
-    (e.fields['Equipment Name'] || '').toLowerCase().includes(q)
-  ).slice(0, 6);
+    (!q || (e.fields['Equipment Name'] || '').toLowerCase().includes(q))
+  ).slice(0, 10);
   drop.innerHTML = !matches.length
     ? '<div style="padding:10px 14px;font-size:13px;color:#bbb;">No matches</div>'
     : matches.map(e => `<div class="sp-ta-item" onclick="eqPickRelated('${e.id}','${escAttr(e.fields['Equipment Name']||'')}')">
