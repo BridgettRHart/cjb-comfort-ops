@@ -224,6 +224,21 @@ export default {
       }
     }
 
+    // ── Airtable schema meta (select field options) ───────────────────────
+    if (path === '/api/meta/tables' && request.method === 'GET') {
+      const AIRTABLE_API_KEY = env.AIRTABLE_API_KEY;
+      const AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID;
+      const res = await fetch(
+        `https://api.airtable.com/v0/meta/bases/${AIRTABLE_BASE_ID}/tables`,
+        { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+      );
+      const body = await res.text();
+      return new Response(body, {
+        status: res.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     // ── Wave setup diagnostic ─────────────────────────────────────────────
     if (path === '/api/wave-setup' && request.method === 'GET') {
       const WAVE_KEY = env.WAVE_API_KEY;

@@ -506,6 +506,7 @@ let filteredCustomers = [];
 let allProperties  = [];
 let allContacts    = [];
 let allProducts    = null;
+let airtableSelectOptions = {}; // keyed by "TableName.FieldName" → [option strings]
 let selectedCustomer  = null;
 let currentWorkOrders = [];
 let currentProperties = [];
@@ -516,6 +517,26 @@ let invoiceWOId   = null;
 let invoiceCustId = null;
 
 // ── Init ────────────────────────────────────────────────────────────────────
+async function loadAirtableSelectOptions() {
+  try {
+    const res = await fetch(`${PROXY}/meta/tables`);
+    if (!res.ok) return;
+    const data = await res.json();
+    (data.tables || []).forEach(tbl => {
+      (tbl.fields || []).forEach(fld => {
+        if (fld.type === 'singleSelect' || fld.type === 'multipleSelects') {
+          const opts = (fld.options?.choices || []).map(c => c.name);
+          airtableSelectOptions[`${tbl.name}.${fld.name}`] = opts;
+        }
+      });
+    });
+  } catch(e) { /* non-fatal — fall back to hardcoded lists */ }
+}
+
+function getSelectOpts(table, field, fallback) {
+  return airtableSelectOptions[`${table}.${field}`] || fallback;
+}
+
 async function init() {
   try {
     const [custs, props, contacts] = await Promise.all([
@@ -533,6 +554,7 @@ async function init() {
         '&fields[]=Preferred Contact Method&fields[]=Is Primary Contact' +
         '&fields[]=Customers&fields[]=Active&fields[]=Notes' +
         '&sort[0][field]=Contact Name&sort[0][direction]=asc'),
+      loadAirtableSelectOptions(),
     ]);
     allCustomers   = custs.filter(c => c.fields['Active'] !== false);
     allProperties  = props.filter(p => p.fields['Active'] !== false);
@@ -1152,13 +1174,13 @@ async function openEquipmentForm(equipId, presetPropId) {
       <div class="form-group"><label class="form-label">Type</label>
         <select class="form-inp" id="eqf-type">
           <option value="">— Select —</option>
-          ${['WSHP','Split System','Package Unit','Mini Split','RTU','Air Handler','Condenser','Furnace','Heat Pump','Boiler','Chiller','Other','Evaporative Cooler'].map(t =>
+          ${getSelectOpts('Equipment','Equipment Type',['WSHP','Split System','Package Unit','Mini Split','RTU','Air Handler','Condenser','Furnace','Heat Pump','Boiler','Chiller','Other','Evaporative Cooler']).map(t =>
             `<option${(f['Equipment Type']||'')=== t?' selected':''}>${t}</option>`).join('')}
         </select></div>
       <div class="form-group"><label class="form-label">Condition</label>
         <select class="form-inp" id="eqf-cond">
           <option value="">— Select —</option>
-          ${['Excellent','Good','Fair','Poor','End of Life'].map(c =>
+          ${getSelectOpts('Equipment','Condition',['Excellent','Good','Fair','Poor','End of Life']).map(c =>
             `<option${(f['Condition']||'')===c?' selected':''}>${c}</option>`).join('')}
         </select></div>
     </div>
@@ -1176,7 +1198,7 @@ async function openEquipmentForm(equipId, presetPropId) {
       <div class="form-group"><label class="form-label">Refrigerant</label>
         <select class="form-inp" id="eqf-ref">
           <option value="">— Select —</option>
-          ${['R-22','R-410A','R-32','R-454B','R-407C','Other'].map(r =>
+          ${getSelectOpts('Equipment','Refrigerant Type',['R-22','R-410A','R-32','R-454B','R-407C','Other']).map(r =>
             `<option${(f['Refrigerant Type']||'')===r?' selected':''}>${r}</option>`).join('')}
         </select></div>
       <div class="form-group"><label class="form-label">Tons</label>
@@ -1752,8 +1774,8 @@ function openCustomerForm(existingRecord) {
     </div>
     <div class="form-group"><label class="form-label">Customer Type</label>
       <select class="form-inp" id="cf-type">
-        <option value="Residential" ${(f['Type']||'Residential')==='Residential'?'selected':''}>Residential</option>
-        <option value="Commercial" ${f['Type']==='Commercial'?'selected':''}>Commercial</option>
+        ${getSelectOpts('Customers','Type',['Residential','Commercial']).map(t =>
+          `<option value="${t}" ${(f['Type']||'Residential')===t?'selected':''}>${t}</option>`).join('')}
       </select></div>
     <div class="form-section-hd">Billing Address</div>
     <div class="form-group"><label class="form-label">Street</label>
