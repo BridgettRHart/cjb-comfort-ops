@@ -2003,7 +2003,7 @@ async function openContactForm(existingRecord) {
     <div class="form-row-2">
       <div class="form-group"><label class="form-label">Preferred Contact Method</label>
         <select class="form-inp" id="ctf-pref">
-          ${['Call','Text','Email'].map(m =>
+          ${getSelectOpts('Contacts','Preferred Contact Method',['Call','Text','Email']).map(m =>
             `<option value="${m}" ${(f['Preferred Contact Method']||'Call')===m?'selected':''}>${m}</option>`).join('')}
         </select></div>
       <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:2px;">
@@ -2253,12 +2253,12 @@ async function openWOForm(existingRecord) {
     <div class="form-row-2">
       <div class="form-group"><label class="form-label">Type</label>
         <select class="form-inp" id="wf-type">
-          ${['Maintenance','Repair','Installation','Inspection','Estimate Only','Warranty'].map(t =>
+          ${getSelectOpts('Work Orders','Work Order Type',['Maintenance','Repair','Installation','Inspection','Estimate Only','Warranty']).map(t =>
             `<option value="${t}" ${(f['Work Order Type']||'Maintenance')===t?'selected':''}>${t}</option>`).join('')}
         </select></div>
       <div class="form-group"><label class="form-label">Priority</label>
         <select class="form-inp" id="wf-priority">
-          ${['Routine','Urgent','Emergency'].map(p =>
+          ${getSelectOpts('Work Orders','Priority',['Routine','Urgent','Emergency']).map(p =>
             `<option value="${p}" ${(f['Priority']||'Routine')===p?'selected':''}>${p}</option>`).join('')}
         </select></div>
     </div>
@@ -2280,13 +2280,13 @@ async function openWOForm(existingRecord) {
       </select></div>
     <div class="form-group"><label class="form-label">Service Mode</label>
       <select class="form-inp" id="wf-mode">
-        ${[' All Units','Specific Unit','Diagnostic'].map(m =>
+        ${getSelectOpts('Work Orders','Service Mode',[' All Units','Specific Unit','Diagnostic']).map(m =>
           `<option value="${escAttr(m)}" ${(f['Service Mode']||' All Units')===m?'selected':''}>${m.trim()}</option>`).join('')}
       </select></div>
     ${existingRecord ? `
     <div class="form-group"><label class="form-label">Status</label>
       <select class="form-inp" id="wf-status">
-        ${['Scheduled','In Progress','Complete','Invoiced','Paid','On Hold','Cancelled'].map(s =>
+        ${getSelectOpts('Work Orders','Status',['Scheduled','In Progress','Complete','Invoiced','Paid','On Hold','Cancelled']).map(s =>
           `<option value="${s}" ${(f['Status']||'Scheduled')===s?'selected':''}>${s}</option>`).join('')}
       </select></div>` : ''}
     <div class="form-group"><label class="form-label">Problem Description</label>
@@ -2541,16 +2541,16 @@ function spRenderStep2() {
     <div class="form-row-2">
       <div class="form-group"><label class="form-label">Type</label>
         <select class="form-inp" id="sp-type">
-          ${['Maintenance','Repair','Installation','Inspection','Estimate Only','Warranty'].map(t => `<option>${t}</option>`).join('')}
+          ${getSelectOpts('Work Orders','Work Order Type',['Maintenance','Repair','Installation','Inspection','Estimate Only','Warranty']).map(t => `<option>${t}</option>`).join('')}
         </select></div>
       <div class="form-group"><label class="form-label">Priority</label>
         <select class="form-inp" id="sp-pri">
-          ${['Routine','Urgent','Emergency'].map(p => `<option>${p}</option>`).join('')}
+          ${getSelectOpts('Work Orders','Priority',['Routine','Urgent','Emergency']).map(p => `<option>${p}</option>`).join('')}
         </select></div>
     </div>
     <div class="form-group"><label class="form-label">Service Mode</label>
       <select class="form-inp" id="sp-mode">
-        ${[' All Units','Specific Unit','Diagnostic'].map(m => `<option value="${escAttr(m)}">${m.trim()}</option>`).join('')}
+        ${getSelectOpts('Work Orders','Service Mode',[' All Units','Specific Unit','Diagnostic']).map(m => `<option value="${escAttr(m)}">${m.trim()}</option>`).join('')}
       </select></div>
     ${_sp.custProps.length ? `<div class="form-group"><label class="form-label">Property</label>
       <select class="form-inp" id="sp-prop">
