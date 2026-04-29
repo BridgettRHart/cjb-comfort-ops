@@ -1080,7 +1080,7 @@ function renderDetail(customer, props, wos, contacts) {
 const EQ_TYPE_SHORT = {
   'Air Handler':'AH','Condenser':'COND','WSHP':'WSHP','Split System':'SPLIT',
   'Package Unit':'PKG','Mini Split':'MINI','RTU':'RTU','Furnace':'FURN',
-  'Heat Pump':'HP','Boiler':'BOILER','Chiller':'CHILL','Evaporative Cooler':'EVAP','Other':'—'
+  'Heat Pump':'HP','Boiler':'BOILER','Chiller':'CHILL','Evaporative Cooler':'EVAP','Evaporator Coil':'ECOIL','Other':'—'
 };
 const COND_CLS = { 'Excellent':'cond-excellent','Good':'cond-good','Fair':'cond-fair','Poor':'cond-poor','End of Life':'cond-eol' };
 
@@ -1174,7 +1174,7 @@ async function openEquipmentForm(equipId, presetPropId) {
       <div class="form-group"><label class="form-label">Type</label>
         <select class="form-inp" id="eqf-type">
           <option value="">— Select —</option>
-          ${getSelectOpts('Equipment','Equipment Type',['WSHP','Split System','Package Unit','Mini Split','RTU','Air Handler','Condenser','Furnace','Heat Pump','Boiler','Chiller','Other','Evaporative Cooler']).map(t =>
+          ${getSelectOpts('Equipment','Equipment Type',['WSHP','Split System','Package Unit','Mini Split','RTU','Air Handler','Condenser','Furnace','Heat Pump','Boiler','Chiller','Other','Evaporative Cooler','Evaporator Coil']).map(t =>
             `<option${(f['Equipment Type']||'')=== t?' selected':''}>${t}</option>`).join('')}
         </select></div>
       <div class="form-group"><label class="form-label">Condition</label>
