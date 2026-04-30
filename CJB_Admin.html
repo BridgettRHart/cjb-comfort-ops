@@ -3025,6 +3025,16 @@ init().then(() => {
     if (dashVisible) loadDashboard(true);
   }, 3 * 60 * 1000);
 });
+
+// Close all typeahead/search dropdowns when clicking outside them
+document.addEventListener('mousedown', e => {
+  ['sp-drop','sp-eq-drop','wf-eq-drop','eqf-rel-drop'].forEach(id => {
+    const drop = document.getElementById(id);
+    if (drop && !drop.parentElement?.contains(e.target)) {
+      drop.classList.remove('open');
+    }
+  });
+});
 </script>
 </body>
 </html>
