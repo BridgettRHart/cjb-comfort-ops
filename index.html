@@ -1721,7 +1721,7 @@ async function loadTodaysJobs() {
 
     // Fetch from Airtable — status filter only, no date filter in formula
     // (avoids DATETIME_FORMAT timezone complexity; date filtering done client-side below)
-    const formula = `AND(NOT({Status}="Cancelled"),NOT({Status}="Paid"))`;
+    const formula = `AND(NOT({Status}="Cancelled"),NOT({Status}="Paid"),NOT({Status}="Invoiced"))`;
     const qs = `filterByFormula=${encodeURIComponent(formula)}&maxRecords=500&sort[0][field]=Scheduled%20Date&sort[0][direction]=asc`;
 
     const res = await fetch(`${PROXY}/Work%20Orders?${qs}`);

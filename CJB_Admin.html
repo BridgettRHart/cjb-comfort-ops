@@ -1137,7 +1137,8 @@ function renderEquipmentSection(equipment, props) {
 }
 
 // ── Equipment Form ────────────────────────────────────────────────────────────
-let _eqRelated = []; // [{id, name}] chips for Related Equipment
+let _eqRelated    = []; // [{id, name}] chips for Related Equipment (equipment form)
+let _woSpecificEq = []; // [{id, name}] chips for Specific Equipment (WO form)
 
 async function openEquipmentForm(equipId, presetPropId) {
   try {
@@ -2201,11 +2202,97 @@ async function confirmLink(recordId) {
   } catch(err) { alert('Error: ' + err.message); }
 }
 
+// ── Specific Equipment chip picker (WO form) ─────────────────────────────────
+function wfToggleEqPicker() {
+  const mode = (document.getElementById('wf-mode')?.value || '').trim();
+  document.getElementById('wf-eq-section').style.display = mode === 'Specific Unit' ? 'block' : 'none';
+}
+function wfRenderEqChips() {
+  document.getElementById('wf-eq-chips').innerHTML = _woSpecificEq.map(r =>
+    `<div class="eq-chip">${esc(r.name)}<button class="eq-chip-x" onclick="wfRemoveEq('${r.id}')">×</button></div>`
+  ).join('');
+}
+function wfEqSearch(q) {
+  const drop = document.getElementById('wf-eq-drop');
+  q = (q || '').toLowerCase().trim();
+  const excluded = new Set(_woSpecificEq.map(r => r.id));
+  const matches = currentEquipment.filter(e =>
+    !excluded.has(e.id) &&
+    (!q || (e.fields['Equipment Name'] || '').toLowerCase().includes(q))
+  ).slice(0, 10);
+  drop.innerHTML = !matches.length
+    ? '<div style="padding:10px 14px;font-size:13px;color:#bbb;">No equipment on file</div>'
+    : matches.map(e => `<div class="sp-ta-item" onclick="wfPickEq('${e.id}','${escAttr(e.fields['Equipment Name']||'')}')">
+        <div class="sp-ta-name">${esc(e.fields['Equipment Name']||'')}</div>
+        <div class="sp-ta-meta">${esc(e.fields['Equipment Type']||'')}${e.fields['Brand']?' · '+esc(e.fields['Brand']):''}</div>
+      </div>`).join('');
+  drop.classList.add('open');
+}
+function wfPickEq(id, name) {
+  if (!_woSpecificEq.find(r => r.id === id)) _woSpecificEq.push({ id, name });
+  document.getElementById('wf-eq-drop').classList.remove('open');
+  document.getElementById('wf-eq-search').value = '';
+  wfRenderEqChips();
+}
+function wfRemoveEq(id) {
+  _woSpecificEq = _woSpecificEq.filter(r => r.id !== id);
+  wfRenderEqChips();
+}
+
+// ── Specific Equipment chip picker (Schedule panel) ──────────────────────────
+function spToggleEqPicker() {
+  const mode = (document.getElementById('sp-mode')?.value || '').trim();
+  document.getElementById('sp-eq-section').style.display = mode === 'Specific Unit' ? 'block' : 'none';
+}
+function spRenderEqChips() {
+  const el = document.getElementById('sp-eq-chips');
+  if (el) el.innerHTML = (_sp.specificEq || []).map(r =>
+    `<div class="eq-chip">${esc(r.name)}<button class="eq-chip-x" onclick="spRemoveEq('${r.id}')">×</button></div>`
+  ).join('');
+}
+function spEqSearch(q) {
+  const drop = document.getElementById('sp-eq-drop');
+  if (!drop) return;
+  q = (q || '').toLowerCase().trim();
+  const excluded = new Set((_sp.specificEq || []).map(r => r.id));
+  const matches = (_sp.custEquipment || []).filter(e =>
+    !excluded.has(e.id) &&
+    (!q || (e.fields['Equipment Name'] || '').toLowerCase().includes(q))
+  ).slice(0, 10);
+  drop.innerHTML = !matches.length
+    ? '<div style="padding:10px 14px;font-size:13px;color:#bbb;">No equipment on file</div>'
+    : matches.map(e => `<div class="sp-ta-item" onclick="spPickEq('${e.id}','${escAttr(e.fields['Equipment Name']||'')}')">
+        <div class="sp-ta-name">${esc(e.fields['Equipment Name']||'')}</div>
+        <div class="sp-ta-meta">${esc(e.fields['Equipment Type']||'')}${e.fields['Brand']?' · '+esc(e.fields['Brand']):''}</div>
+      </div>`).join('');
+  drop.classList.add('open');
+}
+function spPickEq(id, name) {
+  if (!(_sp.specificEq || []).find(r => r.id === id)) {
+    _sp.specificEq = [...(_sp.specificEq || []), { id, name }];
+  }
+  document.getElementById('sp-eq-drop').classList.remove('open');
+  document.getElementById('sp-eq-search').value = '';
+  spRenderEqChips();
+}
+function spRemoveEq(id) {
+  _sp.specificEq = (_sp.specificEq || []).filter(r => r.id !== id);
+  spRenderEqChips();
+}
+
 // ── Work Order form ───────────────────────────────────────────────────────────
 async function openWOForm(existingRecord) {
   formModalRecordId = existingRecord?.id || null;
   const f = existingRecord?.fields || {};
   const cust = selectedCustomer?.fields || {};
+
+  // Pre-populate Specific Equipment chips from existing record
+  _woSpecificEq = [];
+  const existingSpecEq = f['Specific Equipment'] || [];
+  existingSpecEq.forEach(eid => {
+    const found = currentEquipment.find(e => e.id === eid);
+    if (found) _woSpecificEq.push({ id: eid, name: found.fields['Equipment Name'] || 'Unit' });
+  });
 
   // Load technicians once
   if (!_technicianOptions) {
@@ -2279,10 +2366,20 @@ async function openWOForm(existingRecord) {
         ${techOptions}
       </select></div>
     <div class="form-group"><label class="form-label">Service Mode</label>
-      <select class="form-inp" id="wf-mode">
+      <select class="form-inp" id="wf-mode" onchange="wfToggleEqPicker()">
         ${getSelectOpts('Work Orders','Service Mode',[' All Units','Specific Unit','Diagnostic']).map(m =>
           `<option value="${escAttr(m)}" ${(f['Service Mode']||' All Units')===m?'selected':''}>${m.trim()}</option>`).join('')}
       </select></div>
+    <div id="wf-eq-section" style="display:${(f['Service Mode']||'').trim()==='Specific Unit'?'block':'none'};">
+      <div class="form-group"><label class="form-label">Specific Equipment</label>
+        <div class="eq-chip-list" id="wf-eq-chips"></div>
+        <div class="sp-ta-wrap">
+          <input class="form-inp" id="wf-eq-search" type="text" placeholder="Tap to see all equipment…"
+            oninput="wfEqSearch(this.value)" onfocus="wfEqSearch(this.value)" autocomplete="off">
+          <div class="sp-ta-drop" id="wf-eq-drop"></div>
+        </div>
+      </div>
+    </div>
     ${existingRecord ? `
     <div class="form-group"><label class="form-label">Status</label>
       <select class="form-inp" id="wf-status">
@@ -2308,6 +2405,8 @@ async function openWOForm(existingRecord) {
   if (!linkedPropId && custProps.length === 1) {
     document.getElementById('wf-prop').value = custProps[0].id;
   }
+  // Render any pre-populated specific equipment chips
+  wfRenderEqChips();
 }
 
 async function editWorkOrder(woId) {
@@ -2343,6 +2442,9 @@ async function submitWOForm() {
   const statusEl = document.getElementById('wf-status');
   if (statusEl) fields['Status'] = statusEl.value;
   else fields['Status'] = 'Scheduled';
+  // Specific Equipment — write IDs if any selected, clear if editing with none
+  if (_woSpecificEq.length) fields['Specific Equipment'] = _woSpecificEq.map(r => r.id);
+  else if (formModalRecordId) fields['Specific Equipment'] = [];
 
   const btn = document.getElementById('form-submit-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -2393,10 +2495,11 @@ function openSchedPanel() {
   mon.setHours(0,0,0,0);
   _sp = {
     step: 1,
-    cust: null, custProps: [], custContacts: [],
+    cust: null, custProps: [], custContacts: [], custEquipment: [],
     newName: '', newPhone: '',
     woType: 'Maintenance', priority: 'Routine', mode: ' All Units',
     propId: null, contId: null, prob: '', notes: '',
+    specificEq: [],
     weekStart: mon,
     selDate: _azDate(now.toISOString()),
     weekWOs: null,
@@ -2488,7 +2591,7 @@ function spSearchCust(q) {
   drop.classList.add('open');
 }
 
-function spPickCust(id) {
+async function spPickCust(id) {
   _sp.cust = allCustomers.find(c => c.id === id);
   if (!_sp.cust) return;
   const cid = _sp.cust.id;
@@ -2498,6 +2601,15 @@ function spPickCust(id) {
     (email && (p.fields['Customer Email'] || '').toLowerCase() === email)
   );
   _sp.custContacts = allContacts.filter(c => (c.fields['Customers'] || []).includes(cid));
+  // Load equipment for this customer
+  _sp.custEquipment = [];
+  const custName = (_sp.cust.fields['Customer Name'] || '').replace(/"/g, '\\"');
+  if (custName) {
+    try {
+      const eq = await fetch(`${PROXY}/Equipment?filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`).then(r => r.json());
+      _sp.custEquipment = (eq.records || []).filter(e => e.fields['Active'] !== false);
+    } catch(e) { /* non-fatal */ }
+  }
   document.getElementById('sp-drop').classList.remove('open');
   document.getElementById('sp-search').value = _sp.cust.fields['Customer Name'] || '';
   spShowSelCust();
@@ -2549,9 +2661,19 @@ function spRenderStep2() {
         </select></div>
     </div>
     <div class="form-group"><label class="form-label">Service Mode</label>
-      <select class="form-inp" id="sp-mode">
+      <select class="form-inp" id="sp-mode" onchange="spToggleEqPicker()">
         ${getSelectOpts('Work Orders','Service Mode',[' All Units','Specific Unit','Diagnostic']).map(m => `<option value="${escAttr(m)}">${m.trim()}</option>`).join('')}
       </select></div>
+    <div id="sp-eq-section" style="display:none;">
+      <div class="form-group"><label class="form-label">Specific Equipment</label>
+        <div class="eq-chip-list" id="sp-eq-chips"></div>
+        <div class="sp-ta-wrap">
+          <input class="form-inp" id="sp-eq-search" type="text" placeholder="Tap to see all equipment…"
+            oninput="spEqSearch(this.value)" onfocus="spEqSearch(this.value)" autocomplete="off">
+          <div class="sp-ta-drop" id="sp-eq-drop"></div>
+        </div>
+      </div>
+    </div>
     ${_sp.custProps.length ? `<div class="form-group"><label class="form-label">Property</label>
       <select class="form-inp" id="sp-prop">
         <option value="">— Select property —</option>${propOpts}
@@ -2579,6 +2701,9 @@ function spRenderStep2() {
     if (msel)  msel.value  = _sp.mode;
     if (probEl)  probEl.value  = _sp.prob;
     if (notesEl) notesEl.value = _sp.notes;
+    // Show/hide equipment picker and restore chips based on saved mode
+    spToggleEqPicker();
+    spRenderEqChips();
     if (prsel) {
       if (_sp.propId) prsel.value = _sp.propId;
       else if (_sp.custProps.length === 1) prsel.value = _sp.custProps[0].id;
@@ -2779,13 +2904,14 @@ function spGoNext() {
     if (!_sp.cust && !_sp.newName) { alert('Select an existing customer or enter a new customer name.'); return; }
     _sp.step = 2;
   } else if (_sp.step === 2) {
-    _sp.woType   = document.getElementById('sp-type')?.value    || 'Maintenance';
-    _sp.priority = document.getElementById('sp-pri')?.value     || 'Routine';
-    _sp.mode     = document.getElementById('sp-mode')?.value    || ' All Units';
-    _sp.propId   = document.getElementById('sp-prop')?.value    || null;
-    _sp.contId   = document.getElementById('sp-contact')?.value || null;
-    _sp.prob     = (document.getElementById('sp-prob')?.value   || '').trim();
-    _sp.notes    = (document.getElementById('sp-notes')?.value  || '').trim();
+    _sp.woType     = document.getElementById('sp-type')?.value    || 'Maintenance';
+    _sp.priority   = document.getElementById('sp-pri')?.value     || 'Routine';
+    _sp.mode       = document.getElementById('sp-mode')?.value    || ' All Units';
+    _sp.propId     = document.getElementById('sp-prop')?.value    || null;
+    _sp.contId     = document.getElementById('sp-contact')?.value || null;
+    _sp.prob       = (document.getElementById('sp-prob')?.value   || '').trim();
+    _sp.notes      = (document.getElementById('sp-notes')?.value  || '').trim();
+    // specificEq is updated live via spPickEq/spRemoveEq — already in _sp.specificEq
     _sp.step = 3;
   }
   spRender();
@@ -2842,7 +2968,8 @@ async function spBook() {
     if (_sp.contId)  fields['Primary Contact']     = [_sp.contId];
     if (techId)      fields['Technician']          = [techId];
     if (_sp.prob)    fields['Problem Description'] = _sp.prob;
-    if (_sp.notes)   fields['Notes']              = _sp.notes;
+    if (_sp.notes)   fields['Notes']               = _sp.notes;
+    if (_sp.specificEq?.length) fields['Specific Equipment'] = _sp.specificEq.map(r => r.id);
 
     const res = await fetch(`${PROXY}/Work%20Orders`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
