@@ -2202,6 +2202,28 @@ async function confirmLink(recordId) {
   } catch(err) { alert('Error: ' + err.message); }
 }
 
+// ── Specific Equipment — system expansion helper ─────────────────────────────
+// When you pick one unit, auto-include the entire linked system.
+// Traverses: selected → its related → their related (2 hops covers any hub-spoke layout).
+// Condenser is the hub; picking coil finds condenser, then condenser finds furnace.
+function expandEquipmentSystem(startId, pool) {
+  const result = new Map(); // id → {id, name}
+  const visited = new Set();
+  const queue = [startId];
+  while (queue.length) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const rec = pool.find(e => e.id === id);
+    if (!rec) continue;
+    result.set(id, { id, name: rec.fields['Equipment Name'] || 'Unit' });
+    (rec.fields['Related Equipment'] || []).forEach(rid => {
+      if (!visited.has(rid)) queue.push(rid);
+    });
+  }
+  return [...result.values()];
+}
+
 // ── Specific Equipment chip picker (WO form) ─────────────────────────────────
 function wfToggleEqPicker() {
   const mode = (document.getElementById('wf-mode')?.value || '').trim();
@@ -2229,7 +2251,10 @@ function wfEqSearch(q) {
   drop.classList.add('open');
 }
 function wfPickEq(id, name) {
-  if (!_woSpecificEq.find(r => r.id === id)) _woSpecificEq.push({ id, name });
+  const system = expandEquipmentSystem(id, currentEquipment);
+  system.forEach(unit => {
+    if (!_woSpecificEq.find(r => r.id === unit.id)) _woSpecificEq.push(unit);
+  });
   document.getElementById('wf-eq-drop').classList.remove('open');
   document.getElementById('wf-eq-search').value = '';
   wfRenderEqChips();
@@ -2268,9 +2293,12 @@ function spEqSearch(q) {
   drop.classList.add('open');
 }
 function spPickEq(id, name) {
-  if (!(_sp.specificEq || []).find(r => r.id === id)) {
-    _sp.specificEq = [...(_sp.specificEq || []), { id, name }];
-  }
+  const system = expandEquipmentSystem(id, _sp.custEquipment || []);
+  system.forEach(unit => {
+    if (!(_sp.specificEq || []).find(r => r.id === unit.id)) {
+      _sp.specificEq = [...(_sp.specificEq || []), unit];
+    }
+  });
   document.getElementById('sp-eq-drop').classList.remove('open');
   document.getElementById('sp-eq-search').value = '';
   spRenderEqChips();
