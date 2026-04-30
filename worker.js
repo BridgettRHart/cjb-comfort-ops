@@ -38,7 +38,7 @@ export default {
 
     const corsHeaders = {
       'Access-Control-Allow-Origin':  '*',
-      'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization'
     };
 
@@ -705,6 +705,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       if (!ALLOWED_TABLES.includes(tableName)) {
         return new Response(JSON.stringify({ error: 'Table not allowed' }), {
           status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Hard-block DELETE — app uses Active:false soft-deletes only.
+      // Prevents anyone with the worker URL from wiping Airtable records.
+      if (request.method === 'DELETE') {
+        return new Response(JSON.stringify({ error: 'DELETE not permitted' }), {
+          status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
 
