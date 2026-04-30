@@ -1397,9 +1397,22 @@
         <textarea class="form-textarea" id="field-diagnosis" placeholder="What was wrong with the system?" rows="3"></textarea>
       </div>
 
-      <div class="form-field" style="margin-bottom:0;">
+      <div class="form-field">
         <label class="form-label" for="field-recommendations">Recommendations</label>
         <textarea class="form-textarea" id="field-recommendations" placeholder="Follow-up work needed? Parts to order?" rows="2"></textarea>
+      </div>
+
+      <div class="form-field" style="margin-bottom:0;">
+        <label class="form-label">Unit Condition</label>
+        <div class="radio-group" role="group" aria-label="Unit condition" style="flex-wrap:wrap;">
+          ${['Excellent','Good','Fair','Poor','End of Life'].map((c,i) =>
+            `<label class="radio-option${i===0?' selected':''}" id="cond-label-${c.replace(/ /g,'-')}" onclick="selectCondition('${c}')">
+              <input type="radio" name="unit-condition" value="${c}"${i===0?' checked':''} aria-label="${c}">
+              <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+              ${c}
+            </label>`
+          ).join('')}
+        </div>
       </div>
 
     </div>
@@ -1580,6 +1593,7 @@ let currentJob = null;
 let readyToInvoice = false;
 let selectedPhotos = [];
 let followupSelected = 'no';
+let selectedCondition = 'Excellent';
 
 // ═══════════════════════
 // INIT
@@ -2706,6 +2720,7 @@ function openCompleteForm() {
   selectedPhotos = [];
   readyToInvoice = false;
   selectFollowup('no');
+  selectCondition('Excellent');
   document.querySelectorAll('.part-chip').forEach(c => {
     c.classList.remove('selected');
     const cb = c.querySelector('input');
@@ -2724,6 +2739,9 @@ function openCompleteForm() {
     if (jf['Recommendations']) document.getElementById('field-recommendations').value = jf['Recommendations'];
     if (jf['Follow Up Required']) selectFollowup('yes');
     if (jf['Follow Up Notes']) document.getElementById('field-followup-notes').value = jf['Follow Up Notes'];
+    // Pre-fill condition from the equipment record's current value
+    const eq = currentWorkOrderEquipment.find(e => e.id === selectedEquipmentId);
+    if (eq?.fields['Condition']) selectCondition(eq.fields['Condition']);
 
     // Restore saved parts
     if (jf['Parts Used']) {
@@ -2911,6 +2929,14 @@ function selectSearchResult(name, price) {
   document.getElementById('parts-search-results').innerHTML = '';
 }
 
+function selectCondition(val) {
+  selectedCondition = val;
+  ['Excellent','Good','Fair','Poor','End of Life'].forEach(c => {
+    const el = document.getElementById('cond-label-' + c.replace(/ /g,'-'));
+    if (el) el.classList.toggle('selected', c === val);
+  });
+}
+
 function selectFollowup(val) {
   followupSelected = val;
   document.getElementById('followup-no').checked = val === 'no';
@@ -3030,6 +3056,15 @@ async function submitComplete() {
       await apiPatch('Jobs', existingJob.id, jobFields);
     } else {
       await apiPost('Jobs', jobFields);
+    }
+
+    // Update Equipment record: Last Service Date + Condition
+    if (selectedEquipmentId) {
+      const todayAZ = azDateStr(new Date().toISOString());
+      await apiPatch('Equipment', selectedEquipmentId, {
+        'Last Service Date': todayAZ,
+        'Condition': selectedCondition,
+      });
     }
 
     // Keep Work Order as In Progress — summary screen finalizes it
