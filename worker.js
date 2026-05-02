@@ -96,22 +96,22 @@ export default {
             if (eventTypeName.includes(key)) { workOrderType = val; break; }
           }
 
-          let phone = inviteePhone, address = '', city = '', state = '', zip = '', unitCount = '', problemDesc = '';
+          let phone = inviteePhone, address = '', unitCount = '', problemDesc = '';
           for (const qa of (payload.questions_and_answers || [])) {
             const q = (qa.question || '').toLowerCase();
             const a = (qa.answer   || '').trim();
             if (!a) continue;
-            if (q.includes('phone')) {
+            // Match most-specific patterns first to avoid cross-contamination.
+            // "known issues" question contains "unit" so must be checked before "how many"
+            if (q.includes('known issues') || q.includes('issues you are having')) {
+              problemDesc = a;
+            } else if (q.includes('how many')) {
+              unitCount = a;
+            } else if (q.includes('phone')) {
               phone = a;
             } else if (q.includes('service address') || q.includes('address')) {
-              const parts = a.split(',').map(s => s.trim());
-              address = parts[0] || a;
-              if (parts[1]) city = parts[1];
-            } else if (q.includes('city'))  { city        = a; }
-            else if (q.includes('state'))   { state       = a; }
-            else if (q.includes('zip'))     { zip         = a; }
-            else if (q.includes('how many') || q.includes('unit')) { unitCount = a; }
-            else if (q.includes('known issues') || q.includes('notes') || q.includes('issue')) { problemDesc = a; }
+              address = a; // form only asks for street address, no city/state/zip splitting needed
+            }
           }
 
           // Find or create Customer
@@ -151,9 +151,6 @@ export default {
                 'Service Address': address,
                 'Active':          true
               };
-              if (city)         propFields['City']           = city;
-              if (state)        propFields['State']          = state;
-              if (zip)          propFields['Zip']            = zip;
               if (inviteeEmail) propFields['Customer Email'] = inviteeEmail;
               if (customerId)   propFields['Customer']       = [customerId];
               const newProp = await airtablePost('Properties', propFields);
