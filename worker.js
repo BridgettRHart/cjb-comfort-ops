@@ -72,6 +72,7 @@ export default {
           let scheduledEnd  = '';
           let eventTypeName = '';
           let calendlyFetchError = '';
+          let address = ''; // declared early so Calendly location field can populate it
 
           if (eventUuid) {
             try {
@@ -83,6 +84,10 @@ export default {
                 scheduledDate = evData.resource?.start_time || '';
                 scheduledEnd  = evData.resource?.end_time   || '';
                 eventTypeName = (evData.resource?.name || '').toLowerCase();
+                // Calendly location field (invitee-provided location or custom location type)
+                // Q&A answer for "address" will override this below if present
+                const evLocation = evData.resource?.location?.location || '';
+                if (evLocation) address = evLocation;
               } else {
                 calendlyFetchError = `Calendly API ${evRes.status}: ${JSON.stringify(evData)}`;
               }
@@ -96,7 +101,7 @@ export default {
             if (eventTypeName.includes(key)) { workOrderType = val; break; }
           }
 
-          let phone = inviteePhone, address = '', unitCount = '', problemDesc = '';
+          let phone = inviteePhone, unitCount = '', problemDesc = '';
           for (const qa of (payload.questions_and_answers || [])) {
             const q = (qa.question || '').toLowerCase();
             const a = (qa.answer   || '').trim();
