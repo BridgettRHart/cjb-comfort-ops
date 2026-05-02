@@ -12,9 +12,11 @@ let _waveServiceProductId = null; // cached per Worker instance
 
 const R2_PUBLIC_URL = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
 
-const AIRTABLE_BASE_ID = 'appPv1xZIck89RxL2';
-const AIRTABLE_API_KEY = 'patwLtwCfaf4ctJu1.5e01386c6580cb6dae0a160c566563d287f4d54fa7489c73cf5a7a920fbcb17f';
-const CALENDLY_TOKEN   = 'eyJraWQiOiIxY2UxZTEzNjE3ZGNmNzY2YjNjZWJjY2Y4ZGM1YmFmYThhNjVlNjg0MDIzZjdjMzJiZTgzNDliMjM4MDEzNWI0IiwidHlwIjoiUEFUIiwiYWxnIjoiRVMyNTYifQ.eyJqdGkiOiI3ZDNlNmY5Zi1lMjZkLTQ3MDktYWJiYS05ZWUyNTFhMTg0ZjMiLCJzdWIiOiI2YzUxNjNhMy1mNDMwLTQ0NmUtOGJhNy01NjcxNzhhZWFlZTAiLCJpYXQiOjE3NDU1NDUzMTMsImV4cCI6MTkwMzMxMTMxM30.YfFCqkT7WDZ8nfbFT3oSQlX0qk5yH2Mt8a0OMWBjxz-Tf6iHdJvZKKjuPik2-YygsLKQhGCXQTaYIDqhMaBaYd5c5FwOI0ZbJBCsaZug';
+// These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
+// Declared here so helper functions defined outside fetch() can access them.
+let AIRTABLE_BASE_ID = '';
+let AIRTABLE_API_KEY = '';
+let CALENDLY_TOKEN   = '';
 
 const ALLOWED_TABLES = [
   'Customers','Contacts','Properties','Equipment','Jobs',
@@ -33,6 +35,11 @@ const EVENT_TYPE_MAP = {
 
 export default {
   async fetch(request, env) {
+    // Load secrets from Cloudflare environment on every request
+    AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID || AIRTABLE_BASE_ID;
+    AIRTABLE_API_KEY = env.AIRTABLE_API_KEY || AIRTABLE_API_KEY;
+    CALENDLY_TOKEN   = env.CALENDLY_TOKEN   || CALENDLY_TOKEN;
+
     const url  = new URL(request.url);
     const path = url.pathname;
 
@@ -238,8 +245,6 @@ export default {
 
     // ── Airtable schema meta (select field options) ───────────────────────
     if (path === '/api/meta/tables' && request.method === 'GET') {
-      const AIRTABLE_API_KEY = env.AIRTABLE_API_KEY;
-      const AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID;
       const res = await fetch(
         `https://api.airtable.com/v0/meta/bases/${AIRTABLE_BASE_ID}/tables`,
         { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
