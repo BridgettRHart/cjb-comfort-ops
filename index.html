@@ -1405,13 +1405,31 @@
       <div class="form-field" style="margin-bottom:0;">
         <label class="form-label">Unit Condition</label>
         <div class="radio-group" role="group" aria-label="Unit condition" style="flex-wrap:wrap;">
-          ${['Excellent','Good','Fair','Poor','End of Life'].map((c,i) =>
-            `<label class="radio-option${i===0?' selected':''}" id="cond-label-${c.replace(/ /g,'-')}" onclick="selectCondition('${c}')">
-              <input type="radio" name="unit-condition" value="${c}"${i===0?' checked':''} aria-label="${c}">
-              <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-              ${c}
-            </label>`
-          ).join('')}
+          <label class="radio-option selected" id="cond-label-Excellent" onclick="selectCondition('Excellent')">
+            <input type="radio" name="unit-condition" value="Excellent" checked aria-label="Excellent">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            Excellent
+          </label>
+          <label class="radio-option" id="cond-label-Good" onclick="selectCondition('Good')">
+            <input type="radio" name="unit-condition" value="Good" aria-label="Good">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            Good
+          </label>
+          <label class="radio-option" id="cond-label-Fair" onclick="selectCondition('Fair')">
+            <input type="radio" name="unit-condition" value="Fair" aria-label="Fair">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            Fair
+          </label>
+          <label class="radio-option" id="cond-label-Poor" onclick="selectCondition('Poor')">
+            <input type="radio" name="unit-condition" value="Poor" aria-label="Poor">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            Poor
+          </label>
+          <label class="radio-option" id="cond-label-End-of-Life" onclick="selectCondition('End of Life')">
+            <input type="radio" name="unit-condition" value="End of Life" aria-label="End of Life">
+            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
+            End of Life
+          </label>
         </div>
       </div>
 

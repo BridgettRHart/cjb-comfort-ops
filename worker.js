@@ -62,15 +62,25 @@ export default {
           const eventUuid = eventUri.split('/').pop();
 
           let scheduledDate = '';
+          let scheduledEnd  = '';
           let eventTypeName = '';
+          let calendlyFetchError = '';
+
           if (eventUuid) {
-            const evRes = await fetch(`https://api.calendly.com/scheduled_events/${eventUuid}`, {
-              headers: { Authorization: `Bearer ${CALENDLY_TOKEN}` }
-            });
-            if (evRes.ok) {
+            try {
+              const evRes = await fetch(`https://api.calendly.com/scheduled_events/${eventUuid}`, {
+                headers: { Authorization: `Bearer ${CALENDLY_TOKEN}` }
+              });
               const evData = await evRes.json();
-              scheduledDate = evData.resource?.start_time || '';
-              eventTypeName = (evData.resource?.name || '').toLowerCase();
+              if (evRes.ok) {
+                scheduledDate = evData.resource?.start_time || '';
+                scheduledEnd  = evData.resource?.end_time   || '';
+                eventTypeName = (evData.resource?.name || '').toLowerCase();
+              } else {
+                calendlyFetchError = `Calendly API ${evRes.status}: ${JSON.stringify(evData)}`;
+              }
+            } catch (fetchErr) {
+              calendlyFetchError = `Calendly fetch error: ${fetchErr.message}`;
             }
           }
 
@@ -146,8 +156,9 @@ export default {
           }
 
           const noteParts = [];
-          if (phone)     noteParts.push('Phone: ' + phone);
-          if (unitCount) noteParts.push('Units: ' + unitCount);
+          if (phone)              noteParts.push('Phone: ' + phone);
+          if (unitCount)          noteParts.push('Units: ' + unitCount);
+          if (calendlyFetchError) noteParts.push('⚠️ ' + calendlyFetchError);
 
           const woFields = {
             'Work Order Name': `${inviteeName} — ${workOrderType}`,
@@ -156,7 +167,8 @@ export default {
             'Notes':           noteParts.join(' | '),
             'Active':          true
           };
-          if (scheduledDate) woFields['Scheduled Date']      = scheduledDate;
+          if (scheduledDate) woFields['Scheduled Date'] = scheduledDate;
+          if (scheduledEnd)  woFields['Scheduled End']  = scheduledEnd;
           if (problemDesc)   woFields['Problem Description'] = problemDesc;
           if (customerId)    woFields['Customer']            = [customerId];
           if (propertyId)    woFields['Property']            = [propertyId];
