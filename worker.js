@@ -169,6 +169,33 @@ export default {
           if (unitCount)          noteParts.push('Units: ' + unitCount);
           if (calendlyFetchError) noteParts.push('⚠️ ' + calendlyFetchError);
 
+          // ── Reschedule detection ──────────────────────────────────────────
+          // When a customer reschedules via Calendly, a new invitee.created fires
+          // with payload.old_invitee pointing back to the original booking.
+          // Instead of creating a new WO, find the old one and update it.
+          const oldInviteeUri = payload.old_invitee || '';
+          if (oldInviteeUri) {
+            const oldEventMatch = oldInviteeUri.match(/scheduled_events\/([^/]+)/);
+            const oldEventUuid  = oldEventMatch ? oldEventMatch[1] : '';
+            const oldEventUri   = oldEventUuid
+              ? `https://api.calendly.com/scheduled_events/${oldEventUuid}`
+              : '';
+            if (oldEventUri) {
+              const oldWoSearch = await airtableGet('Work Orders', `{Calendly ID}="${oldEventUri}"`);
+              if (oldWoSearch.records?.length > 0) {
+                const rescheduleFields = { 'Status': 'Scheduled' };
+                if (scheduledDate) rescheduleFields['Scheduled Date'] = scheduledDate;
+                if (scheduledEnd)  rescheduleFields['Scheduled End']  = scheduledEnd;
+                if (eventUri)      rescheduleFields['Calendly ID']    = eventUri;
+                await airtablePatch('Work Orders', oldWoSearch.records[0].id, rescheduleFields);
+                return new Response(JSON.stringify({ ok: true, rescheduled: true }), {
+                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                });
+              }
+            }
+          }
+
+          // ── New booking (not a reschedule) — create Work Order ────────────
           const woFields = {
             'Work Order Name': `${inviteeName} — ${workOrderType}`,
             'Status':          'Scheduled',
@@ -191,11 +218,17 @@ export default {
         }
 
         if (event === 'invitee.canceled') {
-          const calendlyId = payload.uri || payload.event || '';
-          if (calendlyId) {
-            const search = await airtableGet('Work Orders', `{Calendly ID}="${calendlyId}"`);
-            if (search.records?.length > 0) {
-              await airtablePatch('Work Orders', search.records[0].id, { 'Status': 'Cancelled' });
+          // If this is a reschedule (not a true cancellation), do nothing —
+          // the new invitee.created event will find and update the existing WO.
+          const isRescheduled = payload.rescheduled === true || !!payload.new_invitee;
+          if (!isRescheduled) {
+            // True cancellation — use payload.event (the event URI we stored on the WO)
+            const calendlyId = payload.event || payload.uri || '';
+            if (calendlyId) {
+              const search = await airtableGet('Work Orders', `{Calendly ID}="${calendlyId}"`);
+              if (search.records?.length > 0) {
+                await airtablePatch('Work Orders', search.records[0].id, { 'Status': 'Cancelled' });
+              }
             }
           }
           return new Response(JSON.stringify({ ok: true }), {
