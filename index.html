@@ -1542,6 +1542,8 @@
 
     <div id="summary-jobs-list" style="margin-bottom:12px;"></div>
 
+    <div id="summary-estimate-section" style="margin-bottom:12px;"></div>
+
     <div class="detail-section" style="padding:16px; margin-bottom:16px;">
       <div class="ready-toggle"
         id="summary-invoice-toggle"
@@ -1585,6 +1587,82 @@
     <div style="display:flex;gap:10px;">
       <button class="btn btn-dark" style="flex:1;font-size:15px;" onclick="submitSkipWithReason()">Confirm Skip</button>
       <button class="btn btn-outline" style="flex:1;font-size:15px;" onclick="cancelSkipReason()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ESTIMATE MODAL SHEET -->
+<div id="estimate-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;overflow-y:auto;" role="dialog" aria-modal="true" aria-label="Create estimate">
+  <div style="background:white;border-radius:16px 16px 0 0;padding:0;width:100%;max-width:480px;margin:60px auto 0;min-height:calc(100vh - 60px);">
+
+    <!-- header -->
+    <div style="padding:18px 20px 14px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid #eee;">
+      <div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--charcoal);">📋 Create Estimate</div>
+        <div id="fq-customer-info" style="font-size:12px;color:var(--gray-text);margin-top:2px;"></div>
+      </div>
+      <button onclick="closeEstimateModal()" style="background:none;border:none;font-size:28px;line-height:1;color:var(--gray-text);padding:0 0 0 12px;cursor:pointer;" aria-label="Close">×</button>
+    </div>
+
+    <div style="padding:16px 20px 40px;">
+
+      <!-- ── SENT STATE (shown after successful send) ── -->
+      <div id="fq-sent-state" style="display:none;text-align:center;padding:32px 0;">
+        <div style="font-size:44px;margin-bottom:12px;">✅</div>
+        <div style="font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:8px;">Estimate Sent!</div>
+        <div style="font-size:13px;color:var(--gray-text);margin-bottom:20px;">Customer will receive an email with their estimate link.</div>
+        <div id="fq-quote-link-section" style="background:#f5f5f5;border-radius:10px;padding:14px;text-align:left;margin-bottom:20px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:6px;">Quote Link</div>
+          <div id="fq-quote-url" style="font-size:12px;color:var(--charcoal);word-break:break-all;margin-bottom:10px;"></div>
+          <button onclick="fqCopyLink()" class="btn btn-outline" style="width:100%;font-size:13px;">📋 Copy Link to Share</button>
+        </div>
+        <button onclick="closeEstimateModal()" class="btn btn-dark btn-full" style="font-size:15px;">Done</button>
+      </div>
+
+      <!-- ── BUILD STATE ── -->
+      <div id="fq-build-state">
+
+        <div class="form-field">
+          <label class="form-label" for="fq-description">What's Being Estimated</label>
+          <textarea class="form-textarea" id="fq-description" placeholder="e.g. Compressor replacement, refrigerant recharge, new condenser install..." rows="3"></textarea>
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:8px;">Line Items</div>
+          <div id="fq-lines"></div>
+          <button onclick="fqAddLine()" class="btn btn-outline" style="width:100%;margin-top:8px;font-size:13px;">+ Add Line Item</button>
+        </div>
+
+        <!-- product search (shared, shown when a line is active) -->
+        <div id="fq-search-wrap" style="display:none;background:#f0f4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:#1e40af;margin-bottom:6px;">Search Products</div>
+          <input type="text" class="form-input" id="fq-search" placeholder="Type 2+ characters..." autocomplete="off"
+            oninput="fqSearchProducts(this.value)" style="margin-bottom:6px;">
+          <div id="fq-search-results" class="parts-search-results" style="max-height:200px;display:none;"></div>
+          <button onclick="fqCloseSearch()" style="background:none;border:none;font-size:12px;color:var(--gray-text);padding:4px 0;cursor:pointer;">✕ Close search</button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:2px solid var(--charcoal);margin-bottom:12px;">
+          <span style="font-size:13px;font-weight:700;color:var(--charcoal);">Estimate Total</span>
+          <span id="fq-total" style="font-size:22px;font-weight:700;color:var(--charcoal);">$0.00</span>
+        </div>
+
+        <div style="font-size:11px;color:var(--gray-text);text-align:right;margin-top:-10px;margin-bottom:14px;">Valid for 30 days</div>
+
+        <div class="form-field" style="margin-bottom:20px;">
+          <label class="form-label" for="fq-notes">Notes for Customer (optional)</label>
+          <textarea class="form-textarea" id="fq-notes" placeholder="Any scope notes, exclusions, or conditions to the estimate..." rows="2"></textarea>
+        </div>
+
+        <div id="fq-error" style="display:none;background:#fef2f2;color:var(--red);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px;"></div>
+
+        <button class="btn btn-dark btn-full" id="fq-send-btn" onclick="submitFieldEstimate()" style="font-size:15px;margin-bottom:8px;">
+          Send Estimate to Customer
+        </button>
+        <button class="btn btn-outline btn-full" onclick="closeEstimateModal()" style="font-size:14px;">Cancel</button>
+
+      </div><!-- /fq-build-state -->
     </div>
   </div>
 </div>
@@ -2651,6 +2729,7 @@ async function showWorkOrderSummary(jobsByEquipment) {
   jobsListEl.innerHTML = html;
   summaryReadyToInvoice = false;
   updateSummaryInvoiceToggle();
+  renderSummaryEstimate();
   showScreen('summary');
 }
 
@@ -3132,6 +3211,372 @@ function showToast(msg, type = '') {
   t.className = 'toast ' + (type) + ' show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ═══════════════════════════════════════
+// ESTIMATES (FIELD APP)
+// ═══════════════════════════════════════
+let fieldQuoteLines = []; // [{name, unitAmount, qty}]
+let fqActiveLineIdx  = -1;
+
+// Render the estimate status card in the Visit Summary screen
+function renderSummaryEstimate() {
+  const el = document.getElementById('summary-estimate-section');
+  if (!el || !currentJob) return;
+  const f      = currentJob.fields;
+  const status  = f['Status'] || '';
+  const quoteId = f['Stripe Quote ID'] || '';
+
+  let html = '<div class="detail-section" style="padding:16px;">'
+    + '<div style="font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:10px;">Estimate</div>';
+
+  if (!quoteId) {
+    html += '<div style="font-size:13px;color:var(--gray-text);margin-bottom:12px;">No estimate for this visit yet.</div>'
+      + '<button class="btn btn-full" style="background:#1e40af;color:#fff;font-size:14px;padding:12px;" onclick="openEstimateModal()">📋 Create &amp; Send Estimate</button>';
+  } else if (status === 'Estimate Sent') {
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+      + '<span style="background:#dbeafe;color:#1e40af;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">Estimate Sent</span>'
+      + '<span style="font-size:12px;color:var(--gray-text);">Awaiting customer response</span>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;">'
+      + '<button class="btn btn-outline" style="flex:1;font-size:13px;" onclick="openEstimateModal()">Edit / Resend</button>'
+      + '<button class="btn" style="flex:1;font-size:13px;background:#dc2626;color:#fff;" onclick="recordEstimateDecline(event)">Customer Declined</button>'
+      + '</div>';
+  } else if (status === 'Estimate Approved') {
+    html += '<div style="display:flex;align-items:center;gap:8px;">'
+      + '<span style="background:#d1fae5;color:#065f46;font-size:13px;font-weight:700;padding:5px 14px;border-radius:20px;">✓ Customer Approved</span>'
+      + '</div>';
+  } else if (status === 'Estimate Declined') {
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+      + '<span style="background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">Declined</span>'
+      + '<span style="font-size:12px;color:var(--gray-text);">Customer declined estimate</span>'
+      + '</div>'
+      + '<button class="btn btn-full" style="background:#1e40af;color:#fff;font-size:13px;padding:10px;" onclick="openEstimateModal()">📋 Re-create Estimate</button>';
+  } else if (quoteId) {
+    // Has a quote ID but WO status isn't an estimate-specific status
+    html += '<div style="font-size:13px;color:var(--gray-text);margin-bottom:10px;">Estimate exists for this visit.</div>'
+      + '<button class="btn btn-outline btn-full" style="font-size:13px;" onclick="openEstimateModal()">View / Edit Estimate</button>';
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// Open the estimate build modal
+function openEstimateModal() {
+  if (!currentJob) return;
+  const f = currentJob.fields;
+
+  // Reset build state
+  fieldQuoteLines = [];
+  fqActiveLineIdx  = -1;
+  document.getElementById('fq-description').value = f['Problem Description'] || '';
+  document.getElementById('fq-notes').value        = '';
+  document.getElementById('fq-error').style.display = 'none';
+  document.getElementById('fq-sent-state').style.display  = 'none';
+  document.getElementById('fq-build-state').style.display = 'block';
+  document.getElementById('fq-search-wrap').style.display  = 'none';
+  document.getElementById('fq-search').value        = '';
+  document.getElementById('fq-search-results').innerHTML = '';
+
+  // Customer info line
+  document.getElementById('fq-customer-info').textContent = f['Customer Name'] || '';
+
+  // Start with one blank line
+  fqAddLine();
+
+  // Show modal
+  document.getElementById('estimate-overlay').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeEstimateModal() {
+  document.getElementById('estimate-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+  fieldQuoteLines = [];
+  fqActiveLineIdx  = -1;
+}
+
+// Render all line item cards
+function fqRenderLines() {
+  const container = document.getElementById('fq-lines');
+  if (fieldQuoteLines.length === 0) {
+    container.innerHTML = '<div style="font-size:13px;color:var(--gray-text);padding:6px 0;">No items yet. Tap + Add Line Item.</div>';
+    return;
+  }
+  container.innerHTML = fieldQuoteLines.map((line, i) => {
+    const lineTotal = ((line.unitAmount || 0) * (line.qty || 1)).toFixed(2);
+    return '<div style="background:#f9f9f9;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+      + '<div style="font-size:13px;font-weight:600;color:var(--charcoal);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+      + (line.name ? escHtml(line.name) : '<span style="color:var(--gray-text);font-weight:400;font-style:italic;">No product selected</span>')
+      + '</div>'
+      + '<button onclick="fqRemoveLine(' + i + ')" style="background:none;border:none;color:var(--red);font-size:20px;line-height:1;padding:0 0 0 10px;cursor:pointer;flex-shrink:0;" aria-label="Remove">×</button>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+      + '<div style="flex:1;">'
+      + '<div style="font-size:10px;color:var(--gray-text);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Qty</div>'
+      + '<input type="number" min="0.01" step="0.01" value="' + (line.qty || 1) + '" '
+      + 'style="width:100%;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:14px;" '
+      + 'oninput="fqUpdateQty(' + i + ', this.value)">'
+      + '</div>'
+      + '<div style="flex:1;">'
+      + '<div style="font-size:10px;color:var(--gray-text);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Unit Price</div>'
+      + '<input type="number" min="0" step="0.01" value="' + (line.unitAmount || 0).toFixed(2) + '" '
+      + 'style="width:100%;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:14px;" '
+      + 'oninput="fqUpdatePrice(' + i + ', this.value)">'
+      + '</div>'
+      + '<div style="flex:1;text-align:right;">'
+      + '<div style="font-size:10px;color:var(--gray-text);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Total</div>'
+      + '<div style="font-size:15px;font-weight:700;color:var(--charcoal);padding:5px 0;">$' + lineTotal + '</div>'
+      + '</div>'
+      + '</div>'
+      + '<button onclick="fqActivateSearch(' + i + ')" '
+      + 'style="width:100%;background:none;border:1px dashed #93c5fd;border-radius:6px;padding:5px;font-size:12px;color:#1e40af;cursor:pointer;">'
+      + '🔍 ' + (line.name ? 'Change product' : 'Pick a product') + '</button>'
+      + '</div>';
+  }).join('');
+}
+
+function fqAddLine() {
+  fieldQuoteLines.push({ name: '', unitAmount: 0, qty: 1 });
+  fqRenderLines();
+  fqCalcTotal();
+  // Auto-open search for the new line
+  fqActivateSearch(fieldQuoteLines.length - 1);
+}
+
+function fqRemoveLine(idx) {
+  fieldQuoteLines.splice(idx, 1);
+  if (fqActiveLineIdx === idx) {
+    fqActiveLineIdx = -1;
+    document.getElementById('fq-search-wrap').style.display = 'none';
+  } else if (fqActiveLineIdx > idx) {
+    fqActiveLineIdx--;
+  }
+  fqRenderLines();
+  fqCalcTotal();
+}
+
+function fqActivateSearch(idx) {
+  fqActiveLineIdx = idx;
+  const wrap = document.getElementById('fq-search-wrap');
+  wrap.style.display = 'block';
+  document.getElementById('fq-search').value = '';
+  document.getElementById('fq-search-results').style.display = 'none';
+  document.getElementById('fq-search-results').innerHTML = '';
+  setTimeout(() => document.getElementById('fq-search').focus(), 100);
+  fqRenderLines(); // re-render to highlight which line is active
+  // Scroll into view
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function fqCloseSearch() {
+  fqActiveLineIdx = -1;
+  document.getElementById('fq-search-wrap').style.display = 'none';
+  fqRenderLines();
+}
+
+async function fqSearchProducts(query) {
+  const resultsEl = document.getElementById('fq-search-results');
+  if (query.length < 2) {
+    resultsEl.style.display = 'none';
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  if (!productListCache) {
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="padding:10px 12px;color:var(--gray-text);font-size:13px;">Loading...</div>';
+    try {
+      const data = await apiGet('Product List', { maxRecords: '250' });
+      productListCache = data.records || [];
+    } catch {
+      resultsEl.innerHTML = '<div style="padding:10px 12px;color:var(--red);font-size:13px;">Could not load products</div>';
+      return;
+    }
+  }
+
+  const q       = query.toLowerCase();
+  const matches = productListCache.filter(r => {
+    const f    = r.fields;
+    if (f['Active'] === false) return false;
+    const name = (f['Product Name'] || '').toLowerCase();
+    const cat  = (f['Category'] || '').toLowerCase();
+    return name.includes(q) || cat.includes(q);
+  }).slice(0, 12);
+
+  if (matches.length === 0) {
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="padding:10px 12px;color:var(--gray-text);font-size:13px;">No matches — enter price manually above</div>';
+    return;
+  }
+
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = matches.map(r => {
+    const f     = r.fields;
+    const name  = f['Product Name'] || '';
+    const price = parseFloat(f['Unit Price'] || 0);
+    const cat   = f['Category'] || '';
+    return '<div class="parts-search-result" onclick="fqSelectProduct(\'' + escAttr(name) + '\', ' + price + ')" role="button" tabindex="0">'
+      + '<div>'
+      + '<div class="parts-result-name">' + escHtml(name) + '</div>'
+      + '<span class="parts-result-category">' + escHtml(cat) + '</span>'
+      + '</div>'
+      + '<div class="parts-result-price">' + (price ? '$' + price.toFixed(2) : '—') + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function fqSelectProduct(name, unitAmount) {
+  if (fqActiveLineIdx < 0 || fqActiveLineIdx >= fieldQuoteLines.length) return;
+  fieldQuoteLines[fqActiveLineIdx].name       = name;
+  fieldQuoteLines[fqActiveLineIdx].unitAmount = parseFloat(unitAmount) || 0;
+  fqActiveLineIdx = -1;
+  document.getElementById('fq-search-wrap').style.display = 'none';
+  document.getElementById('fq-search').value = '';
+  document.getElementById('fq-search-results').style.display = 'none';
+  fqRenderLines();
+  fqCalcTotal();
+}
+
+function fqUpdateQty(idx, val) {
+  if (idx < 0 || idx >= fieldQuoteLines.length) return;
+  fieldQuoteLines[idx].qty = parseFloat(val) || 1;
+  fqCalcTotal();
+}
+
+function fqUpdatePrice(idx, val) {
+  if (idx < 0 || idx >= fieldQuoteLines.length) return;
+  fieldQuoteLines[idx].unitAmount = parseFloat(val) || 0;
+  fqCalcTotal();
+}
+
+function fqCalcTotal() {
+  const total = fieldQuoteLines.reduce((sum, l) => sum + (l.unitAmount || 0) * (l.qty || 1), 0);
+  const el = document.getElementById('fq-total');
+  if (el) el.textContent = '$' + total.toFixed(2);
+}
+
+async function submitFieldEstimate() {
+  if (!currentJob) return;
+
+  const description = document.getElementById('fq-description').value.trim();
+  const notes       = document.getElementById('fq-notes').value.trim();
+  const errorEl     = document.getElementById('fq-error');
+
+  const validLines = fieldQuoteLines.filter(l => l.name.trim());
+  if (validLines.length === 0) {
+    errorEl.textContent = 'Add at least one line item to the estimate.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('fq-send-btn');
+  btn.disabled     = true;
+  btn.textContent  = 'Sending...';
+  errorEl.style.display = 'none';
+
+  try {
+    const f          = currentJob.fields;
+    const customerId = f['Customer'] && f['Customer'][0] ? f['Customer'][0] : null;
+    if (!customerId) throw new Error('No customer linked to this work order');
+
+    const payload = {
+      woId:        currentJob.id,
+      customerId,
+      description: description || 'Estimate for repair / service',
+      lineItems:   validLines.map(l => ({
+        name:       l.name,
+        unitAmount: Math.round((l.unitAmount || 0) * 100), // cents for Stripe
+        qty:        l.qty || 1,
+      })),
+      notes,
+      daysUntilDue: 30,
+    };
+
+    const res = await fetch(`${PROXY}/quote`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Error ${res.status}`);
+    }
+
+    const result   = await res.json();
+    const quoteUrl = result.hosted_quote_url || result.url || '';
+
+    // Update local state so buttons re-render correctly
+    currentJob.fields['Stripe Quote ID'] = result.id || quoteUrl;
+    currentJob.fields['Status']          = 'Estimate Sent';
+
+    // Show success panel
+    document.getElementById('fq-build-state').style.display = 'none';
+    document.getElementById('fq-quote-url').textContent      = quoteUrl;
+    document.getElementById('fq-sent-state').style.display   = 'block';
+
+    // Refresh the summary screen estimate card
+    renderSummaryEstimate();
+    showToast('✓ Estimate sent!', 'success');
+
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent  = '⚠ ' + (err.message || 'Could not send estimate. Try again.');
+    errorEl.style.display = 'block';
+    btn.disabled    = false;
+    btn.textContent = 'Send Estimate to Customer';
+  }
+}
+
+function fqCopyLink() {
+  const url = document.getElementById('fq-quote-url').textContent;
+  if (!url) return;
+  navigator.clipboard.writeText(url)
+    .then(() => showToast('✓ Link copied', 'success'))
+    .catch(() => showToast('Could not copy — select text and copy manually', 'error'));
+}
+
+async function recordEstimateDecline(evt) {
+  if (!currentJob) return;
+  const quoteId = currentJob.fields['Stripe Quote ID'];
+  if (!quoteId) { showToast('No estimate on record', 'error'); return; }
+
+  const btn = evt.currentTarget;
+  if (!btn.dataset.confirm) {
+    btn.dataset.confirm = '1';
+    btn.textContent     = 'Tap again to confirm';
+    setTimeout(() => {
+      if (btn.dataset.confirm) {
+        delete btn.dataset.confirm;
+        btn.textContent = 'Customer Declined';
+      }
+    }, 3500);
+    return;
+  }
+
+  btn.disabled    = true;
+  btn.textContent = 'Recording...';
+
+  try {
+    const res = await fetch(`${PROXY}/quote/decline`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ woId: currentJob.id, quoteId }),
+    });
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+
+    currentJob.fields['Status'] = 'Estimate Declined';
+    renderSummaryEstimate();
+    showToast('✓ Decline recorded', 'success');
+  } catch (err) {
+    showToast('⚠ Could not record decline. Try again.', 'error');
+    btn.disabled    = false;
+    btn.textContent = 'Customer Declined';
+    delete btn.dataset.confirm;
+  }
 }
 </script>
 </body>
