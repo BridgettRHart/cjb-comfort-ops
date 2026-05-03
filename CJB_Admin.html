@@ -56,19 +56,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .wo-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wo-meta { font-size: 11px; color: #888; margin-top: 3px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.b-scheduled   { background: #e3f0ff; color: #1a4f8a; }
-.b-in-progress { background: #fff3cd; color: #7a5500; }
-.b-complete    { background: #d4edda; color: #155724; }
-.b-invoiced    { background: #e2d9f3; color: #4a235a; }
-.b-paid        { background: #c3e6cb; color: #0d4a1f; }
-.b-cancelled   { background: #f0f0f0; color: #999; }
-.b-on-hold     { background: #ffe4b5; color: #7a4500; }
+.b-scheduled        { background: #e3f0ff; color: #1a4f8a; }
+.b-in-progress      { background: #fff3cd; color: #7a5500; }
+.b-complete         { background: #d4edda; color: #155724; }
+.b-invoiced         { background: #e2d9f3; color: #4a235a; }
+.b-paid             { background: #c3e6cb; color: #0d4a1f; }
+.b-cancelled        { background: #f0f0f0; color: #999; }
+.b-on-hold          { background: #ffe4b5; color: #7a4500; }
+.b-estimate-sent    { background: #dbeafe; color: #1e40af; }
+.b-estimate-approved{ background: #d1fae5; color: #065f46; }
+.b-estimate-declined{ background: #fee2e2; color: #991b1b; }
 
 /* Buttons */
 .btn { border: none; border-radius: 7px; padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-red   { background: #c81f25; color: #fff; }
 .btn-green { background: #1a6b35; color: #fff; }
+.btn-blue  { background: #1e40af; color: #fff; }
 .btn-gray  { background: #888; color: #fff; }
 .btn-sm    { padding: 6px 13px; font-size: 12px; }
 
@@ -482,6 +486,53 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   </div>
 </div>
 
+<!-- Quote / Estimate modal -->
+<div class="modal-bg hidden" id="quote-modal">
+  <div class="modal">
+    <div class="modal-title">Create Estimate</div>
+    <div class="modal-sub" id="quote-modal-sub">—</div>
+
+    <div class="li-table-wrap">
+    <table class="li-table">
+      <thead>
+        <tr>
+          <th style="width:42%">Product / Description</th>
+          <th style="width:10%">Est. Qty</th>
+          <th style="width:16%">Unit Price</th>
+          <th style="width:14%">Subtotal</th>
+          <th style="width:6%"></th>
+        </tr>
+      </thead>
+      <tbody id="qli-body"></tbody>
+    </table>
+    </div>
+
+    <button class="btn btn-gray btn-sm" onclick="addQuoteLi()" style="margin-bottom:16px;">+ Add Line Item</button>
+
+    <div class="total-row">
+      <span class="total-lbl">Estimated Total</span>
+      <span class="total-amt" id="quote-total">$0.00</span>
+    </div>
+
+    <textarea class="notes-inp" id="quote-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
+
+    <!-- Shown after quote is sent — customer share link -->
+    <div id="quote-url-section" class="hidden" style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;margin-bottom:16px;">
+      <div style="font-size:12px;color:#1e40af;font-weight:600;margin-bottom:6px;">📋 Customer acceptance link — share via text or email:</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" id="quote-url-inp" readonly style="flex:1;font-size:12px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;background:#fff;">
+        <button class="btn btn-blue btn-sm" onclick="copyQuoteUrl()">Copy Link</button>
+      </div>
+    </div>
+
+    <div class="modal-actions" id="quote-modal-actions">
+      <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
+      <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
+      <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>
+    </div>
+  </div>
+</div>
+
 <!-- Schedule slide-in panel -->
 <div class="sched-overlay" id="sched-overlay" onclick="closeSchedPanel()"></div>
 <div class="sched-panel" id="sched-panel">
@@ -677,7 +728,8 @@ function renderDashboard(wos, flaggedJobs) {
   const fmtDate   = iso => iso ? new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
 
   const badgeCls = { 'Scheduled':'b-scheduled','In Progress':'b-in-progress','Complete':'b-complete',
-    'Invoiced':'b-invoiced','Paid':'b-paid','On Hold':'b-on-hold','Cancelled':'b-cancelled' };
+    'Invoiced':'b-invoiced','Paid':'b-paid','On Hold':'b-on-hold','Cancelled':'b-cancelled',
+    'Estimate Sent':'b-estimate-sent','Estimate Approved':'b-estimate-approved','Estimate Declined':'b-estimate-declined' };
 
   // ── Stat cards ──
   const statsHtml = `<div class="dash-grid-3">
@@ -992,8 +1044,11 @@ function renderDetail(customer, props, wos, contacts) {
       }).join('')
     : '<div style="color:#bbb;font-size:13px;">No properties on file</div>';
 
-  const badgeCls = { 'Scheduled':'b-scheduled','In Progress':'b-in-progress','Complete':'b-complete',
-    'Invoiced':'b-invoiced','Paid':'b-paid','Cancelled':'b-cancelled','On Hold':'b-on-hold' };
+  const badgeCls = {
+    'Scheduled':'b-scheduled','In Progress':'b-in-progress','Complete':'b-complete',
+    'Invoiced':'b-invoiced','Paid':'b-paid','Cancelled':'b-cancelled','On Hold':'b-on-hold',
+    'Estimate Sent':'b-estimate-sent','Estimate Approved':'b-estimate-approved','Estimate Declined':'b-estimate-declined'
+  };
 
   const wosHtml = wos.length
     ? wos.map(wo => {
@@ -1004,16 +1059,30 @@ function renderDetail(customer, props, wos, contacts) {
           ? new Date(wf['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
           : '';
         const total  = wf['Total Amount'] != null ? ' · $' + Number(wf['Total Amount']).toFixed(2) : '';
+
+        const hasQuote        = !!(wf['Stripe Quote ID']);
+        const hasDraftInvoice = !!(wf['Stripe Invoice ID']);
+        const stripeUrl       = extractStripeUrl(wf['Internal Notes']);
+
+        // Quote button: show for pre-invoice statuses
+        let quoteBtn = '';
+        if (['Scheduled','In Progress','Estimate Sent'].includes(status)) {
+          quoteBtn = hasQuote
+            ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">View Estimate</button>`
+            : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">Create Estimate</button>`;
+        }
+
+        // Invoice button
         let invoiceBtn = '';
-        if (status === 'Complete') {
-          const hasDraft = !!(wf['Stripe Invoice ID']);
-          invoiceBtn = hasDraft
+        if (['Complete','Estimate Approved','Estimate Declined'].includes(status)) {
+          const label = status === 'Estimate Declined' ? 'Service Call Invoice' : 'Create Invoice';
+          invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
-            : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Create Invoice</button>`;
+            : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
         } else if (status === 'Invoiced' || status === 'Paid') {
-          const stripeUrl = extractStripeUrl(wf['Internal Notes']);
           if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;
         }
+
         return `<div class="wo-row">
           <div class="wo-info">
             <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
@@ -1021,6 +1090,7 @@ function renderDetail(customer, props, wos, contacts) {
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
           <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
+          ${quoteBtn}
           ${invoiceBtn}
         </div>`;
       }).join('')
@@ -1579,6 +1649,283 @@ function addLaborItem(jobs) {
 
 function closeModal() {
   document.getElementById('invoice-modal').classList.add('hidden');
+}
+
+// ── Quote / Estimate modal ────────────────────────────────────────────────
+let quoteWOId = null, quoteCustId = null, quoteStripeId = null;
+let quoteAirtableId = null, quoteStatus = 'new', qliCount = 0;
+
+async function openQuoteModal(woId, custId) {
+  quoteWOId = woId; quoteCustId = custId;
+  quoteStripeId = null; quoteAirtableId = null; quoteStatus = 'new'; qliCount = 0;
+
+  document.getElementById('qli-body').innerHTML = '';
+  document.getElementById('quote-total').textContent = '$0.00';
+  document.getElementById('quote-notes').value = '';
+  document.getElementById('quote-url-section').classList.add('hidden');
+  renderQuoteActions('loading');
+
+  const wo = currentWorkOrders.find(w => w.id === woId);
+  document.getElementById('quote-modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
+  document.getElementById('quote-modal').classList.remove('hidden');
+
+  // Load products if not already loaded
+  if (!allProducts) {
+    const prodsRaw = await fetchAll('Product List',
+      'fields[]=Product Name&fields[]=Unit Price&fields[]=Unit Type&fields[]=Category' +
+      '&fields[]=Active&sort[0][field]=Product Name&sort[0][direction]=asc');
+    allProducts = prodsRaw.filter(p => p.fields['Active'] !== false);
+  }
+
+  const existingStripeQuoteId = (wo?.fields?.['Stripe Quote ID'] || '').trim();
+
+  if (existingStripeQuoteId) {
+    try {
+      const quoteRes = await fetch(`${PROXY}/quote/${existingStripeQuoteId}`);
+      const quoteData = await quoteRes.json();
+
+      if (quoteRes.ok && !quoteData.error) {
+        quoteStripeId = quoteData.id;
+        quoteStatus   = quoteData.status === 'canceled' ? 'declined' : quoteData.status;
+
+        // Load Airtable quote record
+        const atRes = await fetch(`${PROXY}/Quotes?filterByFormula=${encodeURIComponent(`{Stripe Quote ID}="${existingStripeQuoteId}"`)}&maxRecords=1`);
+        const atData = await atRes.json();
+        if (atData.records?.length) quoteAirtableId = atData.records[0].id;
+
+        // Populate line items
+        for (const line of (quoteData.lines || [])) {
+          addQuoteLi(line.description, line.quantity, line.unitPrice);
+        }
+        if (!quoteData.lines?.length) addQuoteLi();
+
+        if (quoteData.status === 'open' && quoteData.hostedUrl) {
+          document.getElementById('quote-url-section').classList.remove('hidden');
+          document.getElementById('quote-url-inp').value = quoteData.hostedUrl;
+        }
+      } else {
+        addQuoteLi();
+      }
+    } catch (e) { addQuoteLi(); }
+  } else {
+    addQuoteLi();
+  }
+
+  renderQuoteActions(quoteStatus);
+}
+
+function renderQuoteActions(status) {
+  const el = document.getElementById('quote-modal-actions');
+  if (status === 'loading') {
+    el.innerHTML = `<button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button><span style="color:#aaa;font-size:13px;padding:8px;">Loading…</span>`;
+    return;
+  }
+  if (status === 'accepted') {
+    el.innerHTML = `
+      <button class="btn btn-gray" onclick="closeQuoteModal()">Close</button>
+      <button class="btn btn-green" onclick="closeQuoteModal();openInvoiceModal('${quoteWOId}','${quoteCustId}')">View/Edit Invoice</button>`;
+    return;
+  }
+  if (status === 'open') {
+    el.innerHTML = `
+      <button class="btn btn-gray" onclick="closeQuoteModal()">Close</button>
+      <button class="btn btn-red btn-sm" onclick="declineQuote()">Record Customer Decline</button>
+      <button class="btn btn-gray" onclick="submitQuote(true)">Update & Resend</button>`;
+    return;
+  }
+  if (status === 'declined' || status === 'expired') {
+    el.innerHTML = `
+      <button class="btn btn-gray" onclick="closeQuoteModal()">Close</button>
+      <button class="btn btn-green" onclick="closeQuoteModal();openInvoiceModal('${quoteWOId}','${quoteCustId}')">Create Service Call Invoice</button>
+      <button class="btn btn-blue btn-sm" onclick="resetQuoteModal()">New Estimate</button>`;
+    return;
+  }
+  // new or draft
+  el.innerHTML = `
+    <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
+    <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
+    <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>`;
+}
+
+function closeQuoteModal() {
+  document.getElementById('quote-modal').classList.add('hidden');
+}
+
+function resetQuoteModal() {
+  quoteStripeId = null; quoteAirtableId = null; quoteStatus = 'new'; qliCount = 0;
+  document.getElementById('qli-body').innerHTML = '';
+  document.getElementById('quote-total').textContent = '$0.00';
+  document.getElementById('quote-notes').value = '';
+  document.getElementById('quote-url-section').classList.add('hidden');
+  addQuoteLi();
+  renderQuoteActions('new');
+}
+
+function addQuoteLi(name = '', qty = 1, price = null) {
+  const idx = qliCount++;
+  const tr = document.createElement('tr');
+  tr.id = 'qli-' + idx;
+  tr.innerHTML = `
+    <td>
+      <div class="pd-wrap">
+        <input class="inp-name" type="text" id="qlin-${idx}" value="${escAttr(String(name))}"
+          placeholder="Type to search products…"
+          oninput="qpdSearch(${idx})" onfocus="qpdSearch(${idx})" onblur="qpdHide(${idx})"
+          autocomplete="off">
+        <div class="pd-drop hidden" id="qpd-${idx}"></div>
+      </div>
+    </td>
+    <td><input class="inp-qty" type="number" id="qliq-${idx}" value="${qty}" min="0.01" step="any" oninput="qliCalc(${idx})"></td>
+    <td><input class="inp-price" type="number" id="qlip-${idx}" value="${price != null ? Number(price).toFixed(2) : ''}" placeholder="0.00" step="0.01" oninput="qliCalc(${idx})"></td>
+    <td class="sub-val" id="qlis-${idx}">${price != null ? '$' + (qty * price).toFixed(2) : '$0.00'}</td>
+    <td><button class="del-btn" onclick="removeQLi(${idx})">×</button></td>`;
+  document.getElementById('qli-body').appendChild(tr);
+  if (price != null) updateQuoteTotal();
+}
+
+function removeQLi(idx) {
+  const row = document.getElementById('qli-' + idx);
+  if (row) row.remove();
+  updateQuoteTotal();
+}
+
+function qpdSearch(idx) {
+  const q    = (document.getElementById('qlin-' + idx)?.value || '').toLowerCase().trim();
+  const drop = document.getElementById('qpd-' + idx);
+  if (!drop) return;
+  if (!allProducts?.length) { drop.classList.add('hidden'); return; }
+  const matches = allProducts.filter(p => !q || (p.fields['Product Name'] || '').toLowerCase().includes(q)).slice(0, 15);
+  if (!matches.length) { drop.classList.add('hidden'); return; }
+  drop.innerHTML = matches.map(p => {
+    const price = p.fields['Unit Price'] || 0;
+    return `<div class="pd-opt" data-idx="${idx}" data-id="${p.id}"
+      data-name="${escAttr(p.fields['Product Name'] || '')}" data-price="${price}"
+      onmousedown="qpdSelect(this)">
+        <div class="pd-opt-name">${esc(p.fields['Product Name'] || '')}</div>
+        <div class="pd-opt-price">$${Number(price).toFixed(2)} / ${esc(p.fields['Unit Type'] || '')}</div>
+      </div>`;
+  }).join('');
+  drop.classList.remove('hidden');
+}
+
+function qpdHide(idx) {
+  setTimeout(() => { const d = document.getElementById('qpd-' + idx); if (d) d.classList.add('hidden'); }, 160);
+}
+
+function qpdSelect(el) {
+  const idx = el.dataset.idx;
+  const nameEl  = document.getElementById('qlin-' + idx);
+  const priceEl = document.getElementById('qlip-' + idx);
+  if (nameEl)  { nameEl.value = el.dataset.name; nameEl.dataset.pid = el.dataset.id; }
+  if (priceEl) priceEl.value = (parseFloat(el.dataset.price) || 0).toFixed(2);
+  qliCalc(idx);
+  qpdHide(idx);
+}
+
+function qliCalc(idx) {
+  const qty   = parseFloat(document.getElementById('qliq-' + idx)?.value) || 0;
+  const price = parseFloat(document.getElementById('qlip-' + idx)?.value) || 0;
+  const el    = document.getElementById('qlis-' + idx);
+  if (el) el.textContent = '$' + (qty * price).toFixed(2);
+  updateQuoteTotal();
+}
+
+function updateQuoteTotal() {
+  let t = 0;
+  document.querySelectorAll('[id^="qli-"]').forEach(row => {
+    if (!row.id.match(/^qli-\d+$/)) return;
+    const idx = row.id.slice(4);
+    t += (parseFloat(document.getElementById('qliq-' + idx)?.value) || 0) *
+         (parseFloat(document.getElementById('qlip-' + idx)?.value) || 0);
+  });
+  document.getElementById('quote-total').textContent = '$' + t.toFixed(2);
+}
+
+async function submitQuote(sendNow) {
+  const lineItems = [];
+  document.querySelectorAll('[id^="qli-"]').forEach(row => {
+    if (!row.id.match(/^qli-\d+$/)) return;
+    const idx    = row.id.slice(4);
+    const name   = (document.getElementById('qlin-' + idx)?.value || '').trim();
+    const qty    = parseFloat(document.getElementById('qliq-' + idx)?.value)   || 1;
+    const price  = parseFloat(document.getElementById('qlip-' + idx)?.value)   || 0;
+    if (!name && price === 0) return;
+    lineItems.push({ productName: name || 'Service', quantity: qty, unitPrice: price });
+  });
+  if (!lineItems.length) { alert('Please add at least one line item.'); return; }
+
+  const notes    = document.getElementById('quote-notes').value.trim();
+  const draftBtn = document.getElementById('quote-draft-btn');
+  const sendBtn  = document.getElementById('quote-send-btn');
+  if (draftBtn) draftBtn.disabled = true;
+  if (sendBtn)  { sendBtn.disabled = true; sendBtn.textContent = 'Saving…'; }
+
+  try {
+    // Create or update the Stripe draft quote
+    if (!quoteStripeId || quoteStatus === 'new') {
+      const res  = await fetch(`${PROXY}/quote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workOrderId: quoteWOId, customerId: quoteCustId, lineItems, notes })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to create estimate');
+      quoteStripeId = data.stripeQuoteId; quoteAirtableId = data.airtableQuoteId; quoteStatus = 'draft';
+    } else {
+      const res  = await fetch(`${PROXY}/quote`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId,
+          workOrderId: quoteWOId, customerId: quoteCustId, lineItems, notes })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to update estimate');
+      quoteStripeId = data.stripeQuoteId; quoteStatus = 'draft';
+    }
+
+    if (sendNow) {
+      if (sendBtn) sendBtn.textContent = 'Sending…';
+      const res  = await fetch(`${PROXY}/quote/send`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId, workOrderId: quoteWOId })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to send estimate');
+      quoteStatus = 'open';
+      if (data.hostedUrl) {
+        document.getElementById('quote-url-section').classList.remove('hidden');
+        document.getElementById('quote-url-inp').value = data.hostedUrl;
+      }
+      renderQuoteActions('open');
+      if (selectedCustomer) loadCustomer(selectedCustomer.id);
+    } else {
+      quoteStatus = 'draft';
+      renderQuoteActions('draft');
+      alert('Estimate saved as draft.');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+    if (draftBtn) draftBtn.disabled = false;
+    if (sendBtn)  { sendBtn.disabled = false; sendBtn.textContent = 'Send to Customer'; }
+  }
+}
+
+async function declineQuote() {
+  if (!confirm('Record that the customer declined this estimate?\nThis will cancel the quote and update the Work Order status.')) return;
+  try {
+    const res  = await fetch(`${PROXY}/quote/decline`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId, workOrderId: quoteWOId })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Failed to record decline');
+    quoteStatus = 'declined';
+    renderQuoteActions('declined');
+    if (selectedCustomer) loadCustomer(selectedCustomer.id);
+  } catch (err) { alert('Error: ' + err.message); }
+}
+
+function copyQuoteUrl() {
+  const url = document.getElementById('quote-url-inp').value;
+  navigator.clipboard.writeText(url).then(() => alert('Quote link copied to clipboard!'));
 }
 
 function addLineItem() {

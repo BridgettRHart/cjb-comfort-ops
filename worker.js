@@ -1042,6 +1042,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         const atQuote = await airtablePost('Quotes', atQuoteFields);
 
+        // Write Stripe Quote ID back to Work Order for fast lookup in admin UI
+        if (workOrderId) {
+          await airtablePatch('Work Orders', workOrderId, { 'Stripe Quote ID': stripeQuote.id });
+        }
+
         return new Response(JSON.stringify({
           ok: true, stripeQuoteId: stripeQuote.id, airtableQuoteId: atQuote.id, status: 'draft'
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
