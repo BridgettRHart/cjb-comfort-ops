@@ -21,7 +21,7 @@ let CALENDLY_TOKEN   = '';
 const ALLOWED_TABLES = [
   'Customers','Contacts','Properties','Equipment','Jobs',
   'Work Orders','Technicians','Product List',
-  'Maintenance Contracts','Invoices','Companies'
+  'Maintenance Contracts','Invoices','Companies','Quotes','Follow-ups'
 ];
 
 const EVENT_TYPE_MAP = {
@@ -441,6 +441,127 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         const event = JSON.parse(rawBody);
 
+        // ── quote.accepted: update Airtable, flip WO status, create draft invoice ──
+        if (event.type === 'quote.accepted') {
+          const quote        = event.data.object;
+          const stripeQuoteId = quote.id;
+          const STRIPE_KEY   = env.STRIPE_SECRET_KEY;
+          const today        = new Date().toISOString().split('T')[0];
+
+          const quoteSearch = await airtableGet('Quotes', `{Stripe Quote ID}="${stripeQuoteId}"`);
+          const atQuote     = quoteSearch.records?.[0];
+
+          if (atQuote) {
+            await airtablePatch('Quotes', atQuote.id, { 'Status': 'Accepted', 'Accepted Date': today });
+
+            const woId   = (atQuote.fields['Work Order'] || [])[0];
+            const custId = (atQuote.fields['Customer']   || [])[0];
+            if (woId) await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Approved' });
+
+            // Fetch Stripe line items from the accepted quote
+            const liData   = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items?limit=50`);
+            const lineItems = liData.data || [];
+            const stripeCustId = typeof quote.customer === 'string' ? quote.customer : quote.customer?.id;
+
+            if (stripeCustId && lineItems.length) {
+              // Clean up floating pending items
+              try {
+                const pendRes  = await fetch(
+                  `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
+                  { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+                );
+                const pendData = await pendRes.json();
+                for (const p of (pendData.data || [])) {
+                  if (!p.invoice) await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${p.id}`);
+                }
+              } catch (e) {}
+
+              // Create invoice items from quote line items
+              for (const li of lineItems) {
+                const unitAmt = li.price?.unit_amount
+                  ?? Math.round((li.amount_subtotal || 0) / (li.quantity || 1));
+                await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
+                  customer:    stripeCustId,
+                  unit_amount: String(unitAmt),
+                  quantity:    String(li.quantity || 1),
+                  currency:    'usd',
+                  description: li.description || 'Service'
+                });
+              }
+
+              // Determine due days from customer type
+              let daysUntilDue = '0';
+              if (custId) {
+                try {
+                  const cr = await airtableGetById('Customers', custId);
+                  if ((cr.fields['Type'] || '').toLowerCase() === 'commercial') daysUntilDue = '30';
+                } catch (e) {}
+              }
+
+              // Create draft Stripe invoice
+              const invParams = {
+                customer:          stripeCustId,
+                auto_advance:      'false',
+                collection_method: 'send_invoice',
+                days_until_due:    daysUntilDue,
+                'metadata[quote_id]': stripeQuoteId
+              };
+              if (woId) invParams['metadata[work_order_airtable_id]'] = woId;
+              const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
+
+              // Update WO with Stripe Invoice ID
+              if (woId) await airtablePatch('Work Orders', woId, { 'Stripe Invoice ID': inv.id });
+
+              // Create or update Airtable Invoice record
+              const subtotal = lineItems.reduce((s, li) => {
+                return s + ((li.price?.unit_amount || 0) * (li.quantity || 1)) / 100;
+              }, 0);
+              const custName = atQuote.fields['Quote Title']?.split(' — ')[0] || '';
+              const atInvFields = {
+                'Invoice Name': `${custName} — ${today}`,
+                'Status':       'Draft',
+                'Invoice Type': 'Standard',
+                'Invoice Date': today,
+                'Subtotal':     subtotal,
+                'Total':        subtotal,
+                'Internal Notes': `From Quote: ${stripeQuoteId}\nStripe Invoice ID: ${inv.id}`
+              };
+              if (custId) atInvFields['Customers']     = [custId];
+              if (woId)   atInvFields['Work Orders']   = [woId];
+
+              if (woId) {
+                const woRec = await airtableGetById('Work Orders', woId);
+                const existingAtInvId = (woRec.fields['Invoice'] || [])[0];
+                if (existingAtInvId) {
+                  await airtablePatch('Invoices', existingAtInvId, atInvFields);
+                } else {
+                  await airtablePost('Invoices', atInvFields);
+                }
+              } else {
+                await airtablePost('Invoices', atInvFields);
+              }
+
+              // Mark quote as converted
+              await airtablePatch('Quotes', atQuote.id, { 'Converted to Invoice': true });
+            }
+          }
+        }
+
+        // ── quote.will_expire: update Airtable statuses ──────────────────
+        // Stripe has no quote.expired event — quote.will_expire fires before
+        // expiry (X days prior, set in Stripe Automations). We treat this as
+        // effectively expired for operational purposes.
+        if (event.type === 'quote.will_expire') {
+          const quote = event.data.object;
+          const quoteSearch = await airtableGet('Quotes', `{Stripe Quote ID}="${quote.id}"`);
+          const atQuote     = quoteSearch.records?.[0];
+          if (atQuote) {
+            await airtablePatch('Quotes', atQuote.id, { 'Status': 'Expired' });
+            const woId = (atQuote.fields['Work Order'] || [])[0];
+            if (woId) await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Declined' });
+          }
+        }
+
         if (event.type === 'invoice.paid') {
           const inv            = event.data.object;
           const stripeInvId    = inv.id;
@@ -748,6 +869,276 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Stripe Quote — fetch ──────────────────────────────────────────────
+    if (path.startsWith('/api/quote/') && request.method === 'GET') {
+      const stripeQuoteId = path.replace('/api/quote/', '');
+      const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+      if (!STRIPE_KEY) return new Response(JSON.stringify({ error: 'STRIPE_SECRET_KEY not configured' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+      try {
+        const [quote, lineItems] = await Promise.all([
+          stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}`),
+          stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items?limit=50`)
+        ]);
+        return new Response(JSON.stringify({
+          id:          quote.id,
+          status:      quote.status,
+          hostedUrl:   quote.hosted_quote_url || null,
+          pdfUrl:      quote.pdf             || null,
+          quoteNumber: quote.number          || null,
+          expiresAt:   quote.expires_at,
+          amountTotal: (quote.amount_total   || 0) / 100,
+          lines: (lineItems.data || []).map(l => ({
+            description: l.description || '',
+            quantity:    l.quantity    || 1,
+            unitPrice:   (l.price?.unit_amount || 0) / 100
+          }))
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── Stripe Quote — send (finalize) ────────────────────────────────────
+    if (path === '/api/quote/send' && request.method === 'POST') {
+      try {
+        const { stripeQuoteId, airtableQuoteId, workOrderId } = await request.json();
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+
+        const finalizedQuote = await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/finalize`, {});
+        const hostedUrl  = finalizedQuote.hosted_quote_url || null;
+        const quoteNumber = finalizedQuote.number          || null;
+        const expiresAt  = finalizedQuote.expires_at
+          ? new Date(finalizedQuote.expires_at * 1000).toISOString().split('T')[0]
+          : null;
+
+        if (airtableQuoteId) {
+          const atUpdate = { 'Status': 'Open' };
+          if (hostedUrl)   atUpdate['Stripe Quote URL']  = hostedUrl;
+          if (quoteNumber) atUpdate['Quote Number']      = quoteNumber;
+          if (expiresAt)   atUpdate['Expiration Date']   = expiresAt;
+          await airtablePatch('Quotes', airtableQuoteId, atUpdate);
+        }
+        if (workOrderId) {
+          await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
+        }
+
+        return new Response(JSON.stringify({ ok: true, hostedUrl, quoteNumber }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── Stripe Quote — decline ────────────────────────────────────────────
+    if (path === '/api/quote/decline' && request.method === 'POST') {
+      try {
+        const { stripeQuoteId, airtableQuoteId, workOrderId } = await request.json();
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+        const today = new Date().toISOString().split('T')[0];
+
+        if (stripeQuoteId) {
+          await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/cancel`, {});
+        }
+        if (airtableQuoteId) {
+          await airtablePatch('Quotes', airtableQuoteId, { 'Status': 'Declined', 'Declined Date': today });
+        }
+        if (workOrderId) {
+          await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Declined' });
+        }
+
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── Stripe Quote — create ─────────────────────────────────────────────
+    if (path === '/api/quote' && request.method === 'POST') {
+      try {
+        const { workOrderId, customerId, lineItems, notes } = await request.json();
+        if (!customerId)        throw new Error('customerId is required');
+        if (!lineItems?.length) throw new Error('At least one line item is required');
+
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+
+        // 1. Get customer
+        const custRec   = await airtableGetById('Customers', customerId);
+        const custEmail = (custRec.fields['Email']         || '').trim();
+        const custName  = (custRec.fields['Customer Name'] || '').trim();
+        if (!custEmail) throw new Error(`Customer "${custName}" has no email — required for Stripe`);
+
+        // 2. Find or create Stripe customer
+        let stripeCustId;
+        const srchRes  = await fetch(
+          `https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
+          { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+        );
+        const srchData = await srchRes.json();
+        if (srchData.data?.length > 0) {
+          stripeCustId = srchData.data[0].id;
+        } else {
+          const cc = await stripePost(STRIPE_KEY, '/v1/customers', { email: custEmail, name: custName });
+          stripeCustId = cc.id;
+        }
+
+        // 3. Build and create Stripe draft quote
+        const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+        const quoteParamsObj = {
+          customer:    stripeCustId,
+          expires_at:  String(expiresAt),
+          line_items:  lineItems.map(item => {
+            const qty     = Number(item.quantity) || 1;
+            const isWhole = Number.isInteger(qty);
+            const cents   = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
+            return {
+              price_data: {
+                currency:     'usd',
+                product_data: { name: item.productName || 'Service' },
+                unit_amount:  String(cents)
+              },
+              quantity: String(isWhole ? Math.max(1, qty) : 1)
+            };
+          })
+        };
+        if (notes)        quoteParamsObj.description                      = notes;
+        if (workOrderId)  quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
+
+        const stripeQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
+
+        // 4. Airtable Quote record
+        const subtotal   = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (Number(li.quantity) || 1)), 0);
+        const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
+        const today      = new Date().toISOString().split('T')[0];
+
+        let woName = '';
+        if (workOrderId) {
+          try { const wo = await airtableGetById('Work Orders', workOrderId); woName = wo.fields?.['Work Order Name'] || ''; } catch (e) {}
+        }
+
+        const atQuoteFields = {
+          'Quote Title':     `${custName} — ${woName || 'Estimate'} — ${today}`,
+          'Status':          'Draft',
+          'Stripe Quote ID': stripeQuote.id,
+          'Expiration Date': expiresDate,
+          'Total Amount':    subtotal,
+          'Customer':        [customerId]
+        };
+        if (workOrderId) atQuoteFields['Work Order'] = [workOrderId];
+        if (notes)       atQuoteFields['Notes']      = notes;
+
+        const atQuote = await airtablePost('Quotes', atQuoteFields);
+
+        return new Response(JSON.stringify({
+          ok: true, stripeQuoteId: stripeQuote.id, airtableQuoteId: atQuote.id, status: 'draft'
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── Stripe Quote — update draft ───────────────────────────────────────
+    // Stripe doesn't support editing line items on an existing quote,
+    // so we cancel the old draft and create a fresh one with the same Airtable record.
+    if (path === '/api/quote' && request.method === 'PATCH') {
+      try {
+        const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = await request.json();
+        if (!stripeQuoteId) throw new Error('stripeQuoteId is required');
+
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+
+        // Get Stripe customer ID from Airtable customer
+        let stripeCustId;
+        if (customerId) {
+          const custRec   = await airtableGetById('Customers', customerId);
+          const custEmail = (custRec.fields['Email'] || '').trim();
+          if (custEmail) {
+            const srchRes  = await fetch(
+              `https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
+              { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+            );
+            const srchData = await srchRes.json();
+            stripeCustId   = srchData.data?.[0]?.id;
+            if (!stripeCustId) {
+              const custRec2 = await airtableGetById('Customers', customerId);
+              const cc = await stripePost(STRIPE_KEY, '/v1/customers', {
+                email: custEmail, name: custRec2.fields?.['Customer Name'] || ''
+              });
+              stripeCustId = cc.id;
+            }
+          }
+        }
+
+        // Cancel old draft/open quote
+        try { await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/cancel`, {}); } catch (e) {}
+
+        // Create replacement draft
+        const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+        const quoteParamsObj = {
+          customer:   stripeCustId,
+          expires_at: String(expiresAt),
+          line_items: lineItems.map(item => {
+            const qty     = Number(item.quantity) || 1;
+            const isWhole = Number.isInteger(qty);
+            const cents   = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
+            return {
+              price_data: {
+                currency:     'usd',
+                product_data: { name: item.productName || 'Service' },
+                unit_amount:  String(cents)
+              },
+              quantity: String(isWhole ? Math.max(1, qty) : 1)
+            };
+          })
+        };
+        if (notes)       quoteParamsObj.description                         = notes;
+        if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
+
+        const newQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
+
+        const subtotal    = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (Number(li.quantity) || 1)), 0);
+        const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
+
+        if (airtableQuoteId) {
+          const upd = {
+            'Status':          'Draft',
+            'Stripe Quote ID': newQuote.id,
+            'Expiration Date': expiresDate,
+            'Total Amount':    subtotal,
+            'Stripe Quote URL': ''
+          };
+          if (notes !== undefined) upd['Notes'] = notes;
+          await airtablePatch('Quotes', airtableQuoteId, upd);
+        }
+
+        return new Response(JSON.stringify({
+          ok: true, stripeQuoteId: newQuote.id, airtableQuoteId, status: 'draft'
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // ── Airtable proxy ────────────────────────────────────────────────────
     const match = path.match(/^\/api\/([^/]+)\/?([^/]*)$/);
     if (match) {
@@ -849,6 +1240,34 @@ async function stripePost(apiKey, path, params) {
       Authorization:  `Bearer ${apiKey}`,
       'Content-Type': 'application/x-www-form-urlencoded'
     },
+    body: body.toString()
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Stripe ${path}: ${data.error?.message || JSON.stringify(data)}`);
+  return data;
+}
+
+// Handles nested objects/arrays → Stripe bracket notation (e.g. line_items[0][price_data][currency])
+async function stripePostNested(apiKey, path, paramsObj) {
+  const body = new URLSearchParams();
+  function flatten(val, prefix) {
+    if (val === null || val === undefined) return;
+    if (Array.isArray(val)) {
+      val.forEach((item, i) => flatten(item, `${prefix}[${i}]`));
+    } else if (typeof val === 'object') {
+      Object.entries(val).forEach(([k, v]) => flatten(v, `${prefix}[${k}]`));
+    } else {
+      body.append(prefix, String(val));
+    }
+  }
+  Object.entries(paramsObj).forEach(([k, v]) => {
+    // Pass through keys that already use bracket notation (e.g. metadata[key])
+    if (typeof v !== 'object' || v === null) { body.append(k, String(v)); }
+    else { flatten(v, k); }
+  });
+  const res = await fetch(`https://api.stripe.com${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString()
   });
   const data = await res.json();
