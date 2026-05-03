@@ -1816,14 +1816,15 @@ async function loadTodaysJobs() {
 
     const todayStr = azDateStr(now.toISOString());
 
-    // Compute Mon–Sun week bounds in AZ local dates
-    const dow = now.getDay(); // 0=Sun
-    const mon = new Date(now);
-    mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
-    const sun = new Date(mon);
-    sun.setDate(mon.getDate() + 6);
-    const weekStart = azDateStr(mon.toISOString());
-    const weekEnd   = azDateStr(sun.toISOString());
+    // Compute Sun–Sat week bounds in AZ local dates (American week)
+    // On Sunday: weekStart = today, weekEnd = next Saturday (shows the upcoming work week)
+    const dow = now.getDay(); // 0=Sun, 6=Sat
+    const weekStartDay = new Date(now);
+    weekStartDay.setDate(now.getDate() - dow);       // back to this Sunday
+    const weekEndDay = new Date(weekStartDay);
+    weekEndDay.setDate(weekStartDay.getDate() + 6);  // through Saturday
+    const weekStart = azDateStr(weekStartDay.toISOString());
+    const weekEnd   = azDateStr(weekEndDay.toISOString());
 
     const isWeek   = scheduleView === 'week';
     const dateFrom = isWeek ? weekStart : todayStr;
