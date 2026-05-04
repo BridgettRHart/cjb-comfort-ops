@@ -1538,10 +1538,23 @@
       </div>
     </div>
 
-    <!-- Notes for office -->
+    <!-- Follow-up for office -->
     <div class="detail-section" style="padding:16px;margin-bottom:12px;">
-      <label class="form-label" for="field-followup-notes">Notes for Office (optional)</label>
-      <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="Anything Bridgett needs to know about this visit…"></textarea>
+      <div class="form-label" style="margin-bottom:10px;">Follow-Up Required?</div>
+      <div style="display:flex;gap:10px;margin-bottom:10px;">
+        <button id="followup-no-btn" class="repair-choice-btn choice-no active" style="flex:1;padding:10px 8px;font-size:13px;" onclick="selectFollowup('no')">
+          <span style="font-size:16px;line-height:1;">✓</span>
+          No
+        </button>
+        <button id="followup-yes-btn" class="repair-choice-btn choice-yes" style="flex:1;padding:10px 8px;font-size:13px;" onclick="selectFollowup('yes')">
+          <span style="font-size:16px;line-height:1;">⚑</span>
+          Flag for Office
+        </button>
+      </div>
+      <div id="followup-notes-wrap" style="display:none;">
+        <label class="form-label" for="field-followup-notes" style="margin-bottom:6px;">Notes for Office</label>
+        <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="What does Bridgett need to know about this visit?…"></textarea>
+      </div>
     </div>
 
     <button class="btn btn-dark btn-full" id="submit-complete-btn" onclick="submitComplete()" aria-label="Save this unit as complete">
@@ -2757,6 +2770,7 @@ function openCompleteForm() {
   selectedPhotos = [];
   readyToInvoice = false;
   selectCondition('Excellent');
+  selectFollowup('no');
   // Reset repairs toggle to No
   repairsNeeded = false;
   stopApprovalPolling();
@@ -2989,17 +3003,12 @@ function selectCondition(val) {
 
 function selectFollowup(val) {
   followupSelected = val;
-  // These radio elements no longer exist in screen-complete; null-guard all
-  const noRadio = document.getElementById('followup-no');
-  const yesRadio = document.getElementById('followup-yes');
-  const wrap = document.getElementById('followup-notes-wrap');
-  const noEl = document.getElementById('radio-no-label');
-  const yesEl = document.getElementById('radio-yes-label');
-  if (noRadio) noRadio.checked = val === 'no';
-  if (yesRadio) yesRadio.checked = val === 'yes';
-  if (wrap) wrap.style.display = val === 'yes' ? 'block' : 'none';
-  if (noEl) noEl.classList.toggle('selected', val === 'no');
-  if (yesEl) yesEl.classList.toggle('selected', val === 'yes');
+  const noBtn  = document.getElementById('followup-no-btn');
+  const yesBtn = document.getElementById('followup-yes-btn');
+  const wrap   = document.getElementById('followup-notes-wrap');
+  if (noBtn)  noBtn.classList.toggle('active',  val === 'no');
+  if (yesBtn) yesBtn.classList.toggle('active', val === 'yes');
+  if (wrap)   wrap.style.display = val === 'yes' ? 'block' : 'none';
 }
 
 function toggleReadyInvoice() {
