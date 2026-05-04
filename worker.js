@@ -1324,7 +1324,7 @@ async function airtablePatch(table, recordId, fields) {
 
 // ── Stripe helpers ────────────────────────────────────────────────────────
 // Pin to a recent API version so hosted_quote_url and other newer fields are always returned.
-const STRIPE_VERSION = '2024-06-20';
+const STRIPE_VERSION = '2026-04-22.dahlia';
 
 async function stripePost(apiKey, path, params) {
   const body = new URLSearchParams();
