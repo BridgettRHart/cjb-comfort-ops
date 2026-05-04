@@ -2868,10 +2868,9 @@ async function buildPartsGrid() {
   const grid = document.getElementById('parts-grid');
   grid.innerHTML = '<div style="padding:8px 4px; font-size:13px; color:var(--gray-text);">Loading products…</div>';
   try {
-    // Fetch ALL active products (no fields[] filter — get everything so field names don't matter).
-    // Cache the full list for the search box, then filter down for the quick-tap grid.
-    const allFilter = encodeURIComponent('{Active}=1');
-    const url = `${PROXY}/Product%20List?filterByFormula=${allFilter}&maxRecords=250&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+    // Fetch ALL products with no Airtable-side filter — JS handles active/inactive.
+    // Avoids checkbox formula quirks that can silently drop records.
+    const url = `${PROXY}/Product%20List?maxRecords=250&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
     const res  = await fetch(url);
     const json = await res.json();
     const allProducts = (json.records || []).filter(r => r.fields['Active'] !== false);
