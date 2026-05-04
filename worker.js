@@ -13,6 +13,9 @@ let _waveServiceProductId = null; // cached per Worker instance
 const R2_PUBLIC_URL    = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
 const APPROVE_BASE_URL = 'https://bridgettrhart.github.io/cjb-comfort-ops/approve.html';
 
+// Email sending — swap FROM to estimates@cjbcomfort.com after DNS is verified in Resend
+const RESEND_FROM = 'CJB Comfort <onboarding@resend.dev>';
+
 // These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
 // Declared here so helper functions defined outside fetch() can access them.
 let AIRTABLE_BASE_ID = '';
@@ -403,6 +406,30 @@ export default {
 
         const newStatus = decision === 'approved' ? 'Estimate Approved' : 'Estimate Declined';
         await airtablePatch('Work Orders', woId, { 'Status': newStatus });
+
+        // Send confirmation email to customer (non-fatal)
+        if (env.RESEND_API_KEY) {
+          try {
+            const wo = await airtableGetById('Work Orders', woId);
+            const custIds = wo.fields['Customer'] || [];
+            if (custIds.length) {
+              const cust     = await airtableGetById('Customers', custIds[0]);
+              const custEmail = (cust.fields['Email'] || '').trim();
+              const custName  = cust.fields['Customer Name'] || 'Customer';
+              if (custEmail) {
+                await sendEmail(env.RESEND_API_KEY, {
+                  to:      custEmail,
+                  subject: decision === 'approved'
+                    ? 'Estimate Approved — CJB Comfort Will Proceed'
+                    : 'Your Response Has Been Recorded — CJB Comfort',
+                  html: emailApprovalHtml({ customerName: custName, approved: decision === 'approved' })
+                });
+              }
+            }
+          } catch (emailErr) {
+            console.error('Approval email failed (non-fatal):', emailErr.message);
+          }
+        }
 
         // Update Airtable Quote record status if linked
         try {
@@ -1215,6 +1242,36 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
 
+        // Send estimate email to customer (non-fatal)
+        if (approveUrl && custEmail && env.RESEND_API_KEY) {
+          try {
+            const emailTotal = lineItems.reduce((s, li) => {
+              const p = li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount) || 0) / 100;
+              const q = Number(li.quantity || li.qty) || 1;
+              return s + p * q;
+            }, 0);
+            const emailLineItems = lineItems.map(li => ({
+              name:   (li.productName || li.name || 'Service').trim(),
+              amount: li.unitPrice !== undefined
+                ? Number(li.unitPrice) * (Number(li.quantity || li.qty) || 1)
+                : (Number(li.unitAmount) || 0) / 100 * (Number(li.qty) || 1)
+            }));
+            await sendEmail(env.RESEND_API_KEY, {
+              to:      custEmail,
+              subject: 'Your CJB Comfort Estimate is Ready to Review',
+              html:    emailEstimateHtml({
+                customerName: custName,
+                approveUrl,
+                description,
+                lineItems:    emailLineItems,
+                total:        emailTotal
+              })
+            });
+          } catch (emailErr) {
+            console.error('Estimate email failed (non-fatal):', emailErr.message);
+          }
+        }
+
         // Finalize the Stripe quote (makes it Open in Stripe for clean records — non-fatal)
         let quoteStatus = 'draft';
         if (finalize) {
@@ -1587,6 +1644,92 @@ async function waveEnsureServiceProduct(apiKey) {
   }
   _waveServiceProductId = created.productCreate.product.id;
   return _waveServiceProductId;
+}
+
+// ── Resend email helper ───────────────────────────────────────────────────────
+async function sendEmail(apiKey, { to, subject, html }) {
+  if (!apiKey || !to) return; // non-fatal if key not configured or no email on file
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html })
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('Resend error:', err);
+  }
+}
+
+function emailEstimateHtml({ customerName, approveUrl, description, lineItems, total }) {
+  const itemRows = lineItems.length ? lineItems.map(li =>
+    `<tr>
+      <td style="padding:10px 0;font-size:15px;border-bottom:1px solid #f3f4f6;">${li.name}</td>
+      <td style="padding:10px 0;font-size:15px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;">$${(li.amount||0).toFixed(2)}</td>
+    </tr>`
+  ).join('') : '';
+
+  const totalRow = total > 0 ? `
+    <tr>
+      <td style="padding:14px 0 0;font-size:16px;font-weight:700;">Estimate Total</td>
+      <td style="padding:14px 0 0;font-size:22px;font-weight:800;text-align:right;">$${total.toFixed(2)}</td>
+    </tr>` : '';
+
+  const descBlock = description ? `
+    <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">Findings &amp; Recommendation</div>
+      <div style="font-size:15px;color:#374151;line-height:1.55;white-space:pre-line;">${description}</div>
+    </div>` : '';
+
+  const tableBlock = (itemRows || totalRow) ? `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+      <thead><tr>
+        <th style="font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;text-align:left;padding:0 0 10px;border-bottom:1px solid #e5e7eb;">Item</th>
+        <th style="font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;text-align:right;padding:0 0 10px;border-bottom:1px solid #e5e7eb;">Price</th>
+      </tr></thead>
+      <tbody>${itemRows}</tbody>
+      ${totalRow ? `<tfoot>${totalRow}</tfoot>` : ''}
+    </table>` : '';
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;padding:24px 16px;">
+    <div style="background:#0f1729;padding:16px 20px;border-radius:10px 10px 0 0;text-align:center;">
+      <span style="color:white;font-size:20px;font-weight:800;letter-spacing:1px;">CJB COMFORT</span>
+    </div>
+    <div style="background:white;padding:28px 24px;border-radius:0 0 10px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+      <p style="font-size:17px;margin:0 0 20px;">Hi ${customerName},</p>
+      <p style="font-size:15px;color:#374151;margin:0 0 24px;line-height:1.5;">Your technician has prepared an estimate for your review. Please take a moment to approve or decline.</p>
+      ${descBlock}
+      ${tableBlock}
+      <div style="text-align:center;margin:28px 0;">
+        <a href="${approveUrl}" style="display:inline-block;background:#059669;color:white;font-size:17px;font-weight:700;padding:16px 32px;border-radius:10px;text-decoration:none;">Review &amp; Respond to Estimate →</a>
+      </div>
+      <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Or copy this link into your browser:<br><span style="color:#1e40af;">${approveUrl}</span></p>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services</p>
+  </div>
+</body></html>`;
+}
+
+function emailApprovalHtml({ customerName, approved }) {
+  const icon    = approved ? '✅' : '👍';
+  const heading = approved ? 'Estimate Approved!' : 'Response Recorded';
+  const body    = approved
+    ? "Thank you for approving — CJB Comfort will proceed with your repair. We'll be in touch to confirm next steps."
+    : "We've noted your decision. A CJB Comfort team member will reach out to discuss your options.";
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;padding:24px 16px;">
+    <div style="background:#0f1729;padding:16px 20px;border-radius:10px 10px 0 0;text-align:center;">
+      <span style="color:white;font-size:20px;font-weight:800;letter-spacing:1px;">CJB COMFORT</span>
+    </div>
+    <div style="background:white;padding:40px 24px;border-radius:0 0 10px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);text-align:center;">
+      <div style="font-size:56px;margin-bottom:12px;">${icon}</div>
+      <h2 style="font-size:24px;font-weight:800;margin:0 0 12px;">${heading}</h2>
+      <p style="font-size:15px;color:#374151;line-height:1.5;margin:0;">Hi ${customerName},<br><br>${body}</p>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services</p>
+  </div>
+</body></html>`;
 }
 
 // ── Utility: ArrayBuffer → base64 (chunked to avoid stack overflow) ──────────

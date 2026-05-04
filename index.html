@@ -2290,7 +2290,7 @@ async function renderActiveEquipmentList() {
       // Filter to jobs for this Work Order
       const woJobs = allJobs.filter(j => {
         const woLinks = j.fields['Work Order'];
-        return woLinks && woLinks.includes(woId);
+        return woLinks && woLinks.includes(woId) && j.fields['Active'] !== false;
       });
       // Map by equipment ID
       woJobs.forEach(j => {
@@ -2482,9 +2482,8 @@ async function executeSkip(eqId, eqName, reason) {
 async function unskipUnit(eqId, jobId) {
   try {
     showToast('Undoing skip...');
-    // Delete the skipped job record
-    const res = await fetch(PROXY + '/Jobs/' + jobId, { method: 'DELETE' });
-    if (!res.ok) throw new Error('DELETE failed');
+    // Soft-delete: worker blocks DELETE, so mark the job inactive instead
+    await apiPatch('Jobs', jobId, { Active: false });
     showToast('✓ Unskipped', 'success');
     await renderActiveEquipmentList();
   } catch(err) {
