@@ -1113,7 +1113,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             const fullQuote = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}`);
             hostedUrl   = fullQuote.hosted_quote_url || null;
             quoteStatus = 'open';
-            console.log('Quote finalized. hosted_quote_url:', hostedUrl);
+            console.log('Quote finalized. Full quote keys:', Object.keys(fullQuote).join(', '));
+            console.log('hosted_quote_url:', fullQuote.hosted_quote_url);
+            console.log('status:', fullQuote.status);
             const atFin = { 'Status': 'Open' };
             if (hostedUrl)                atFin['Stripe Quote URL'] = hostedUrl;
             if (fullQuote.number)         atFin['Quote Number']     = fullQuote.number;
