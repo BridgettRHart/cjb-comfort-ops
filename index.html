@@ -3280,11 +3280,18 @@ function openEstimateModal() {
   // Reset build state
   fieldQuoteLines = [];
   fqActiveLineIdx  = -1;
-  // Pre-fill from diagnosis (most relevant for an estimate) or fall back to problem description
-  const diagnosisEl = document.getElementById('field-diagnosis');
-  const prefillDesc = (diagnosisEl && diagnosisEl.value.trim())
-    || f['Problem Description'] || '';
-  document.getElementById('fq-description').value = prefillDesc;
+  // Pre-fill: Problem Description from WO (what customer reported) +
+  // Recommendations from completed job records (what tech is recommending)
+  const problemDesc = (f['Problem Description'] || '').trim();
+  const allRecs = Object.values(currentJobsByEquipment || {})
+    .filter(j => j.fields['Status'] === 'Complete' && j.fields['Recommendations'])
+    .map(j => j.fields['Recommendations'].trim())
+    .filter(Boolean)
+    .join('\n');
+  const prefillParts = [];
+  if (problemDesc) prefillParts.push(problemDesc);
+  if (allRecs)     prefillParts.push('Recommended work:\n' + allRecs);
+  document.getElementById('fq-description').value = prefillParts.join('\n\n');
   document.getElementById('fq-notes').value        = '';
   document.getElementById('fq-error').style.display = 'none';
   document.getElementById('fq-sent-state').style.display  = 'none';
