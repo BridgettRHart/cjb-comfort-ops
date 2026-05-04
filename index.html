@@ -1993,14 +1993,18 @@ function renderJobDetail(record) {
     statusBtn = `<button class="btn btn-red btn-full" onclick="updateStatus('${record.id}', 'In Progress')" aria-label="Start job and mark as In Progress">
       ▶ Start Job — Mark In Progress
     </button>`;
-  } else if (status === 'In Progress') {
+  } else if (['In Progress','Estimate Sent','Estimate Approved','Estimate Declined'].includes(status)) {
     statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="Continue working on this job">
       ▶ Continue Job — View Units
     </button>`;
-  } else {
+  } else if (['Complete','Invoiced','Paid'].includes(status)) {
     statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
       ✓ Job Complete
     </div>`;
+  } else {
+    statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="Continue working on this job">
+      ▶ Continue Job — View Units
+    </button>`;
   }
 
   content.innerHTML = `
