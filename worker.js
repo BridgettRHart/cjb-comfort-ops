@@ -1323,6 +1323,9 @@ async function airtablePatch(table, recordId, fields) {
 }
 
 // ── Stripe helpers ────────────────────────────────────────────────────────
+// Pin to a recent API version so hosted_quote_url and other newer fields are always returned.
+const STRIPE_VERSION = '2024-06-20';
+
 async function stripePost(apiKey, path, params) {
   const body = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -1331,8 +1334,9 @@ async function stripePost(apiKey, path, params) {
   const res = await fetch(`https://api.stripe.com${path}`, {
     method: 'POST',
     headers: {
-      Authorization:  `Bearer ${apiKey}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
+      Authorization:    `Bearer ${apiKey}`,
+      'Content-Type':   'application/x-www-form-urlencoded',
+      'Stripe-Version': STRIPE_VERSION
     },
     body: body.toString()
   });
@@ -1361,7 +1365,11 @@ async function stripePostNested(apiKey, path, paramsObj) {
   });
   const res = await fetch(`https://api.stripe.com${path}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      Authorization:    `Bearer ${apiKey}`,
+      'Content-Type':   'application/x-www-form-urlencoded',
+      'Stripe-Version': STRIPE_VERSION
+    },
     body: body.toString()
   });
   const data = await res.json();
@@ -1371,7 +1379,7 @@ async function stripePostNested(apiKey, path, paramsObj) {
 
 async function stripeGet(apiKey, path) {
   const res = await fetch(`https://api.stripe.com${path}`, {
-    headers: { Authorization: `Bearer ${apiKey}` }
+    headers: { Authorization: `Bearer ${apiKey}`, 'Stripe-Version': STRIPE_VERSION }
   });
   const data = await res.json();
   if (!res.ok) throw new Error(`Stripe GET ${path}: ${data.error?.message || JSON.stringify(data)}`);
