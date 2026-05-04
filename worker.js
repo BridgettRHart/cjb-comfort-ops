@@ -1103,8 +1103,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // If finalize=true (field app "send" flow): finalize the quote immediately
-        let hostedUrl   = stripeQuote.hosted_quote_url || null;
-        let quoteStatus = 'draft';
+        let hostedUrl    = stripeQuote.hosted_quote_url || null;
+        let quoteStatus  = 'draft';
+        let finalizeError = null;
         if (finalize) {
           try {
             const fin = await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}/finalize`, {});
@@ -1116,17 +1117,22 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             if (fin.expires_at)  atFin['Expiration Date']   = new Date(fin.expires_at * 1000).toISOString().split('T')[0];
             await airtablePatch('Quotes', atQuote.id, atFin);
             if (workOrderId) {
-              await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
+              // Write URL back to WO so field app can restore QR after saving the unit
+              const woFin = { 'Status': 'Estimate Sent' };
+              if (hostedUrl) woFin['Stripe Quote URL'] = hostedUrl;
+              await airtablePatch('Work Orders', workOrderId, woFin);
             }
           } catch (finErr) {
+            finalizeError = finErr.message;
             console.error('Quote finalize failed:', finErr.message);
-            // Non-fatal — quote is still created as draft
+            // Non-fatal — quote exists as draft; field app will surface the error
           }
         }
 
         return new Response(JSON.stringify({
           ok: true, stripeQuoteId: stripeQuote.id, airtableQuoteId: atQuote.id,
-          status: quoteStatus, hostedUrl, hosted_quote_url: hostedUrl
+          status: quoteStatus, hostedUrl, hosted_quote_url: hostedUrl,
+          finalizeError  // null on success; error string if finalize failed
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch (err) {

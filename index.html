@@ -2830,6 +2830,33 @@ function openCompleteForm() {
   document.getElementById('parts-search').value = '';
   document.getElementById('parts-search-results').style.display = 'none';
 
+  // Restore estimate state if this WO already has an estimate in flight
+  const woStatus = currentJob.fields['Status'] || '';
+  if (woStatus === 'Estimate Sent') {
+    // Show repairs section (repairs were needed — that's why an estimate was sent)
+    repairsNeeded = true;
+    document.getElementById('repairs-yes-btn').classList.add('active');
+    document.getElementById('repairs-no-btn').classList.remove('active');
+    document.getElementById('repairs-detail-section').style.display = 'block';
+    // Restore QR + link from WO field (written back by worker on successful finalize)
+    const savedUrl = currentJob.fields['Stripe Quote URL'] || '';
+    setEstimateUrl(savedUrl);
+    showEstimateState('awaiting');
+    startApprovalPolling(currentJob.id);
+  } else if (woStatus === 'Estimate Approved') {
+    repairsNeeded = true;
+    document.getElementById('repairs-yes-btn').classList.add('active');
+    document.getElementById('repairs-no-btn').classList.remove('active');
+    document.getElementById('repairs-detail-section').style.display = 'block';
+    showEstimateState('approved');
+  } else if (woStatus === 'Estimate Declined') {
+    repairsNeeded = true;
+    document.getElementById('repairs-yes-btn').classList.add('active');
+    document.getElementById('repairs-no-btn').classList.remove('active');
+    document.getElementById('repairs-detail-section').style.display = 'block';
+    showEstimateState('declined');
+  }
+
   showScreen('complete');
 }
 
@@ -3218,6 +3245,26 @@ function setRepairsNeeded(yes) {
   }
 }
 
+function setEstimateUrl(url) {
+  unitEstimateUrl = url || '';
+  const qrImg = document.getElementById('eu-qr');
+  const link  = document.getElementById('eu-link');
+  if (!qrImg || !link) return;
+  if (unitEstimateUrl) {
+    qrImg.src        = 'https://api.qrserver.com/v1/create-qr-code/?size=210x210&data=' + encodeURIComponent(unitEstimateUrl);
+    qrImg.alt        = 'QR code for customer approval';
+    link.href        = unitEstimateUrl;
+    link.textContent = unitEstimateUrl;
+    link.style.display = 'block';
+  } else {
+    qrImg.src        = '';
+    qrImg.alt        = 'Link not available — customer was emailed directly';
+    link.href        = '';
+    link.textContent = '(link unavailable — customer was emailed)';
+    link.style.display = 'block';
+  }
+}
+
 function showEstimateState(state) {
   // state: 'initial' | 'awaiting' | 'approved' | 'declined'
   ['eu-initial','eu-awaiting','eu-approved','eu-declined'].forEach(id => {
@@ -3282,20 +3329,21 @@ async function sendUnitEstimate() {
     const result = await res.json();
     unitEstimateUrl = result.hostedUrl || result.hosted_quote_url || '';
 
-    // Update local WO state
-    currentJob.fields['Stripe Quote ID'] = result.stripeQuoteId || '';
-    currentJob.fields['Status']          = 'Estimate Sent';
+    // Update local WO state so save-while-waiting works correctly
+    currentJob.fields['Stripe Quote ID']  = result.stripeQuoteId || '';
+    currentJob.fields['Status']           = 'Estimate Sent';
+    if (unitEstimateUrl) currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
 
-    // Show QR code + link
-    const qrImg = document.getElementById('eu-qr');
-    const link  = document.getElementById('eu-link');
-    if (unitEstimateUrl) {
-      qrImg.src  = 'https://api.qrserver.com/v1/create-qr-code/?size=210x210&data=' + encodeURIComponent(unitEstimateUrl);
-      link.href  = unitEstimateUrl;
-      link.textContent = unitEstimateUrl;
+    // Surface finalize error if Stripe couldn't generate the customer-facing URL
+    if (result.finalizeError) {
+      errorEl.textContent  = '⚠ Estimate saved but couldn\'t send to customer: ' + result.finalizeError;
+      errorEl.style.display = 'block';
     }
+
+    // Show QR code + link (if URL available)
+    setEstimateUrl(unitEstimateUrl);
     showEstimateState('awaiting');
-    showToast('✓ Estimate sent!', 'success');
+    showToast(unitEstimateUrl ? '✓ Estimate sent!' : '⚠ Estimate saved — link unavailable', unitEstimateUrl ? 'success' : 'warning');
 
     // Start polling for customer response
     startApprovalPolling(currentJob.id);
