@@ -1224,7 +1224,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           expires_at: String(expiresAt),
           line_items: stripeLineItems,
         };
-        if (description || notes) quoteParamsObj.description = description || notes;
+        // Stripe quote description is capped at 500 chars; full text is stored in Airtable Notes
+        if (description || notes) quoteParamsObj.description = (description || notes).slice(0, 500);
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
         const stripeQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
@@ -1393,7 +1394,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             };
           })
         };
-        if (notes)       quoteParamsObj.description                         = notes;
+        if (notes)       quoteParamsObj.description                         = notes.slice(0, 500);
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
         const newQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
