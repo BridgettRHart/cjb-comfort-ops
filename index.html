@@ -2871,12 +2871,19 @@ async function buildPartsGrid() {
   const grid = document.getElementById('parts-grid');
   grid.innerHTML = '<div style="padding:8px 4px; font-size:13px; color:var(--gray-text);">Loading products…</div>';
   try {
-    // Fetch ALL products with no Airtable-side filter — JS handles active/inactive.
-    // Avoids checkbox formula quirks that can silently drop records.
-    const url = `${PROXY}/Product%20List?maxRecords=250&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
-    const res  = await fetch(url);
-    const json = await res.json();
-    const allProducts = (json.records || []).filter(r => r.fields['Active'] !== false);
+    // Fetch ALL products across all pages — Airtable paginates at 100 records per page.
+    // Without pagination, products past the first 100 (alphabetically) are never loaded.
+    let allProducts = [];
+    let offset = null;
+    do {
+      let url = `${PROXY}/Product%20List?pageSize=100&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+      if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+      const res  = await fetch(url);
+      const json = await res.json();
+      allProducts = allProducts.concat(json.records || []);
+      offset = json.offset || null;
+    } while (offset);
+    allProducts = allProducts.filter(r => r.fields['Active'] !== false);
 
     // Cache ALL active products so the search box finds everything
     productListCache = allProducts;
@@ -2974,13 +2981,21 @@ async function searchProducts(query) {
     return;
   }
 
-  // Load product list cache if not loaded
+  // Load product list cache if not loaded (paginate — Airtable caps at 100 per page)
   if (!productListCache) {
     try {
       resultsEl.style.display = 'block';
       resultsEl.innerHTML = '<div style="padding:12px 14px; color:var(--gray-text); font-size:13px;">Loading...</div>';
-      const data = await apiGet('Product List', { maxRecords: '250' });
-      productListCache = data.records || [];
+      let all = [], offset = null;
+      do {
+        let url = `${PROXY}/Product%20List?pageSize=100&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+        if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+        const res  = await fetch(url);
+        const json = await res.json();
+        all    = all.concat(json.records || []);
+        offset = json.offset || null;
+      } while (offset);
+      productListCache = all;
     } catch (err) {
       resultsEl.innerHTML = '<div style="padding:12px 14px; color:var(--red); font-size:13px;">Could not load product list</div>';
       return;
@@ -3611,8 +3626,16 @@ async function fqSearchProducts(query) {
     resultsEl.style.display = 'block';
     resultsEl.innerHTML = '<div style="padding:10px 12px;color:var(--gray-text);font-size:13px;">Loading...</div>';
     try {
-      const data = await apiGet('Product List', { maxRecords: '250' });
-      productListCache = data.records || [];
+      let all = [], offset = null;
+      do {
+        let url = `${PROXY}/Product%20List?pageSize=100&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+        if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+        const res  = await fetch(url);
+        const json = await res.json();
+        all    = all.concat(json.records || []);
+        offset = json.offset || null;
+      } while (offset);
+      productListCache = all;
     } catch {
       resultsEl.innerHTML = '<div style="padding:10px 12px;color:var(--red);font-size:13px;">Could not load products</div>';
       return;
