@@ -976,7 +976,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // 10. Create or update Airtable Invoice record
         const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
         const today   = new Date().toISOString().split('T')[0];
-        const dueDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+        const dueDate = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
         const atFields = {
           'Invoice Name':   `${custName} — ${today}`,
           'Customers':      [customerId],
