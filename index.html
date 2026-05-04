@@ -1437,7 +1437,7 @@
 
     <div class="detail-section" style="padding:16px; margin-bottom:12px;">
       <fieldset style="border:none; padding:0; margin:0;">
-        <legend class="form-label" style="margin-bottom:10px;">Parts Used</legend>
+        <legend class="form-label" style="margin-bottom:10px;">Parts Used Today</legend>
 
         <!-- Selected parts list -->
         <div id="selected-parts-list" style="margin-bottom:12px; display:none;">
@@ -1691,6 +1691,17 @@ let selectedPhotos = [];
 let followupSelected = 'no';
 let selectedCondition = 'Excellent';
 
+// ── Date utilities (global — used by loadTodaysJobs AND submitComplete) ──
+const _pad = n => String(n).padStart(2, '0');
+// Arizona is always UTC-7 (no DST). Converts any UTC ISO string → 'YYYY-MM-DD'.
+const azDateStr = isoStr => {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d)) return isoStr.substring(0, 10);
+  const az = new Date(d.getTime() - 7 * 3600000);
+  return `${az.getUTCFullYear()}-${_pad(az.getUTCMonth()+1)}-${_pad(az.getUTCDate())}`;
+};
+
 // ═══════════════════════
 // INIT
 // ═══════════════════════
@@ -1803,17 +1814,6 @@ async function loadTodaysJobs() {
 
   try {
     const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-
-    // Arizona is always UTC-7 (no DST). Convert any UTC ISO string to AZ date string.
-    const azDateStr = isoStr => {
-      if (!isoStr) return '';
-      const d = new Date(isoStr);
-      if (isNaN(d)) return isoStr.substring(0, 10); // fallback for date-only strings
-      const az = new Date(d.getTime() - 7 * 3600000);
-      return `${az.getUTCFullYear()}-${pad(az.getUTCMonth()+1)}-${pad(az.getUTCDate())}`;
-    };
-
     const todayStr = azDateStr(now.toISOString());
 
     // Compute Sun–Sat week bounds in AZ local dates (American week)
@@ -3156,17 +3156,25 @@ async function submitComplete() {
       await apiPost('Jobs', jobFields);
     }
 
-    // Update Equipment record: Last Service Date + Condition
+    // Update Equipment record: Last Service Date + Condition (non-fatal)
     if (selectedEquipmentId) {
-      const todayAZ = azDateStr(new Date().toISOString());
-      await apiPatch('Equipment', selectedEquipmentId, {
-        'Last Service Date': todayAZ,
-        'Condition': selectedCondition,
-      });
+      try {
+        const todayAZ = azDateStr(new Date().toISOString());
+        await apiPatch('Equipment', selectedEquipmentId, {
+          'Last Service Date': todayAZ,
+          'Condition': selectedCondition,
+        });
+      } catch (equipErr) {
+        console.warn('Equipment update failed (non-fatal):', equipErr);
+      }
     }
 
-    // Keep Work Order as In Progress — summary screen finalizes it
-    await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
+    // Keep Work Order as In Progress — summary screen finalizes it (non-fatal)
+    try {
+      await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
+    } catch (woErr) {
+      console.warn('WO status update failed (non-fatal):', woErr);
+    }
 
     showToast('✓ Unit saved!', 'success');
 
@@ -3232,7 +3240,8 @@ function renderSummaryEstimate() {
     + '<div style="font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:10px;">Estimate</div>';
 
   if (!quoteId) {
-    html += '<div style="font-size:13px;color:var(--gray-text);margin-bottom:12px;">No estimate for this visit yet.</div>'
+    html += '<div style="font-size:13px;color:var(--gray-text);margin-bottom:6px;">For <strong>additional work</strong> the customer needs to approve — not today\'s service call.</div>'
+      + '<div style="font-size:11px;color:var(--gray-text);margin-bottom:12px;">Today\'s parts &amp; labor go on the invoice. Use this for a separate repair or install quote.</div>'
       + '<button class="btn btn-full" style="background:#1e40af;color:#fff;font-size:14px;padding:12px;" onclick="openEstimateModal()">📋 Create &amp; Send Estimate</button>';
   } else if (status === 'Estimate Sent') {
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
@@ -3271,7 +3280,11 @@ function openEstimateModal() {
   // Reset build state
   fieldQuoteLines = [];
   fqActiveLineIdx  = -1;
-  document.getElementById('fq-description').value = f['Problem Description'] || '';
+  // Pre-fill from diagnosis (most relevant for an estimate) or fall back to problem description
+  const diagnosisEl = document.getElementById('field-diagnosis');
+  const prefillDesc = (diagnosisEl && diagnosisEl.value.trim())
+    || f['Problem Description'] || '';
+  document.getElementById('fq-description').value = prefillDesc;
   document.getElementById('fq-notes').value        = '';
   document.getElementById('fq-error').style.display = 'none';
   document.getElementById('fq-sent-state').style.display  = 'none';
@@ -3489,11 +3502,11 @@ async function submitFieldEstimate() {
       description: description || 'Estimate for repair / service',
       lineItems:   validLines.map(l => ({
         name:       l.name,
-        unitAmount: Math.round((l.unitAmount || 0) * 100), // cents for Stripe
+        unitAmount: Math.round((l.unitAmount || 0) * 100), // cents (worker normalizes)
         qty:        l.qty || 1,
       })),
       notes,
-      daysUntilDue: 30,
+      finalize: true, // create draft + finalize + email customer in one step
     };
 
     const res = await fetch(`${PROXY}/quote`, {
@@ -3508,10 +3521,10 @@ async function submitFieldEstimate() {
     }
 
     const result   = await res.json();
-    const quoteUrl = result.hosted_quote_url || result.url || '';
+    const quoteUrl = result.hostedUrl || result.hosted_quote_url || '';
 
     // Update local state so buttons re-render correctly
-    currentJob.fields['Stripe Quote ID'] = result.id || quoteUrl;
+    currentJob.fields['Stripe Quote ID'] = result.stripeQuoteId || result.id || '';
     currentJob.fields['Status']          = 'Estimate Sent';
 
     // Show success panel

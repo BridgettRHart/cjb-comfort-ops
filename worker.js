@@ -968,7 +968,15 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     // ── Stripe Quote — create ─────────────────────────────────────────────
     if (path === '/api/quote' && request.method === 'POST') {
       try {
-        const { workOrderId, customerId, lineItems, notes } = await request.json();
+        const body = await request.json();
+        // Accept both field-app keys (woId, name, unitAmount[cents], qty)
+        // and admin keys (workOrderId, productName, unitPrice[dollars], quantity)
+        const workOrderId = body.workOrderId || body.woId || null;
+        const customerId  = body.customerId;
+        const notes       = body.notes || '';
+        const description = body.description || '';
+        const lineItems   = body.lineItems || [];
+        const finalize    = body.finalize === true; // if true: create draft + finalize in one step
         if (!customerId)        throw new Error('customerId is required');
         if (!lineItems?.length) throw new Error('At least one line item is required');
 
@@ -995,32 +1003,52 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           stripeCustId = cc.id;
         }
 
-        // 3. Build and create Stripe draft quote
+        // 3. Build Stripe line items
+        // Quotes API requires price_data[product] (an existing Stripe product ID).
+        // product_data inline creation is not supported on quotes — create each product first.
+        const stripeLineItems = [];
+        for (const item of lineItems) {
+          // Normalize field names: accept both admin format and field-app format
+          const name      = (item.productName || item.name || 'Service').trim();
+          const qty       = Number(item.quantity || item.qty) || 1;
+          // unitPrice is dollars (admin); unitAmount is cents (field app)
+          const unitPrice = item.unitPrice !== undefined
+            ? Number(item.unitPrice)
+            : (Number(item.unitAmount) || 0) / 100;
+          const isWhole   = Number.isInteger(qty);
+          const cents     = Math.round(unitPrice * (isWhole ? 1 : qty) * 100);
+
+          // Create a one-off Stripe product for the display name on the quote
+          const prod = await stripePost(STRIPE_KEY, '/v1/products', { name, type: 'service' });
+
+          stripeLineItems.push({
+            price_data: {
+              currency:    'usd',
+              product:     prod.id,
+              unit_amount: String(cents),
+            },
+            quantity: String(isWhole ? Math.max(1, qty) : 1),
+          });
+        }
+
+        // 4. Create the Stripe draft quote
         const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
         const quoteParamsObj = {
-          customer:    stripeCustId,
-          expires_at:  String(expiresAt),
-          line_items:  lineItems.map(item => {
-            const qty     = Number(item.quantity) || 1;
-            const isWhole = Number.isInteger(qty);
-            const cents   = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
-            return {
-              price_data: {
-                currency:     'usd',
-                product_data: { name: item.productName || 'Service' },
-                unit_amount:  String(cents)
-              },
-              quantity: String(isWhole ? Math.max(1, qty) : 1)
-            };
-          })
+          customer:   stripeCustId,
+          expires_at: String(expiresAt),
+          line_items: stripeLineItems,
         };
-        if (notes)        quoteParamsObj.description                      = notes;
-        if (workOrderId)  quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
+        if (description || notes) quoteParamsObj.description = description || notes;
+        if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
         const stripeQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
 
-        // 4. Airtable Quote record
-        const subtotal   = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (Number(li.quantity) || 1)), 0);
+        // 5. Airtable Quote record
+        const subtotal = lineItems.reduce((s, li) => {
+          const p = li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount) || 0) / 100;
+          const q = Number(li.quantity || li.qty) || 1;
+          return s + p * q;
+        }, 0);
         const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
         const today      = new Date().toISOString().split('T')[0];
 
@@ -1037,18 +1065,42 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Total Amount':    subtotal,
           'Customer':        [customerId]
         };
-        if (workOrderId) atQuoteFields['Work Order'] = [workOrderId];
-        if (notes)       atQuoteFields['Notes']      = notes;
+        if (workOrderId)        atQuoteFields['Work Order'] = [workOrderId];
+        if (notes)              atQuoteFields['Notes']      = notes;
+        if (description)        atQuoteFields['Notes']      = description + (notes ? '\n' + notes : '');
 
         const atQuote = await airtablePost('Quotes', atQuoteFields);
 
-        // Write Stripe Quote ID back to Work Order for fast lookup in admin UI
+        // Write Stripe Quote ID back to Work Order for fast lookup
         if (workOrderId) {
           await airtablePatch('Work Orders', workOrderId, { 'Stripe Quote ID': stripeQuote.id });
         }
 
+        // If finalize=true (field app "send" flow): finalize the quote immediately
+        let hostedUrl   = stripeQuote.hosted_quote_url || null;
+        let quoteStatus = 'draft';
+        if (finalize) {
+          try {
+            const fin = await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}/finalize`, {});
+            hostedUrl   = fin.hosted_quote_url || hostedUrl;
+            quoteStatus = 'open';
+            const atFin = { 'Status': 'Open' };
+            if (hostedUrl)       atFin['Stripe Quote URL']  = hostedUrl;
+            if (fin.number)      atFin['Quote Number']      = fin.number;
+            if (fin.expires_at)  atFin['Expiration Date']   = new Date(fin.expires_at * 1000).toISOString().split('T')[0];
+            await airtablePatch('Quotes', atQuote.id, atFin);
+            if (workOrderId) {
+              await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
+            }
+          } catch (finErr) {
+            console.error('Quote finalize failed:', finErr.message);
+            // Non-fatal — quote is still created as draft
+          }
+        }
+
         return new Response(JSON.stringify({
-          ok: true, stripeQuoteId: stripeQuote.id, airtableQuoteId: atQuote.id, status: 'draft'
+          ok: true, stripeQuoteId: stripeQuote.id, airtableQuoteId: atQuote.id,
+          status: quoteStatus, hostedUrl, hosted_quote_url: hostedUrl
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch (err) {
