@@ -10,7 +10,8 @@ const WAVE_BUSINESS_ID       = 'QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVm
 const WAVE_INCOME_ACCOUNT_ID = 'QWNjb3VudDo2Mzg1NDYxMDc5MTUzNTU5MTg7QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVmYzZlZjRlNDY1';
 let _waveServiceProductId = null; // cached per Worker instance
 
-const R2_PUBLIC_URL = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
+const R2_PUBLIC_URL    = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
+const APPROVE_BASE_URL = 'https://bridgetthart.github.io/cjb-comfort-ops/approve.html';
 
 // These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
 // Declared here so helper functions defined outside fetch() can access them.
@@ -328,6 +329,106 @@ export default {
         return new Response(JSON.stringify({ error: err.message }), {
           status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+    }
+
+    // ── Customer estimate approval page — fetch details ──────────────────
+    if (path === '/api/approve' && request.method === 'GET') {
+      try {
+        const reqUrl = new URL(request.url);
+        const woId   = reqUrl.searchParams.get('wo');
+        if (!woId) return new Response(JSON.stringify({ error: 'Missing wo parameter' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo       = await airtableGetById('Work Orders', woId);
+        const woFields = wo.fields;
+        const stripeQuoteId = woFields['Stripe Quote ID'] || '';
+        const STRIPE_KEY    = env.STRIPE_SECRET_KEY;
+
+        let lineItems   = [];
+        let description = '';
+        let photoUrls   = [];
+
+        if (stripeQuoteId && STRIPE_KEY) {
+          try {
+            const quote = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}`);
+            description = quote.description || '';
+            const liRes = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items`);
+            lineItems = (liRes.data || []).map(li => ({
+              name:      li.description || 'Service',
+              qty:       li.quantity    || 1,
+              unitPrice: (li.price?.unit_amount || 0) / 100,
+              amount:    (li.amount_total || li.amount_subtotal || 0) / 100
+            }));
+          } catch (stripeErr) {
+            // non-fatal — page still loads
+          }
+        }
+
+        // Pull photo URLs from Airtable Quote record (stored in Notes with ---PHOTOS--- delimiter)
+        if (stripeQuoteId) {
+          try {
+            const qSearch = await airtableGet('Quotes', `{Stripe Quote ID}="${stripeQuoteId}"`);
+            const atQ = qSearch.records?.[0];
+            if (atQ) {
+              const qNotes = atQ.fields['Notes'] || '';
+              const photosIdx = qNotes.indexOf('---PHOTOS---');
+              if (photosIdx !== -1) {
+                photoUrls = qNotes.slice(photosIdx + 12).trim().split('\n').filter(Boolean);
+              }
+            }
+          } catch (e) { /* non-fatal */ }
+        }
+
+        const total = lineItems.reduce((s, li) => s + li.amount, 0);
+        return new Response(JSON.stringify({
+          ok:           true,
+          customerName: woFields['Customer Name']  || 'Customer',
+          woNumber:     woFields['Work Order ID']  || '',
+          status:       woFields['Status']         || '',
+          description,
+          lineItems,
+          total,
+          photoUrls
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Customer estimate approval page — record decision ─────────────────
+    if (path === '/api/approve' && request.method === 'POST') {
+      try {
+        const { woId, decision } = await request.json();
+        if (!woId || !decision) return new Response(JSON.stringify({ error: 'Missing woId or decision' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const newStatus = decision === 'approved' ? 'Estimate Approved' : 'Estimate Declined';
+        await airtablePatch('Work Orders', woId, { 'Status': newStatus });
+
+        // Update Airtable Quote record status if linked
+        try {
+          const wo = await airtableGetById('Work Orders', woId);
+          const quoteLinks = wo.fields['Quote'] || [];
+          if (quoteLinks.length) {
+            const atStatus = decision === 'approved' ? 'Accepted' : 'Declined';
+            await airtablePatch('Quotes', quoteLinks[0], { 'Status': atStatus });
+          }
+        } catch (e) { /* non-fatal */ }
+
+        // Accept/cancel Stripe quote to keep records clean (non-fatal)
+        if (env.STRIPE_SECRET_KEY) {
+          try {
+            const wo = await airtableGetById('Work Orders', woId);
+            const stripeQuoteId = wo.fields['Stripe Quote ID'] || '';
+            if (stripeQuoteId) {
+              const endpoint = decision === 'approved' ? 'accept' : 'cancel';
+              await stripePost(env.STRIPE_SECRET_KEY, `/v1/quotes/${stripeQuoteId}/${endpoint}`, {});
+            }
+          } catch (e) { /* non-fatal */ }
+        }
+
+        return new Response(JSON.stringify({ ok: true, status: newStatus }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
 
@@ -1083,6 +1184,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           try { const wo = await airtableGetById('Work Orders', workOrderId); woName = wo.fields?.['Work Order Name'] || ''; } catch (e) {}
         }
 
+        const photoUrls = Array.isArray(body.photoUrls) ? body.photoUrls : [];
+
         const atQuoteFields = {
           'Quote Title':     `${custName} — ${woName || 'Estimate'} — ${today}`,
           'Status':          'Draft',
@@ -1094,50 +1197,47 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (workOrderId)        atQuoteFields['Work Order'] = [workOrderId];
         if (notes)              atQuoteFields['Notes']      = notes;
         if (description)        atQuoteFields['Notes']      = description + (notes ? '\n' + notes : '');
+        // Append photo URLs (delimited so GET /api/approve can parse them back)
+        if (photoUrls.length) {
+          const existing = atQuoteFields['Notes'] || '';
+          atQuoteFields['Notes'] = (existing ? existing + '\n' : '') + '---PHOTOS---\n' + photoUrls.join('\n');
+        }
 
         const atQuote = await airtablePost('Quotes', atQuoteFields);
 
-        // Write Stripe Quote ID back to Work Order for fast lookup
+        // Our own approval page URL — always available immediately from the WO ID
+        const approveUrl = workOrderId ? `${APPROVE_BASE_URL}?wo=${workOrderId}` : null;
+
+        // Write Stripe Quote ID + approve URL back to Work Order
         if (workOrderId) {
-          await airtablePatch('Work Orders', workOrderId, { 'Stripe Quote ID': stripeQuote.id });
+          const woUpdate = { 'Stripe Quote ID': stripeQuote.id };
+          if (approveUrl) woUpdate['Stripe Quote URL'] = approveUrl;
+          await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
 
-        // If finalize=true (field app "send" flow): finalize the quote immediately
-        let hostedUrl    = stripeQuote.hosted_quote_url || null;
-        let quoteStatus  = 'draft';
-        let finalizeError = null;
+        // Finalize the Stripe quote (makes it Open in Stripe for clean records — non-fatal)
+        let quoteStatus = 'draft';
         if (finalize) {
           try {
             await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}/finalize`, {});
-            // Finalize response may omit hosted_quote_url — do a full GET to guarantee it
-            const fullQuote = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}`);
-            hostedUrl   = fullQuote.hosted_quote_url || null;
             quoteStatus = 'open';
-            console.log('Quote finalized. Full quote keys:', Object.keys(fullQuote).join(', '));
-            console.log('hosted_quote_url:', fullQuote.hosted_quote_url);
-            console.log('status:', fullQuote.status);
             const atFin = { 'Status': 'Open' };
-            if (hostedUrl)                atFin['Stripe Quote URL'] = hostedUrl;
-            if (fullQuote.number)         atFin['Quote Number']     = fullQuote.number;
-            if (fullQuote.expires_at)     atFin['Expiration Date']  = new Date(fullQuote.expires_at * 1000).toISOString().split('T')[0];
             await airtablePatch('Quotes', atQuote.id, atFin);
             if (workOrderId) {
-              // Write URL back to WO so field app can restore QR after saving the unit
-              const woFin = { 'Status': 'Estimate Sent' };
-              if (hostedUrl) woFin['Stripe Quote URL'] = hostedUrl;
-              await airtablePatch('Work Orders', workOrderId, woFin);
+              await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
             }
           } catch (finErr) {
-            finalizeError = finErr.message;
-            console.error('Quote finalize failed:', finErr.message);
-            // Non-fatal — quote exists as draft; field app will surface the error
+            console.error('Quote finalize failed (non-fatal):', finErr.message);
+            // Non-fatal — quote stays as draft in Stripe; approval page still works
+            if (workOrderId) {
+              try { await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' }); } catch(e) {}
+            }
           }
         }
 
         return new Response(JSON.stringify({
           ok: true, stripeQuoteId: stripeQuote.id, airtableQuoteId: atQuote.id,
-          status: quoteStatus, hostedUrl, hosted_quote_url: hostedUrl,
-          finalizeError  // null on success; error string if finalize failed
+          status: quoteStatus, approveUrl
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch (err) {

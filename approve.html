@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Estimate Review — CJB Comfort</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Barlow', sans-serif;
+      background: #f3f4f6;
+      min-height: 100vh;
+      color: #111827;
+    }
+
+    .header {
+      background: #0f1729;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-img { height: 34px; }
+
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 20px 16px 48px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .customer-name {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #111827;
+    }
+    .wo-meta {
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+
+    .description {
+      font-size: 15px;
+      color: #374151;
+      line-height: 1.55;
+      white-space: pre-line;
+    }
+
+    .line-items {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .line-items th {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #6b7280;
+      text-align: left;
+      padding: 0 0 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .line-items th:last-child { text-align: right; }
+    .line-items td {
+      padding: 10px 0;
+      font-size: 15px;
+      border-bottom: 1px solid #f3f4f6;
+      vertical-align: top;
+    }
+    .line-items td:last-child {
+      text-align: right;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .li-qty { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .photo-grid img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .photo-grid img:active { opacity: 0.75; }
+
+    /* Lightbox */
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+      max-width: 96vw;
+      max-height: 96vh;
+      border-radius: 8px;
+      object-fit: contain;
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      color: white;
+      font-size: 32px;
+      cursor: pointer;
+      line-height: 1;
+      user-select: none;
+    }
+
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 2px solid #111827;
+    }
+    .total-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .total-amount {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 28px;
+      font-weight: 800;
+    }
+
+    .action-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px 20px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .action-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .action-sub {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 22px;
+      line-height: 1.45;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 17px 16px;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 19px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 12px;
+      letter-spacing: 0.3px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { opacity: 0.82; transform: scale(0.98); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .btn-approve {
+      background: #059669;
+      color: white;
+    }
+    .btn-decline {
+      background: white;
+      color: #dc2626;
+      border: 2px solid #dc2626;
+      margin-bottom: 0;
+    }
+
+    /* Spinner */
+    .spinner-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 64px 20px;
+      gap: 16px;
+      color: #6b7280;
+      font-size: 15px;
+    }
+    .spin {
+      width: 38px; height: 38px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #1e40af;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Result screens */
+    .result-wrap {
+      text-align: center;
+      padding: 44px 20px;
+    }
+    .result-icon { font-size: 60px; margin-bottom: 12px; line-height: 1; }
+    .result-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .result-sub {
+      font-size: 15px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    .notice {
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 14px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .notice-error   { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+    .notice-success { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #065f46; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
+</div>
+
+<div id="root">
+  <div class="spinner-wrap">
+    <div class="spin"></div>
+    Loading your estimate…
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <div class="lightbox-close" aria-label="Close">×</div>
+  <img id="lightbox-img" src="" alt="Estimate photo">
+</div>
+
+<script>
+const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+
+// ── Bootstrap ────────────────────────────────────────────────────────────────
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+  const woId   = params.get('wo');
+  const root   = document.getElementById('root');
+
+  if (!woId) {
+    showError('No estimate found. Please ask your technician for the correct link.');
+    return;
+  }
+
+  try {
+    const res  = await fetch(`${PROXY}/approve?wo=${encodeURIComponent(woId)}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Could not load estimate details');
+    render(data, woId);
+  } catch (err) {
+    showError('Could not load estimate: ' + (err.message || 'Unknown error'));
+  }
+}
+
+// ── Render estimate ──────────────────────────────────────────────────────────
+function render(data, woId) {
+  const status = data.status || '';
+
+  // Already decided — just show result
+  if (status === 'Estimate Approved') { showResult('approved'); return; }
+  if (status === 'Estimate Declined') { showResult('declined'); return; }
+
+  // Build line items table
+  let itemsHtml = '';
+  let total     = 0;
+  if (data.lineItems && data.lineItems.length > 0) {
+    const rows = data.lineItems.map(li => {
+      total += li.amount || 0;
+      const qtyHtml = li.qty > 1
+        ? `<div class="li-qty">${li.qty} × $${(li.unitPrice || 0).toFixed(2)}</div>`
+        : '';
+      return `<tr>
+        <td><div>${esc(li.name)}</div>${qtyHtml}</td>
+        <td>$${(li.amount || 0).toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+    itemsHtml = `
+      <div class="section-label">What's Included</div>
+      <table class="line-items">
+        <thead><tr><th>Item</th><th>Price</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="total-row">
+        <span class="total-label">Estimate Total</span>
+        <span class="total-amount">$${total.toFixed(2)}</span>
+      </div>`;
+  } else if (data.total && data.total > 0) {
+    total = data.total;
+    itemsHtml = `<div class="total-row">
+      <span class="total-label">Estimate Total</span>
+      <span class="total-amount">$${total.toFixed(2)}</span>
+    </div>`;
+  }
+
+  const descHtml = data.description
+    ? `<div class="card"><div class="section-label">Findings &amp; Recommendation</div><div class="description">${esc(data.description)}</div></div>`
+    : '';
+
+  // Photos from the estimate
+  let photosHtml = '';
+  if (data.photoUrls && data.photoUrls.length > 0) {
+    const thumbs = data.photoUrls.map(u => {
+      const safeUrl = esc(u);
+      const jsUrl   = u.replace(/'/g, "\\'"); // safe for single-quoted JS string
+      return `<img src="${safeUrl}" alt="Equipment photo" loading="lazy" onclick="openLightbox('${jsUrl}')">`;
+    }).join('');
+    photosHtml = `<div class="card"><div class="section-label">Photos from Visit</div><div class="photo-grid">${thumbs}</div></div>`;
+  }
+
+  const itemsCardHtml = itemsHtml
+    ? `<div class="card">${itemsHtml}</div>`
+    : '';
+
+  document.getElementById('root').innerHTML = `
+    <div class="container">
+
+      <div class="card">
+        <div class="customer-name">${esc(data.customerName)}</div>
+        ${data.woNumber ? `<div class="wo-meta">Work Order #${esc(data.woNumber)}</div>` : ''}
+      </div>
+
+      ${descHtml}
+      ${photosHtml}
+      ${itemsCardHtml}
+
+      <div class="action-card" id="action-section">
+        <div class="action-title">Do you approve this estimate?</div>
+        <div class="action-sub">Your technician is standing by. Approving means you'd like CJB Comfort to proceed with the repair work described above.</div>
+        <button class="btn btn-approve" id="approve-btn" onclick="respond('${woId}', 'approved')">
+          ✓ &nbsp;Yes, I Approve This Estimate
+        </button>
+        <button class="btn btn-decline" id="decline-btn" onclick="respond('${woId}', 'declined')">
+          No Thanks — Not Right Now
+        </button>
+      </div>
+
+    </div>`;
+}
+
+// ── Record customer decision ─────────────────────────────────────────────────
+async function respond(woId, decision) {
+  const aBtn = document.getElementById('approve-btn');
+  const dBtn = document.getElementById('decline-btn');
+  if (aBtn) aBtn.disabled = true;
+  if (dBtn) dBtn.disabled = true;
+
+  const section = document.getElementById('action-section');
+  if (section) section.innerHTML = `<div class="spinner-wrap" style="padding:32px 0;"><div class="spin"></div>Recording your response…</div>`;
+
+  try {
+    const res  = await fetch(`${PROXY}/approve`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ woId, decision })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
+    showResult(decision);
+  } catch (err) {
+    if (section) section.innerHTML = `
+      <div class="notice notice-error" style="margin-bottom:16px;">
+        Could not save your response — please try again.<br><small>${esc(err.message)}</small>
+      </div>
+      <button class="btn btn-approve" onclick="location.reload()">Try Again</button>`;
+  }
+}
+
+// ── Result screens ────────────────────────────────────────────────────────────
+function showResult(decision) {
+  document.getElementById('root').innerHTML = `<div class="container"><div class="card"><div class="result-wrap">
+    ${decision === 'approved'
+      ? `<div class="result-icon">✅</div>
+         <div class="result-title">Estimate Approved!</div>
+         <div class="result-sub">Thank you — your approval has been recorded.<br>CJB Comfort will proceed with the repair.</div>`
+      : `<div class="result-icon">👍</div>
+         <div class="result-title">Response Recorded</div>
+         <div class="result-sub">We've noted your decision.<br>CJB Comfort will reach out to discuss your options.</div>`
+    }
+  </div></div></div>`;
+}
+
+function showError(msg) {
+  document.getElementById('root').innerHTML = `<div class="container" style="padding-top:32px;"><div class="notice notice-error">${esc(msg)}</div></div>`;
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function openLightbox(url) {
+  document.getElementById('lightbox-img').src = url;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-img').src = '';
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+init();
+</script>
+
+</body>
+</html>

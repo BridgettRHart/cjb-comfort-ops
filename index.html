@@ -1439,6 +1439,20 @@
       </div>
     </div>
 
+    <!-- Photos — always visible, positioned before estimate so they go with it -->
+    <div class="detail-section" id="photos-wrap" style="padding:16px;margin-bottom:12px;">
+      <div class="form-field" style="margin-bottom:0;">
+        <label class="form-label">Photos</label>
+        <div class="photo-upload-area" onclick="document.getElementById('photo-input').click()" role="button" tabindex="0" aria-label="Add photos" onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('photo-input').click()">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <div>Tap to add photos</div>
+          <div id="photo-upload-status" style="font-size:12px;margin-top:4px;color:var(--gray-text);">Saved to job &amp; equipment record</div>
+        </div>
+        <input type="file" id="photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handlePhotos(this)" aria-label="Upload job photos">
+        <div class="photos-preview" id="photos-preview" aria-label="Photo previews" role="list"></div>
+      </div>
+    </div>
+
     <!-- Section 3: Repair details (revealed when repairs = yes) -->
     <div id="repairs-detail-section" style="display:none;">
 
@@ -1503,7 +1517,7 @@
             <div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
             Waiting for customer response…
           </div>
-          <div style="margin-top:8px;font-size:11px;color:var(--gray-text);">Estimate also emailed to customer</div>
+          <div style="margin-top:8px;font-size:11px;color:var(--gray-text);">Customer scans QR or opens the link to approve or decline</div>
         </div>
 
         <!-- Approved state -->
@@ -1523,20 +1537,6 @@
       </div><!-- /estimate-unit-section -->
 
     </div><!-- /repairs-detail-section -->
-
-    <!-- Photos (always visible) -->
-    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
-      <div class="form-field" style="margin-bottom:0;">
-        <label class="form-label">Photos</label>
-        <div class="photo-upload-area" onclick="document.getElementById('photo-input').click()" role="button" tabindex="0" aria-label="Add photos" onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('photo-input').click()">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-          <div>Tap to add photos</div>
-          <div id="photo-upload-status" style="font-size:12px;margin-top:4px;color:var(--gray-text);">Saved to job &amp; equipment record</div>
-        </div>
-        <input type="file" id="photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handlePhotos(this)" aria-label="Upload job photos">
-        <div class="photos-preview" id="photos-preview" aria-label="Photo previews" role="list"></div>
-      </div>
-    </div>
 
     <!-- Follow-up for office -->
     <div class="detail-section" style="padding:16px;margin-bottom:12px;">
@@ -1634,6 +1634,8 @@ const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
 let selectedParts = [];
 // Cache of product list from Airtable
 let productListCache = null;
+// Photos uploaded during estimate send — reused by submitComplete to avoid double-upload
+let uploadedPhotoUrls = [];
 
 // ═══════════════════════
 // STATE
@@ -2772,6 +2774,7 @@ function openCompleteForm() {
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('photos-preview').innerHTML = '';
   selectedPhotos = [];
+  uploadedPhotoUrls = [];
   readyToInvoice = false;
   selectCondition('Excellent');
   selectFollowup('no');
@@ -3106,9 +3109,14 @@ async function submitComplete() {
     const woId           = currentJob.id;
     const woFields       = currentJob.fields;
 
-    // Upload photos to R2 first (non-blocking on failure)
-    btn.textContent = 'Uploading photos…';
-    const photoUrls = await uploadJobPhotos();
+    // Use photos already uploaded during estimate send, or upload now if not yet done
+    let photoUrls;
+    if (uploadedPhotoUrls.length > 0) {
+      photoUrls = uploadedPhotoUrls;
+    } else {
+      btn.textContent = 'Uploading photos…';
+      photoUrls = await uploadJobPhotos();
+    }
 
     btn.textContent = 'Saving…';
 
@@ -3290,10 +3298,14 @@ async function sendUnitEstimate() {
 
   const btn = document.getElementById('eu-send-btn');
   btn.disabled    = true;
-  btn.textContent = 'Sending…';
+  btn.textContent = 'Uploading photos…';
   errorEl.style.display = 'none';
 
   try {
+    // Upload photos first so they appear on the customer's approval page
+    uploadedPhotoUrls = await uploadJobPhotos();
+    btn.textContent = 'Sending…';
+
     const f          = currentJob.fields;
     const customerId = f['Customer'] && f['Customer'][0] ? f['Customer'][0] : null;
     if (!customerId) throw new Error('No customer linked to this work order');
@@ -3314,6 +3326,7 @@ async function sendUnitEstimate() {
         qty:        p.qty || 1,
       })),
       notes,
+      photoUrls: uploadedPhotoUrls,
       finalize: true,
     };
 
@@ -3329,23 +3342,18 @@ async function sendUnitEstimate() {
     }
 
     const result = await res.json();
-    unitEstimateUrl = result.hostedUrl || result.hosted_quote_url || '';
+    // approveUrl is our own GitHub Pages page — always available, no Stripe dependency
+    unitEstimateUrl = result.approveUrl || `https://bridgetthart.github.io/cjb-comfort-ops/approve.html?wo=${currentJob.id}`;
 
     // Update local WO state so save-while-waiting works correctly
     currentJob.fields['Stripe Quote ID']  = result.stripeQuoteId || '';
     currentJob.fields['Status']           = 'Estimate Sent';
-    if (unitEstimateUrl) currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
+    currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
 
-    // Surface finalize error if Stripe couldn't generate the customer-facing URL
-    if (result.finalizeError) {
-      errorEl.textContent  = '⚠ Estimate saved but couldn\'t send to customer: ' + result.finalizeError;
-      errorEl.style.display = 'block';
-    }
-
-    // Show QR code + link (if URL available)
+    // Show QR code + link
     setEstimateUrl(unitEstimateUrl);
     showEstimateState('awaiting');
-    showToast(unitEstimateUrl ? '✓ Estimate sent!' : '⚠ Estimate saved — link unavailable', unitEstimateUrl ? 'success' : 'warning');
+    showToast('✓ Estimate sent!', 'success');
 
     // Start polling for customer response
     startApprovalPolling(currentJob.id);
