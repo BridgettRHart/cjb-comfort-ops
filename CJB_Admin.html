@@ -2115,6 +2115,15 @@ async function submitInvoice(sendNow) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Invoice failed');
 
+    // Immediately update the cached WO with the new Stripe Invoice ID.
+    // The worker deletes and recreates the Stripe invoice on every save, so the
+    // old ID is gone. Without this, clicking Edit Draft again fetches a deleted
+    // invoice (404 → draftGone → empty form) — hence the "loses line items" loop.
+    const cachedWO = currentWorkOrders.find(w => w.id === invoiceWOId);
+    if (cachedWO && data.stripeInvoiceId) {
+      cachedWO.fields['Stripe Invoice ID'] = data.stripeInvoiceId;
+    }
+
     closeModal();
 
     if (data.hostedUrl) {
