@@ -1471,8 +1471,14 @@ async function openInvoiceModal(workOrderId, customerId) {
       const draftGone = !draftRes.ok || draft.error;
 
       if (!draftGone) {
-        // Restore notes from the Stripe invoice description
-        const savedNotes = draft.description || draft.footer || '';
+        // Restore notes from the Stripe invoice description.
+        // The worker auto-prepends "Service Address: …\n\n" — strip it here so it
+        // doesn't round-trip back and duplicate on every save.
+        let savedNotes = draft.description || draft.footer || '';
+        if (savedNotes.startsWith('Service Address:')) {
+          const sep = savedNotes.indexOf('\n\n');
+          savedNotes = sep !== -1 ? savedNotes.slice(sep + 2) : '';
+        }
         if (savedNotes) document.getElementById('inv-notes').value = savedNotes;
 
         // Restore line items — unfold fractional quantities stored as "(Nx)" in description

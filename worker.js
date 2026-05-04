@@ -770,13 +770,25 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           status:      inv.status,
           description: inv.description || '',
           hostedUrl:   inv.hosted_invoice_url || null,
-          lines: (lines.data || []).map(l => ({
-            description: l.description || '',
-            quantity:    l.quantity    || 1,
-            unitPrice:   (l.price?.unit_amount != null
-              ? l.price.unit_amount
-              : Math.round((l.amount || 0) / (l.quantity || 1))) / 100
-          }))
+          lines: (lines.data || []).map(l => {
+            // unit_amount_excluding_tax is Stripe's most reliable per-unit field on invoice lines
+            // (always present, always a string in cents). Fall back through price object then amount÷qty.
+            let unitCents;
+            if (l.unit_amount_excluding_tax != null) {
+              unitCents = parseFloat(l.unit_amount_excluding_tax);
+            } else if (l.price?.unit_amount_decimal != null) {
+              unitCents = parseFloat(l.price.unit_amount_decimal);
+            } else if (l.price?.unit_amount != null && l.price.unit_amount !== 0) {
+              unitCents = l.price.unit_amount;
+            } else {
+              unitCents = Math.round((l.amount || 0) / (l.quantity || 1));
+            }
+            return {
+              description: l.description || '',
+              quantity:    l.quantity    || 1,
+              unitPrice:   unitCents / 100
+            };
+          })
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), {
