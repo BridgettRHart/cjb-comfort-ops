@@ -331,6 +331,32 @@ export default {
       }
     }
 
+    // ── Job photo upload → R2 ─────────────────────────────────────────────
+    if (path === '/api/upload-photo' && request.method === 'POST') {
+      try {
+        if (!env.PHOTOS_BUCKET) throw new Error('PHOTOS_BUCKET not configured');
+        const form  = await request.formData();
+        const files = form.getAll('image');
+        if (!files.length) throw new Error('No images provided');
+        const urls = [];
+        for (const file of files) {
+          const buf       = await file.arrayBuffer();
+          const mediaType = file.type || 'image/jpeg';
+          const ext       = mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
+          const key       = `jobs/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          await env.PHOTOS_BUCKET.put(key, buf, { httpMetadata: { contentType: mediaType } });
+          urls.push(`${R2_PUBLIC_URL}/${key}`);
+        }
+        return new Response(JSON.stringify({ ok: true, urls }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // ── Equipment data-tag extraction (Claude Vision + R2 upload) ────────
     if (path === '/api/extract-tag' && request.method === 'POST') {
       try {

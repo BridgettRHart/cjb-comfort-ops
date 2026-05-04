@@ -628,6 +628,17 @@
 
   .selected-part-remove:active { color: var(--white); }
 
+  /* Repairs needed toggle buttons */
+  .repair-choice-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 16px 10px; border: 2px solid #e5e7eb; border-radius: 12px;
+    background: white; font-size: 14px; font-weight: 700; color: var(--gray-text);
+    cursor: pointer; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.3px;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .repair-choice-btn.choice-no.active  { border-color: #059669; background: #d1fae5; color: #065f46; }
+  .repair-choice-btn.choice-yes.active { border-color: #dc2626; background: #fee2e2; color: #991b1b; }
+
   /* Photo upload */
   .photo-upload-area {
     border: 2px dashed var(--gray-border);
@@ -1357,12 +1368,12 @@
 
 
 <!-- ═══════════════════════════════
-     SCREEN 3 — COMPLETE JOB
+     SCREEN 3 — COMPLETE UNIT
 ═══════════════════════════════ -->
 <div id="screen-complete" class="screen" role="main">
 
   <header class="header">
-    <button class="back-btn" onclick="showScreen('active')" aria-label="Back to active job">
+    <button class="back-btn" onclick="showScreen('active')" aria-label="Back to units">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M5 12l7 7M5 12l7-7"/></svg>
       Units
     </button>
@@ -1372,143 +1383,169 @@
   </header>
 
   <div class="scroll-content">
-    <h2 class="section-label">Complete Job</h2>
+    <h2 class="section-label">Complete Unit</h2>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
-      <div id="complete-job-summary" style="font-size:16px; font-weight:700; color:var(--charcoal); margin-bottom:2px;"></div>
-      <div id="complete-job-sub" style="font-size:12px; color:var(--gray-text); margin-bottom:6px;"></div>
-      <div id="complete-equipment-name" style="display:none; background:var(--charcoal); color:var(--gold); border-radius:8px; padding:8px 12px; font-size:14px; font-weight:700;"></div>
+    <!-- Context: customer + unit -->
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+      <div id="complete-job-summary" style="font-size:16px;font-weight:700;color:var(--charcoal);margin-bottom:2px;"></div>
+      <div id="complete-job-sub" style="font-size:12px;color:var(--gray-text);margin-bottom:6px;"></div>
+      <div id="complete-equipment-name" style="display:none;background:var(--charcoal);color:var(--gold);border-radius:8px;padding:8px 12px;font-size:14px;font-weight:700;"></div>
+      <div class="form-field" id="problem-desc-wrap" style="display:none;margin-top:8px;margin-bottom:0;">
+        <label class="form-label">Customer's Problem Report</label>
+        <div id="problem-desc-display" style="background:var(--warning-bg);border:1px solid #e8d44d;border-radius:8px;padding:10px 12px;font-size:14px;color:var(--charcoal);line-height:1.5;"></div>
+      </div>
     </div>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
-
-      <div class="form-field" id="problem-desc-wrap" style="display:none;">
-        <label class="form-label">Problem Reported by Customer</label>
-        <div id="problem-desc-display" style="background:var(--warning-bg);border:1px solid #e8d44d;border-radius:8px;padding:10px 12px;font-size:14px;color:var(--charcoal);line-height:1.5;margin-bottom:4px;"></div>
-      </div>
-
+    <!-- Section 1: Work done + condition -->
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
       <div class="form-field">
-        <label class="form-label" for="field-work">Work Performed <span aria-label="required" style="color:var(--red);">*</span></label>
-        <textarea class="form-textarea" id="field-work" placeholder="Describe what you did on this job..." rows="4" aria-required="true"></textarea>
+        <label class="form-label" for="field-work">Work Performed Today <span style="color:var(--red);">*</span></label>
+        <textarea class="form-textarea" id="field-work" placeholder="What did you do? (inspection, maintenance, cleaning…)" rows="3" aria-required="true"></textarea>
       </div>
-
-      <div class="form-field">
-        <label class="form-label" for="field-diagnosis">Diagnosis — What You Found</label>
-        <textarea class="form-textarea" id="field-diagnosis" placeholder="What was wrong with the system?" rows="3"></textarea>
-      </div>
-
-      <div class="form-field">
-        <label class="form-label" for="field-recommendations">Recommendations</label>
-        <textarea class="form-textarea" id="field-recommendations" placeholder="Follow-up work needed? Parts to order?" rows="2"></textarea>
-      </div>
-
       <div class="form-field" style="margin-bottom:0;">
         <label class="form-label">Unit Condition</label>
         <div class="radio-group" role="group" aria-label="Unit condition" style="flex-wrap:wrap;">
           <label class="radio-option selected" id="cond-label-Excellent" onclick="selectCondition('Excellent')">
-            <input type="radio" name="unit-condition" value="Excellent" checked aria-label="Excellent">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            Excellent
+            <input type="radio" name="unit-condition" value="Excellent" checked><div class="radio-dot"><div class="radio-dot-inner"></div></div>Excellent
           </label>
           <label class="radio-option" id="cond-label-Good" onclick="selectCondition('Good')">
-            <input type="radio" name="unit-condition" value="Good" aria-label="Good">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            Good
+            <input type="radio" name="unit-condition" value="Good"><div class="radio-dot"><div class="radio-dot-inner"></div></div>Good
           </label>
           <label class="radio-option" id="cond-label-Fair" onclick="selectCondition('Fair')">
-            <input type="radio" name="unit-condition" value="Fair" aria-label="Fair">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            Fair
+            <input type="radio" name="unit-condition" value="Fair"><div class="radio-dot"><div class="radio-dot-inner"></div></div>Fair
           </label>
           <label class="radio-option" id="cond-label-Poor" onclick="selectCondition('Poor')">
-            <input type="radio" name="unit-condition" value="Poor" aria-label="Poor">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            Poor
+            <input type="radio" name="unit-condition" value="Poor"><div class="radio-dot"><div class="radio-dot-inner"></div></div>Poor
           </label>
           <label class="radio-option" id="cond-label-End-of-Life" onclick="selectCondition('End of Life')">
-            <input type="radio" name="unit-condition" value="End of Life" aria-label="End of Life">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            End of Life
+            <input type="radio" name="unit-condition" value="End of Life"><div class="radio-dot"><div class="radio-dot-inner"></div></div>End of Life
           </label>
         </div>
       </div>
-
     </div>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
-      <fieldset style="border:none; padding:0; margin:0;">
-        <legend class="form-label" style="margin-bottom:10px;">Parts Used Today</legend>
-
-        <!-- Selected parts list -->
-        <div id="selected-parts-list" style="margin-bottom:12px; display:none;">
-          <div class="form-label" style="margin-bottom:6px;">Selected:</div>
-          <div id="selected-parts-chips" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
-        </div>
-
-        <!-- Quick tap common parts -->
-        <div class="form-label" style="margin-bottom:6px;">Quick select:</div>
-        <div class="parts-grid" id="parts-grid" role="group" aria-label="Common parts quick select"></div>
-
-        <!-- Product list search -->
-        <div style="margin-top:12px;">
-          <label class="form-label" for="parts-search">Search all products:</label>
-          <input type="text" class="form-input" id="parts-search"
-            placeholder="Type 2+ characters to search..."
-            autocomplete="off"
-            oninput="searchProducts(this.value)">
-          <div id="parts-search-results" class="parts-search-results" style="display:none;"></div>
-        </div>
-
-        <!-- Free text fallback -->
-        <div style="margin-top:10px;">
-          <label class="form-label" for="field-parts-other">Unlisted part (rare):</label>
-          <input type="text" class="form-input" id="field-parts-other" placeholder="Only if not in product list...">
-        </div>
-      </fieldset>
+    <!-- Section 2: Repairs needed? -->
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+      <div style="font-size:15px;font-weight:700;color:var(--charcoal);margin-bottom:12px;">Any Repairs Needed?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <button id="repairs-no-btn" class="repair-choice-btn choice-no active" onclick="setRepairsNeeded(false)">
+          <div style="font-size:26px;margin-bottom:4px;">✓</div>
+          No — Looks Good
+        </button>
+        <button id="repairs-yes-btn" class="repair-choice-btn choice-yes" onclick="setRepairsNeeded(true)">
+          <div style="font-size:26px;margin-bottom:4px;">⚠</div>
+          Yes — Needs Repair
+        </button>
+      </div>
     </div>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
+    <!-- Section 3: Repair details (revealed when repairs = yes) -->
+    <div id="repairs-detail-section" style="display:none;">
+
+      <!-- What you found + what it needs -->
+      <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+        <div class="form-field">
+          <label class="form-label" for="field-diagnosis">What Did You Find?</label>
+          <textarea class="form-textarea" id="field-diagnosis" placeholder="Describe what's wrong with the unit…" rows="3"></textarea>
+        </div>
+        <div class="form-field" style="margin-bottom:0;">
+          <label class="form-label" for="field-recommendations">What Does It Need?</label>
+          <textarea class="form-textarea" id="field-recommendations" placeholder="What repair or parts are needed?" rows="2"></textarea>
+        </div>
+      </div>
+
+      <!-- Parts / products for the estimate -->
+      <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+        <fieldset style="border:none;padding:0;margin:0;">
+          <legend class="form-label" style="margin-bottom:10px;">Parts / Products to Quote</legend>
+          <div id="selected-parts-list" style="margin-bottom:12px;display:none;">
+            <div class="form-label" style="margin-bottom:6px;">Selected:</div>
+            <div id="selected-parts-chips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+          <div class="form-label" style="margin-bottom:6px;">Quick select:</div>
+          <div class="parts-grid" id="parts-grid" role="group" aria-label="Common parts quick select"></div>
+          <div style="margin-top:12px;">
+            <label class="form-label" for="parts-search">Search all products:</label>
+            <input type="text" class="form-input" id="parts-search" placeholder="Type 2+ characters to search…" autocomplete="off" oninput="searchProducts(this.value)">
+            <div id="parts-search-results" class="parts-search-results" style="display:none;"></div>
+          </div>
+          <div style="margin-top:10px;">
+            <label class="form-label" for="field-parts-other">Unlisted part (rare):</label>
+            <input type="text" class="form-input" id="field-parts-other" placeholder="Only if not in product list…">
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- Estimate: send → awaiting → approved/declined -->
+      <div id="estimate-unit-section" class="detail-section" style="padding:16px;margin-bottom:12px;">
+
+        <!-- Initial state -->
+        <div id="eu-initial">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--gray-text);margin-bottom:10px;">Send Estimate to Customer</div>
+          <div class="form-field" style="margin-bottom:12px;">
+            <label class="form-label" for="eu-notes">Notes for Customer (optional)</label>
+            <textarea class="form-textarea" id="eu-notes" rows="2" placeholder="Scope, exclusions, or conditions…"></textarea>
+          </div>
+          <div id="eu-error" style="display:none;background:#fef2f2;color:var(--red);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px;"></div>
+          <button class="btn btn-full" id="eu-send-btn" onclick="sendUnitEstimate()" style="background:#1e40af;color:#fff;font-size:15px;padding:14px;">
+            📋 Send Estimate to Customer
+          </button>
+        </div>
+
+        <!-- Awaiting state: QR + live polling -->
+        <div id="eu-awaiting" style="display:none;text-align:center;padding:8px 0;">
+          <div style="font-size:14px;font-weight:700;color:var(--charcoal);margin-bottom:16px;">Customer Reviewing Estimate</div>
+          <img id="eu-qr" src="" alt="QR code — customer scans to approve estimate" style="width:210px;height:210px;border-radius:12px;margin:0 auto 12px;display:block;box-shadow:0 2px 16px rgba(0,0,0,0.15);">
+          <div style="font-size:12px;color:var(--gray-text);margin-bottom:6px;">Have customer scan — or tap the link below:</div>
+          <a id="eu-link" href="" target="_blank" rel="noopener" style="font-size:12px;color:#1e40af;word-break:break-all;display:block;margin:0 auto 12px;padding:8px 12px;background:#eff6ff;border-radius:8px;max-width:320px;"></a>
+          <button onclick="euCopyLink()" class="btn btn-outline" style="margin-bottom:16px;font-size:13px;">📋 Copy Link</button>
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;color:var(--gray-text);font-size:13px;">
+            <div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
+            Waiting for customer response…
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--gray-text);">Estimate also emailed to customer</div>
+        </div>
+
+        <!-- Approved state -->
+        <div id="eu-approved" style="display:none;text-align:center;padding:16px 0;">
+          <div style="font-size:52px;margin-bottom:10px;">✅</div>
+          <div style="font-size:18px;font-weight:700;color:#065f46;margin-bottom:6px;">Customer Approved!</div>
+          <div style="font-size:14px;color:var(--gray-text);">Proceed with the repair, then tap Save below when done.</div>
+        </div>
+
+        <!-- Declined state -->
+        <div id="eu-declined" style="display:none;text-align:center;padding:16px 0;">
+          <div style="font-size:52px;margin-bottom:10px;">❌</div>
+          <div style="font-size:18px;font-weight:700;color:#991b1b;margin-bottom:6px;">Customer Declined</div>
+          <div style="font-size:14px;color:var(--gray-text);">Tap Save below — office will invoice the inspection.</div>
+        </div>
+
+      </div><!-- /estimate-unit-section -->
+
+    </div><!-- /repairs-detail-section -->
+
+    <!-- Photos (always visible) -->
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
       <div class="form-field" style="margin-bottom:0;">
         <label class="form-label">Photos</label>
-        <div class="photo-upload-area"
-          onclick="document.getElementById('photo-input').click()"
-          role="button"
-          tabindex="0"
-          aria-label="Add photos — tap to open camera or photo library"
-          onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('photo-input').click()">
+        <div class="photo-upload-area" onclick="document.getElementById('photo-input').click()" role="button" tabindex="0" aria-label="Add photos" onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('photo-input').click()">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
           <div>Tap to add photos</div>
-          <div style="font-size:12px; margin-top:4px; color:var(--gray-text);">Saved to equipment record</div>
+          <div id="photo-upload-status" style="font-size:12px;margin-top:4px;color:var(--gray-text);">Saved to job &amp; equipment record</div>
         </div>
         <input type="file" id="photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handlePhotos(this)" aria-label="Upload job photos">
         <div class="photos-preview" id="photos-preview" aria-label="Photo previews" role="list"></div>
       </div>
     </div>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
-      <fieldset style="border:none; padding:0; margin:0;">
-        <legend class="form-label" style="margin-bottom:8px;">Follow-Up Required?</legend>
-        <div class="radio-group" role="group" aria-label="Follow-up required">
-          <label class="radio-option selected" id="radio-no-label" onclick="selectFollowup('no')">
-            <input type="radio" name="followup" value="no" id="followup-no" checked aria-label="No follow-up required">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            No
-          </label>
-          <label class="radio-option" id="radio-yes-label" onclick="selectFollowup('yes')">
-            <input type="radio" name="followup" value="yes" id="followup-yes" aria-label="Yes, flag Bridgett for follow-up">
-            <div class="radio-dot" aria-hidden="true"><div class="radio-dot-inner"></div></div>
-            Yes — flag for office review
-          </label>
-        </div>
-        <div id="followup-notes-wrap" style="display:none; margin-top:10px;">
-          <label class="form-label" for="field-followup-notes">What needs to happen next?</label>
-          <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="Describe the follow-up needed..."></textarea>
-        </div>
-      </fieldset>
+    <!-- Notes for office -->
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+      <label class="form-label" for="field-followup-notes">Notes for Office (optional)</label>
+      <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="Anything Bridgett needs to know about this visit…"></textarea>
     </div>
 
-    <button class="btn btn-dark btn-full" id="submit-complete-btn" onclick="submitComplete()" aria-label="Save and mark this job as complete">
-      Mark Job Complete
+    <button class="btn btn-dark btn-full" id="submit-complete-btn" onclick="submitComplete()" aria-label="Save this unit as complete">
+      Save &amp; Complete Unit
     </button>
 
     <div class="bottom-pad"></div>
@@ -1535,36 +1572,12 @@
   <div class="scroll-content">
     <h2 class="section-label">Visit Summary</h2>
 
-    <div class="detail-section" style="padding:16px; margin-bottom:12px;">
-      <div id="summary-customer" style="font-size:17px; font-weight:700; color:var(--charcoal); margin-bottom:2px;"></div>
-      <div id="summary-wo-id" style="font-size:13px; color:var(--gray-text);"></div>
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+      <div id="summary-customer" style="font-size:17px;font-weight:700;color:var(--charcoal);margin-bottom:2px;"></div>
+      <div id="summary-wo-id" style="font-size:13px;color:var(--gray-text);"></div>
     </div>
 
-    <div id="summary-jobs-list" style="margin-bottom:12px;"></div>
-
-    <div id="summary-estimate-section" style="margin-bottom:12px;"></div>
-
-    <div class="detail-section" style="padding:16px; margin-bottom:16px;">
-      <div class="ready-toggle"
-        id="summary-invoice-toggle"
-        onclick="toggleSummaryInvoice()"
-        role="checkbox"
-        aria-checked="false"
-        tabindex="0"
-        onkeydown="if(event.key==='Enter'||event.key===' ')toggleSummaryInvoice()"
-        aria-label="Mark visit as ready to invoice">
-        <div>
-          <div class="ready-toggle-label">Ready to Invoice</div>
-          <div class="ready-toggle-sub">Office will review and send</div>
-        </div>
-        <div class="toggle-wrap">
-          <span class="toggle-label-text" id="summary-toggle-label" aria-hidden="true">OFF</span>
-          <div class="toggle-switch" id="summary-invoice-switch" aria-hidden="true">
-            <div class="toggle-knob"></div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <div id="summary-jobs-list" style="margin-bottom:16px;"></div>
 
     <button class="btn btn-dark btn-full" id="summary-submit-btn" onclick="submitWorkOrderComplete()">
       Finish Visit
@@ -1592,80 +1605,7 @@
 </div>
 
 
-<!-- ESTIMATE MODAL SHEET -->
-<div id="estimate-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;overflow-y:auto;" role="dialog" aria-modal="true" aria-label="Create estimate">
-  <div style="background:white;border-radius:16px 16px 0 0;padding:0;width:100%;max-width:480px;margin:60px auto 0;min-height:calc(100vh - 60px);">
-
-    <!-- header -->
-    <div style="padding:18px 20px 14px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid #eee;">
-      <div>
-        <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--charcoal);">📋 Create Estimate</div>
-        <div id="fq-customer-info" style="font-size:12px;color:var(--gray-text);margin-top:2px;"></div>
-      </div>
-      <button onclick="closeEstimateModal()" style="background:none;border:none;font-size:28px;line-height:1;color:var(--gray-text);padding:0 0 0 12px;cursor:pointer;" aria-label="Close">×</button>
-    </div>
-
-    <div style="padding:16px 20px 40px;">
-
-      <!-- ── SENT STATE (shown after successful send) ── -->
-      <div id="fq-sent-state" style="display:none;text-align:center;padding:32px 0;">
-        <div style="font-size:44px;margin-bottom:12px;">✅</div>
-        <div style="font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:8px;">Estimate Sent!</div>
-        <div style="font-size:13px;color:var(--gray-text);margin-bottom:20px;">Customer will receive an email with their estimate link.</div>
-        <div id="fq-quote-link-section" style="background:#f5f5f5;border-radius:10px;padding:14px;text-align:left;margin-bottom:20px;">
-          <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:6px;">Quote Link</div>
-          <div id="fq-quote-url" style="font-size:12px;color:var(--charcoal);word-break:break-all;margin-bottom:10px;"></div>
-          <button onclick="fqCopyLink()" class="btn btn-outline" style="width:100%;font-size:13px;">📋 Copy Link to Share</button>
-        </div>
-        <button onclick="closeEstimateModal()" class="btn btn-dark btn-full" style="font-size:15px;">Done</button>
-      </div>
-
-      <!-- ── BUILD STATE ── -->
-      <div id="fq-build-state">
-
-        <div class="form-field">
-          <label class="form-label" for="fq-description">What's Being Estimated</label>
-          <textarea class="form-textarea" id="fq-description" placeholder="e.g. Compressor replacement, refrigerant recharge, new condenser install..." rows="3"></textarea>
-        </div>
-
-        <div style="margin-bottom:14px;">
-          <div style="font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:8px;">Line Items</div>
-          <div id="fq-lines"></div>
-          <button onclick="fqAddLine()" class="btn btn-outline" style="width:100%;margin-top:8px;font-size:13px;">+ Add Line Item</button>
-        </div>
-
-        <!-- product search (shared, shown when a line is active) -->
-        <div id="fq-search-wrap" style="display:none;background:#f0f4ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
-          <div style="font-size:11px;font-weight:700;color:#1e40af;margin-bottom:6px;">Search Products</div>
-          <input type="text" class="form-input" id="fq-search" placeholder="Type 2+ characters..." autocomplete="off"
-            oninput="fqSearchProducts(this.value)" style="margin-bottom:6px;">
-          <div id="fq-search-results" class="parts-search-results" style="max-height:200px;display:none;"></div>
-          <button onclick="fqCloseSearch()" style="background:none;border:none;font-size:12px;color:var(--gray-text);padding:4px 0;cursor:pointer;">✕ Close search</button>
-        </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:2px solid var(--charcoal);margin-bottom:12px;">
-          <span style="font-size:13px;font-weight:700;color:var(--charcoal);">Estimate Total</span>
-          <span id="fq-total" style="font-size:22px;font-weight:700;color:var(--charcoal);">$0.00</span>
-        </div>
-
-        <div style="font-size:11px;color:var(--gray-text);text-align:right;margin-top:-10px;margin-bottom:14px;">Valid for 30 days</div>
-
-        <div class="form-field" style="margin-bottom:20px;">
-          <label class="form-label" for="fq-notes">Notes for Customer (optional)</label>
-          <textarea class="form-textarea" id="fq-notes" placeholder="Any scope notes, exclusions, or conditions to the estimate..." rows="2"></textarea>
-        </div>
-
-        <div id="fq-error" style="display:none;background:#fef2f2;color:var(--red);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px;"></div>
-
-        <button class="btn btn-dark btn-full" id="fq-send-btn" onclick="submitFieldEstimate()" style="font-size:15px;margin-bottom:8px;">
-          Send Estimate to Customer
-        </button>
-        <button class="btn btn-outline btn-full" onclick="closeEstimateModal()" style="font-size:14px;">Cancel</button>
-
-      </div><!-- /fq-build-state -->
-    </div>
-  </div>
-</div>
+<!-- estimate overlay removed — estimate now lives inline in screen-complete -->
 
 
 <script>
@@ -2812,13 +2752,25 @@ function openCompleteForm() {
 
   // Reset all fields (do NOT clear selectedEquipmentId/Name — set by startUnitComplete before this runs)
   ['field-work','field-diagnosis','field-recommendations','field-parts-other','field-followup-notes']
-    .forEach(id => document.getElementById(id).value = '');
-  document.getElementById('followup-notes-wrap').style.display = 'none';
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('photos-preview').innerHTML = '';
   selectedPhotos = [];
   readyToInvoice = false;
-  selectFollowup('no');
   selectCondition('Excellent');
+  // Reset repairs toggle to No
+  repairsNeeded = false;
+  stopApprovalPolling();
+  unitEstimateUrl = '';
+  document.getElementById('repairs-no-btn').classList.add('active');
+  document.getElementById('repairs-yes-btn').classList.remove('active');
+  document.getElementById('repairs-detail-section').style.display = 'none';
+  showEstimateState('initial');
+  const euNotes = document.getElementById('eu-notes'); if (euNotes) euNotes.value = '';
+  const euError = document.getElementById('eu-error'); if (euError) euError.style.display = 'none';
+  const euBtn   = document.getElementById('eu-send-btn');
+  if (euBtn) { euBtn.disabled = false; euBtn.textContent = '📋 Send Estimate to Customer'; }
+  const statusEl = document.getElementById('photo-upload-status');
+  if (statusEl) statusEl.textContent = 'Saved to job & equipment record';
   document.querySelectorAll('.part-chip').forEach(c => {
     c.classList.remove('selected');
     const cb = c.querySelector('input');
@@ -3037,14 +2989,17 @@ function selectCondition(val) {
 
 function selectFollowup(val) {
   followupSelected = val;
-  document.getElementById('followup-no').checked = val === 'no';
-  document.getElementById('followup-yes').checked = val === 'yes';
-  document.getElementById('followup-notes-wrap').style.display = val === 'yes' ? 'block' : 'none';
-
+  // These radio elements no longer exist in screen-complete; null-guard all
+  const noRadio = document.getElementById('followup-no');
+  const yesRadio = document.getElementById('followup-yes');
+  const wrap = document.getElementById('followup-notes-wrap');
   const noEl = document.getElementById('radio-no-label');
   const yesEl = document.getElementById('radio-yes-label');
-  noEl.classList.toggle('selected', val === 'no');
-  yesEl.classList.toggle('selected', val === 'yes');
+  if (noRadio) noRadio.checked = val === 'no';
+  if (yesRadio) yesRadio.checked = val === 'yes';
+  if (wrap) wrap.style.display = val === 'yes' ? 'block' : 'none';
+  if (noEl) noEl.classList.toggle('selected', val === 'no');
+  if (yesEl) yesEl.classList.toggle('selected', val === 'yes');
 }
 
 function toggleReadyInvoice() {
@@ -3107,48 +3062,56 @@ async function submitComplete() {
     if (otherParts) partLines.push('Custom: ' + (otherParts) + '');
     const allParts = partLines.join('\n');
 
-    const followupRequired = followupSelected === 'yes';
-    const followupNotes = document.getElementById('field-followup-notes').value.trim();
-    const diagnosis = document.getElementById('field-diagnosis').value.trim();
-    const recommendations = document.getElementById('field-recommendations').value.trim();
-    const woId = currentJob.id;
-    const woFields = currentJob.fields;
+    const officeNotes    = (document.getElementById('field-followup-notes')?.value || '').trim();
+    const diagnosis      = repairsNeeded ? (document.getElementById('field-diagnosis')?.value || '').trim() : '';
+    const recommendations= repairsNeeded ? (document.getElementById('field-recommendations')?.value || '').trim() : '';
+    const woId           = currentJob.id;
+    const woFields       = currentJob.fields;
 
-    // Auto-generate job name including unit
+    // Upload photos to R2 first (non-blocking on failure)
+    btn.textContent = 'Uploading photos…';
+    const photoUrls = await uploadJobPhotos();
+
+    btn.textContent = 'Saving…';
+
+    // Auto-generate job name
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const customerName = woFields['Customer Name'] || 'Customer';
-    const jobTypeName = woFields['Work Order Type'] || 'Service';
-    const unitLabel = selectedEquipmentName ? ' — ' + (selectedEquipmentName) + '' : '';
-    const autoJobName = '' + (customerName) + '' + (unitLabel) + ' — ' + (jobTypeName) + ' — ' + (dateStr) + '';
+    const jobTypeName  = woFields['Work Order Type'] || 'Service';
+    const unitLabel    = selectedEquipmentName ? ' — ' + selectedEquipmentName : '';
+    const autoJobName  = customerName + unitLabel + ' — ' + jobTypeName + ' — ' + dateStr;
 
-    // Create Job record in Airtable
+    // Build Job record
     const jobFields = {
-      'Job Name': autoJobName,
-      'Work Order': [woId],
-      'Job Type': woFields['Work Order Type'] || 'Maintenance',
-      'Status': 'Complete',
+      'Job Name':      autoJobName,
+      'Work Order':    [woId],
+      'Job Type':      woFields['Work Order Type'] || 'Maintenance',
+      'Status':        'Complete',
       'Work Performed': workPerformed,
-      'Actual Start': woFields['Actual Start'] || now.toISOString(),
-      'Actual End': now.toISOString(),
+      'Actual Start':  woFields['Actual Start'] || now.toISOString(),
+      'Actual End':    now.toISOString(),
     };
 
     if (woFields['Scheduled Date']) jobFields['Scheduled Start'] = woFields['Scheduled Date'];
-    if (woFields['Customer'] && woFields['Customer'].length > 0) jobFields['Customer'] = woFields['Customer'];
-    if (woFields['Technician'] && woFields['Technician'].length > 0) jobFields['Technician'] = woFields['Technician'];
-    if (woFields['Property'] && woFields['Property'].length > 0) jobFields['Property'] = woFields['Property'];
-    if (selectedEquipmentId) jobFields['Equipment'] = [selectedEquipmentId];
-    if (woFields['Priority']) jobFields['Priority'] = woFields['Priority'];
+    if (woFields['Customer']?.length)   jobFields['Customer']   = woFields['Customer'];
+    if (woFields['Technician']?.length) jobFields['Technician'] = woFields['Technician'];
+    if (woFields['Property']?.length)   jobFields['Property']   = woFields['Property'];
+    if (selectedEquipmentId)            jobFields['Equipment']  = [selectedEquipmentId];
+    if (woFields['Priority'])           jobFields['Priority']   = woFields['Priority'];
     if (woFields['Problem Description']) jobFields['Problem Description'] = woFields['Problem Description'];
-    if (diagnosis) jobFields['Diagnosis'] = diagnosis;
-    if (recommendations) jobFields['Recommendations'] = recommendations;
-    if (allParts) jobFields['Parts Used'] = allParts;
-    if (followupRequired) {
+    if (diagnosis)                      jobFields['Diagnosis']       = diagnosis;
+    if (recommendations)                jobFields['Recommendations'] = recommendations;
+    if (allParts)                       jobFields['Parts Used']      = allParts;
+    if (photoUrls.length)               jobFields['Photo URLs']      = photoUrls.join('\n');
+    if (officeNotes) {
       jobFields['Follow Up Required'] = true;
-      if (followupNotes) jobFields['Follow Up Notes'] = followupNotes;
+      jobFields['Follow Up Notes']    = officeNotes;
     }
+    // Record whether this visit resulted in a repair estimate
+    if (repairsNeeded) jobFields['Repairs Estimated'] = true;
 
-    // Update existing job if one already exists for this unit, otherwise create new
+    // Save job record
     const existingJob = currentJobsByEquipment[selectedEquipmentId];
     if (existingJob && existingJob.fields['Status'] === 'Complete') {
       await apiPatch('Jobs', existingJob.id, jobFields);
@@ -3156,31 +3119,33 @@ async function submitComplete() {
       await apiPost('Jobs', jobFields);
     }
 
-    // Update Equipment record: Last Service Date + Condition (non-fatal)
+    // Update Equipment: Last Service Date + Condition + photos (non-fatal)
     if (selectedEquipmentId) {
       try {
         const todayAZ = azDateStr(new Date().toISOString());
-        await apiPatch('Equipment', selectedEquipmentId, {
-          'Last Service Date': todayAZ,
-          'Condition': selectedCondition,
-        });
+        const eqUpdate = { 'Last Service Date': todayAZ, 'Condition': selectedCondition };
+        if (photoUrls.length) eqUpdate['Photo URLs'] = photoUrls.join('\n');
+        await apiPatch('Equipment', selectedEquipmentId, eqUpdate);
       } catch (equipErr) {
         console.warn('Equipment update failed (non-fatal):', equipErr);
       }
     }
 
-    // Keep Work Order as In Progress — summary screen finalizes it (non-fatal)
+    // Keep WO as In Progress unless estimate flow already set a status (non-fatal)
     try {
-      await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
+      const estimateStatuses = ['Estimate Sent','Estimate Approved','Estimate Declined'];
+      if (!estimateStatuses.includes(currentJob.fields['Status'])) {
+        await apiPatch('Work Orders', woId, { 'Status': 'In Progress' });
+      }
     } catch (woErr) {
       console.warn('WO status update failed (non-fatal):', woErr);
     }
 
+    stopApprovalPolling();
     showToast('✓ Unit saved!', 'success');
 
-    // Return to active screen — re-reads Jobs from Airtable to show updated status
     showScreen('active');
-    btn.textContent = 'Mark Job Complete';
+    btn.textContent = 'Save & Complete Unit';
     btn.disabled = false;
     btn.setAttribute('aria-busy', 'false');
     await renderActiveEquipmentList();
@@ -3188,7 +3153,7 @@ async function submitComplete() {
   } catch (err) {
     console.error(err);
     showToast('⚠ Could not save. Try again.', 'error');
-    btn.textContent = 'Mark Job Complete';
+    btn.textContent = 'Save & Complete Unit';
     btn.disabled = false;
     btn.setAttribute('aria-busy', 'false');
   }
@@ -3223,13 +3188,182 @@ function showToast(msg, type = '') {
 }
 
 // ═══════════════════════════════════════
-// ESTIMATES (FIELD APP)
+// UNIT-LEVEL ESTIMATE FLOW
 // ═══════════════════════════════════════
-let fieldQuoteLines = []; // [{name, unitAmount, qty}]
-let fqActiveLineIdx  = -1;
+let repairsNeeded       = false;
+let approvalPollInterval = null;
+let unitEstimateUrl     = '';  // hosted quote URL for copy/share
 
-// Render the estimate status card in the Visit Summary screen
+function setRepairsNeeded(yes) {
+  repairsNeeded = yes;
+  document.getElementById('repairs-no-btn').classList.toggle('active', !yes);
+  document.getElementById('repairs-yes-btn').classList.toggle('active', yes);
+  document.getElementById('repairs-detail-section').style.display = yes ? 'block' : 'none';
+  if (!yes) {
+    stopApprovalPolling();
+    // Clear estimate sub-states when toggling back to No
+    showEstimateState('initial');
+    // Clear parts selection
+    selectedParts = [];
+    renderSelectedParts();
+  }
+}
+
+function showEstimateState(state) {
+  // state: 'initial' | 'awaiting' | 'approved' | 'declined'
+  ['eu-initial','eu-awaiting','eu-approved','eu-declined'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === 'eu-' + state) ? 'block' : 'none';
+  });
+}
+
+async function sendUnitEstimate() {
+  if (!currentJob) return;
+  const diagnosis       = (document.getElementById('field-diagnosis')?.value || '').trim();
+  const recommendations = (document.getElementById('field-recommendations')?.value || '').trim();
+  const notes           = (document.getElementById('eu-notes')?.value || '').trim();
+  const errorEl         = document.getElementById('eu-error');
+
+  if (selectedParts.length === 0) {
+    errorEl.textContent = 'Add at least one product to the estimate.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('eu-send-btn');
+  btn.disabled    = true;
+  btn.textContent = 'Sending…';
+  errorEl.style.display = 'none';
+
+  try {
+    const f          = currentJob.fields;
+    const customerId = f['Customer'] && f['Customer'][0] ? f['Customer'][0] : null;
+    if (!customerId) throw new Error('No customer linked to this work order');
+
+    // Build description from diagnosis + recommendations
+    const descParts = [];
+    if (diagnosis)       descParts.push(diagnosis);
+    if (recommendations) descParts.push('Recommended: ' + recommendations);
+    const description = descParts.join('\n\n') || 'Repair estimate';
+
+    const payload = {
+      woId:        currentJob.id,
+      customerId,
+      description,
+      lineItems: selectedParts.map(p => ({
+        name:       p.name,
+        unitAmount: Math.round((p.price || 0) * 100), // cents
+        qty:        p.qty || 1,
+      })),
+      notes,
+      finalize: true,
+    };
+
+    const res = await fetch(`${PROXY}/quote`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Error ${res.status}`);
+    }
+
+    const result = await res.json();
+    unitEstimateUrl = result.hostedUrl || result.hosted_quote_url || '';
+
+    // Update local WO state
+    currentJob.fields['Stripe Quote ID'] = result.stripeQuoteId || '';
+    currentJob.fields['Status']          = 'Estimate Sent';
+
+    // Show QR code + link
+    const qrImg = document.getElementById('eu-qr');
+    const link  = document.getElementById('eu-link');
+    if (unitEstimateUrl) {
+      qrImg.src  = 'https://api.qrserver.com/v1/create-qr-code/?size=210x210&data=' + encodeURIComponent(unitEstimateUrl);
+      link.href  = unitEstimateUrl;
+      link.textContent = unitEstimateUrl;
+    }
+    showEstimateState('awaiting');
+    showToast('✓ Estimate sent!', 'success');
+
+    // Start polling for customer response
+    startApprovalPolling(currentJob.id);
+
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent   = '⚠ ' + (err.message || 'Could not send estimate. Try again.');
+    errorEl.style.display = 'block';
+    btn.disabled    = false;
+    btn.textContent = '📋 Send Estimate to Customer';
+  }
+}
+
+function startApprovalPolling(woId) {
+  stopApprovalPolling();
+  let polls = 0;
+  approvalPollInterval = setInterval(async () => {
+    polls++;
+    if (polls > 36) { stopApprovalPolling(); return; } // 3-min max
+    try {
+      const data   = await apiGet(`Work Orders/${woId}`);
+      const status = data.fields['Status'];
+      if (status === 'Estimate Approved') {
+        stopApprovalPolling();
+        currentJob.fields['Status'] = 'Estimate Approved';
+        showEstimateState('approved');
+        showToast('✅ Customer approved!', 'success');
+      } else if (status === 'Estimate Declined') {
+        stopApprovalPolling();
+        currentJob.fields['Status'] = 'Estimate Declined';
+        showEstimateState('declined');
+        showToast('Estimate declined — save to continue', '');
+      }
+    } catch { /* ignore poll errors */ }
+  }, 5000);
+}
+
+function stopApprovalPolling() {
+  if (approvalPollInterval) { clearInterval(approvalPollInterval); approvalPollInterval = null; }
+}
+
+function euCopyLink() {
+  if (!unitEstimateUrl) return;
+  navigator.clipboard.writeText(unitEstimateUrl)
+    .then(() => showToast('✓ Link copied', 'success'))
+    .catch(() => showToast('Select and copy the link manually', 'error'));
+}
+
+async function uploadJobPhotos() {
+  if (selectedPhotos.length === 0) return [];
+  const statusEl = document.getElementById('photo-upload-status');
+  if (statusEl) statusEl.textContent = 'Uploading photos…';
+  const form = new FormData();
+  selectedPhotos.forEach(f => form.append('image', f));
+  try {
+    const res = await fetch(`${PROXY}/upload-photo`, { method: 'POST', body: form });
+    if (!res.ok) throw new Error(`Upload error ${res.status}`);
+    const data = await res.json();
+    if (statusEl) statusEl.textContent = `${(data.urls || []).length} photo(s) saved`;
+    return data.urls || [];
+  } catch (err) {
+    console.warn('Photo upload failed:', err.message);
+    if (statusEl) statusEl.textContent = 'Photo upload failed — continuing';
+    return [];
+  }
+}
+
+// ── stub: summary-estimate-section no longer exists, kept for safety ──
 function renderSummaryEstimate() {
+  // no-op — estimate now handled inline in screen-complete
+}
+function openEstimateModal()  {} // no-op
+function closeEstimateModal() {} // no-op
+// ── end stubs ──
+
+// This block is now dead code — will be removed after next test cycle
+function _oldRenderSummaryEstimate_DEAD() {
   const el = document.getElementById('summary-estimate-section');
   if (!el || !currentJob) return;
   const f      = currentJob.fields;
@@ -3598,7 +3732,7 @@ async function recordEstimateDecline(evt) {
     btn.textContent = 'Customer Declined';
     delete btn.dataset.confirm;
   }
-}
+} // end _oldRenderSummaryEstimate_DEAD
 </script>
 </body>
 </html>
