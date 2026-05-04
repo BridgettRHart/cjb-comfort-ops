@@ -1372,11 +1372,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           }
         }
 
-        // Cancel old draft/open quote
-        try { await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/cancel`, {}); } catch (e) {}
-
-        // Create replacement draft — must create Stripe products first (Quotes API
-        // requires price_data[product], not inline product_data)
+        // Create replacement draft FIRST — cancel old quote only after new one succeeds.
+        // (Old order was cancel-then-create; if create failed the quote was lost permanently.)
         const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
         const patchLineItems = [];
         for (const item of lineItems) {
@@ -1400,6 +1397,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
         const newQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
+
+        // New quote created successfully — now safe to cancel the old one
+        try { await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/cancel`, {}); } catch (e) {}
 
         const subtotal    = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (Number(li.quantity) || 1)), 0);
         const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
