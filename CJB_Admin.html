@@ -1941,9 +1941,8 @@ async function submitQuote(sendNow) {
       renderQuoteActions('open');
       if (selectedCustomer) loadCustomer(selectedCustomer.id);
     } else {
-      quoteStatus = 'draft';
-      renderQuoteActions('draft');
-      alert('Estimate saved as draft.');
+      closeQuoteModal();
+      if (selectedCustomer) selectCustomer(selectedCustomer.id);
     }
   } catch (err) {
     alert('Error: ' + err.message);
