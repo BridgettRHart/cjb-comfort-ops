@@ -1477,9 +1477,10 @@ async function openInvoiceModal(workOrderId, customerId) {
         const savedNotes = draft.description || draft.footer || '';
         if (savedNotes) document.getElementById('inv-notes').value = savedNotes;
 
-        // Restore line items exactly as saved
+        // Restore line items — unfold fractional quantities stored as "(Nx)" in description
         for (const line of (draft.lines || [])) {
-          fillLineItem(line.description, line.quantity, line.unitPrice, null);
+          const { name, qty, unitPrice } = unfoldLineItem(line.description, line.quantity, line.unitPrice);
+          fillLineItem(name, qty, unitPrice, null);
         }
         if (!draft.lines?.length) addLineItem();
       } else {
@@ -1566,6 +1567,18 @@ function parsePartsUsed(text) {
     if (qtyMatch) { qty = parseInt(qtyMatch[1]); name = name.slice(qtyMatch[0].length).trim(); }
     return { name, qty, price };
   });
+}
+
+// Reverse the fractional-qty folding done by the worker.
+// Worker stores "R-410a (5.5x)" at qty=1, price=$440 to satisfy Stripe's integer qty requirement.
+// This reconstructs qty=5.5, price=$80 so the edit form looks correct.
+function unfoldLineItem(desc, qty, unitPrice) {
+  const match = (desc || '').match(/^(.+?)\s*\(([\d.]+)x\)\s*$/);
+  if (match && qty === 1) {
+    const realQty = parseFloat(match[2]);
+    if (realQty > 1) return { name: match[1].trim(), qty: realQty, unitPrice: unitPrice / realQty };
+  }
+  return { name: desc || '', qty, unitPrice };
 }
 
 function fillLineItem(name, qty, price, productId) {

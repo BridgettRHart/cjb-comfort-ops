@@ -2825,8 +2825,8 @@ function openCompleteForm() {
             name = chunks[0];
             price = parseFloat(chunks[1]) || 0;
           }
-          const qtyMatch = name.match(/^(\d+)x (.+)$/);
-          if (qtyMatch) { qty = parseInt(qtyMatch[1]); name = qtyMatch[2]; }
+          const qtyMatch = name.match(/^([\d.]+)x (.+)$/);
+          if (qtyMatch) { qty = parseFloat(qtyMatch[1]); name = qtyMatch[2]; }
           addSelectedPart(name, price);
           if (qty > 1) updatePartQty(name, qty);
         }
@@ -2956,7 +2956,7 @@ function renderSelectedParts() {
     return '<div class="part-qty-row">'
       + '<div class="part-qty-name">' + escHtml(p.name) + '</div>'
       + (p.price ? '<div class="part-qty-price">$' + p.price.toFixed(2) + '</div>' : '')
-      + '<input type="number" class="part-qty-input" value="' + (p.qty || 1) + '" min="1" max="99" step="1"'
+      + '<input type="number" class="part-qty-input" value="' + (p.qty || 1) + '" min="0.01" max="999" step="any"'
       + ' aria-label="Quantity for ' + escHtml(p.name) + '"'
       + ' onchange="updatePartQty(\'' + escAttr(p.name) + '\', this.value)"'
       + ' onclick="this.select()">'
@@ -2965,10 +2965,10 @@ function renderSelectedParts() {
   }).join('');
 }
 
-function updatePartQty(name, qty) {
+function updatePartQty(name, qty) { // qty supports decimals (e.g. 5.5 lbs refrigerant)
   const part = selectedParts.find(p => p.name === name);
   if (part) {
-    part.qty = Math.max(1, parseInt(qty) || 1);
+    part.qty = Math.max(0.01, parseFloat(qty) || 1);
   }
 }
 
