@@ -1309,7 +1309,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     // so we cancel the old draft and create a fresh one with the same Airtable record.
     if (path === '/api/quote' && request.method === 'PATCH') {
       try {
-        const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = await request.json();
+        const body2 = await request.json();
+        const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = body2;
+        const finalizePatch = body2.finalize === true;
         if (!stripeQuoteId) throw new Error('stripeQuoteId is required');
 
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
@@ -1367,20 +1369,55 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const subtotal    = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (Number(li.quantity) || 1)), 0);
         const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
 
+        const patchApproveUrl = workOrderId ? `${APPROVE_BASE_URL}?wo=${workOrderId}` : null;
+
         if (airtableQuoteId) {
           const upd = {
             'Status':          'Draft',
             'Stripe Quote ID': newQuote.id,
             'Expiration Date': expiresDate,
             'Total Amount':    subtotal,
-            'Stripe Quote URL': ''
+            'Stripe Quote URL': patchApproveUrl || ''
           };
           if (notes !== undefined) upd['Notes'] = notes;
           await airtablePatch('Quotes', airtableQuoteId, upd);
         }
 
+        if (workOrderId && patchApproveUrl) {
+          await airtablePatch('Work Orders', workOrderId, { 'Stripe Quote ID': newQuote.id, 'Stripe Quote URL': patchApproveUrl });
+        }
+
+        // Finalize + email if requested (non-fatal)
+        let patchStatus = 'draft';
+        if (finalizePatch) {
+          try {
+            await stripePost(STRIPE_KEY, `/v1/quotes/${newQuote.id}/finalize`, {});
+            patchStatus = 'open';
+            if (airtableQuoteId) await airtablePatch('Quotes', airtableQuoteId, { 'Status': 'Open' });
+            if (workOrderId) await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
+          } catch (finErr) {
+            if (workOrderId) { try { await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' }); } catch(e) {} }
+          }
+          // Send estimate email
+          if (patchApproveUrl && customerId && env.RESEND_API_KEY) {
+            try {
+              const cRec = await airtableGetById('Customers', customerId);
+              const cEmail = (cRec.fields['Email'] || '').trim();
+              const cName  = cRec.fields['Customer Name'] || 'Customer';
+              if (cEmail) {
+                const emailTotal = lineItems.reduce((s, li) => s + ((li.unitPrice||0) * (Number(li.quantity)||1)), 0);
+                const emailLineItems = lineItems.map(li => ({ name: li.productName||'Service', amount: (li.unitPrice||0)*(Number(li.quantity)||1) }));
+                await sendEmail(env.RESEND_API_KEY, {
+                  to: cEmail, subject: 'Your CJB Comfort Estimate is Ready to Review',
+                  html: emailEstimateHtml({ customerName: cName, approveUrl: patchApproveUrl, description: notes||'', lineItems: emailLineItems, total: emailTotal })
+                });
+              }
+            } catch(e) { /* non-fatal */ }
+          }
+        }
+
         return new Response(JSON.stringify({
-          ok: true, stripeQuoteId: newQuote.id, airtableQuoteId, status: 'draft'
+          ok: true, stripeQuoteId: newQuote.id, airtableQuoteId, status: patchStatus, approveUrl: patchApproveUrl
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch (err) {

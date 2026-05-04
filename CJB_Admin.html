@@ -492,6 +492,11 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="modal-title">Create Estimate</div>
     <div class="modal-sub" id="quote-modal-sub">—</div>
 
+    <div style="margin-bottom:14px;">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#aaa;display:block;margin-bottom:6px;">Findings &amp; Recommendation</label>
+      <textarea id="quote-description" class="notes-inp" rows="4" placeholder="Describe what the technician found and what work is recommended. This appears in the customer email and on their approval page."></textarea>
+    </div>
+
     <div class="li-table-wrap">
     <table class="li-table">
       <thead>
@@ -1064,12 +1069,13 @@ function renderDetail(customer, props, wos, contacts) {
         const hasDraftInvoice = !!(wf['Stripe Invoice ID']);
         const stripeUrl       = extractStripeUrl(wf['Internal Notes']);
 
-        // Quote button: show for pre-invoice statuses
+        // Quote button: show for any status except Invoiced / Paid / Cancelled
+        const noEstimateStatuses = ['Invoiced','Paid','Cancelled'];
         let quoteBtn = '';
-        if (['Scheduled','In Progress','Estimate Sent'].includes(status)) {
+        if (!noEstimateStatuses.includes(status)) {
           quoteBtn = hasQuote
             ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">View Estimate</button>`
-            : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">Create Estimate</button>`;
+            : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">Send Estimate</button>`;
         }
 
         // Invoice button
@@ -1654,14 +1660,17 @@ function closeModal() {
 // ── Quote / Estimate modal ────────────────────────────────────────────────
 let quoteWOId = null, quoteCustId = null, quoteStripeId = null;
 let quoteAirtableId = null, quoteStatus = 'new', qliCount = 0;
+let quoteApproveUrl = null;
 
 async function openQuoteModal(woId, custId) {
   quoteWOId = woId; quoteCustId = custId;
   quoteStripeId = null; quoteAirtableId = null; quoteStatus = 'new'; qliCount = 0;
+  quoteApproveUrl = null;
 
   document.getElementById('qli-body').innerHTML = '';
   document.getElementById('quote-total').textContent = '$0.00';
   document.getElementById('quote-notes').value = '';
+  document.getElementById('quote-description').value = '';
   document.getElementById('quote-url-section').classList.add('hidden');
   renderQuoteActions('loading');
 
@@ -1699,9 +1708,21 @@ async function openQuoteModal(woId, custId) {
         }
         if (!quoteData.lines?.length) addQuoteLi();
 
-        if (quoteData.status === 'open' && quoteData.hostedUrl) {
+        // Restore description from Airtable Quote Notes (strip ---PHOTOS--- section)
+        if (atData.records?.length) {
+          const rawNotes = atData.records[0].fields['Notes'] || '';
+          const photosIdx = rawNotes.indexOf('---PHOTOS---');
+          const notesOnly = photosIdx !== -1 ? rawNotes.slice(0, photosIdx).trim() : rawNotes.trim();
+          // Notes field = description + optional notes — put it all back in description
+          if (notesOnly) document.getElementById('quote-description').value = notesOnly;
+        }
+
+        // Restore approveUrl from WO field
+        const approveUrl = wo?.fields?.['Stripe Quote URL'] || '';
+        if (approveUrl && (quoteData.status === 'open' || wo?.fields?.['Status']?.startsWith('Estimate'))) {
+          quoteApproveUrl = approveUrl;
           document.getElementById('quote-url-section').classList.remove('hidden');
-          document.getElementById('quote-url-inp').value = quoteData.hostedUrl;
+          document.getElementById('quote-url-inp').value = approveUrl;
         }
       } else {
         addQuoteLi();
@@ -1753,9 +1774,11 @@ function closeQuoteModal() {
 
 function resetQuoteModal() {
   quoteStripeId = null; quoteAirtableId = null; quoteStatus = 'new'; qliCount = 0;
+  quoteApproveUrl = null;
   document.getElementById('qli-body').innerHTML = '';
   document.getElementById('quote-total').textContent = '$0.00';
   document.getElementById('quote-notes').value = '';
+  document.getElementById('quote-description').value = '';
   document.getElementById('quote-url-section').classList.add('hidden');
   addQuoteLi();
   renderQuoteActions('new');
@@ -1845,55 +1868,59 @@ async function submitQuote(sendNow) {
   const lineItems = [];
   document.querySelectorAll('[id^="qli-"]').forEach(row => {
     if (!row.id.match(/^qli-\d+$/)) return;
-    const idx    = row.id.slice(4);
-    const name   = (document.getElementById('qlin-' + idx)?.value || '').trim();
-    const qty    = parseFloat(document.getElementById('qliq-' + idx)?.value)   || 1;
-    const price  = parseFloat(document.getElementById('qlip-' + idx)?.value)   || 0;
+    const idx   = row.id.slice(4);
+    const name  = (document.getElementById('qlin-' + idx)?.value || '').trim();
+    const qty   = parseFloat(document.getElementById('qliq-' + idx)?.value)  || 1;
+    const price = parseFloat(document.getElementById('qlip-' + idx)?.value)  || 0;
     if (!name && price === 0) return;
     lineItems.push({ productName: name || 'Service', quantity: qty, unitPrice: price });
   });
   if (!lineItems.length) { alert('Please add at least one line item.'); return; }
 
-  const notes    = document.getElementById('quote-notes').value.trim();
-  const draftBtn = document.getElementById('quote-draft-btn');
-  const sendBtn  = document.getElementById('quote-send-btn');
+  const description = document.getElementById('quote-description').value.trim();
+  const notes       = document.getElementById('quote-notes').value.trim();
+  const draftBtn    = document.getElementById('quote-draft-btn');
+  const sendBtn     = document.getElementById('quote-send-btn');
   if (draftBtn) draftBtn.disabled = true;
-  if (sendBtn)  { sendBtn.disabled = true; sendBtn.textContent = 'Saving…'; }
+  if (sendBtn)  { sendBtn.disabled = true; sendBtn.textContent = sendNow ? 'Sending…' : 'Saving…'; }
 
   try {
-    // Create or update the Stripe draft quote
+    let data;
+
     if (!quoteStripeId || quoteStatus === 'new') {
-      const res  = await fetch(`${PROXY}/quote`, {
+      // New estimate — POST with finalize:true if sending now
+      const res = await fetch(`${PROXY}/quote`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workOrderId: quoteWOId, customerId: quoteCustId, lineItems, notes })
+        body: JSON.stringify({
+          workOrderId: quoteWOId, customerId: quoteCustId,
+          lineItems, description, notes,
+          finalize: sendNow
+        })
       });
-      const data = await res.json();
+      data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to create estimate');
-      quoteStripeId = data.stripeQuoteId; quoteAirtableId = data.airtableQuoteId; quoteStatus = 'draft';
+      quoteStripeId = data.stripeQuoteId; quoteAirtableId = data.airtableQuoteId;
     } else {
-      const res  = await fetch(`${PROXY}/quote`, {
+      // Update existing — PATCH (cancels old, creates new draft) then finalize if sending
+      const patchRes = await fetch(`${PROXY}/quote`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId,
-          workOrderId: quoteWOId, customerId: quoteCustId, lineItems, notes })
+        body: JSON.stringify({
+          stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId,
+          workOrderId: quoteWOId, customerId: quoteCustId,
+          lineItems, notes: description + (notes ? '\n' + notes : ''),
+          finalize: sendNow
+        })
       });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'Failed to update estimate');
-      quoteStripeId = data.stripeQuoteId; quoteStatus = 'draft';
+      data = await patchRes.json();
+      if (!patchRes.ok || data.error) throw new Error(data.error || 'Failed to update estimate');
+      quoteStripeId = data.stripeQuoteId;
     }
 
     if (sendNow) {
-      if (sendBtn) sendBtn.textContent = 'Sending…';
-      const res  = await fetch(`${PROXY}/quote/send`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId, workOrderId: quoteWOId })
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'Failed to send estimate');
       quoteStatus = 'open';
-      if (data.hostedUrl) {
-        document.getElementById('quote-url-section').classList.remove('hidden');
-        document.getElementById('quote-url-inp').value = data.hostedUrl;
-      }
+      quoteApproveUrl = data.approveUrl || `https://bridgettrhart.github.io/cjb-comfort-ops/approve.html?wo=${quoteWOId}`;
+      document.getElementById('quote-url-section').classList.remove('hidden');
+      document.getElementById('quote-url-inp').value = quoteApproveUrl;
       renderQuoteActions('open');
       if (selectedCustomer) loadCustomer(selectedCustomer.id);
     } else {
@@ -1904,7 +1931,7 @@ async function submitQuote(sendNow) {
   } catch (err) {
     alert('Error: ' + err.message);
     if (draftBtn) draftBtn.disabled = false;
-    if (sendBtn)  { sendBtn.disabled = false; sendBtn.textContent = 'Send to Customer'; }
+    if (sendBtn)  { sendBtn.disabled = false; sendBtn.textContent = sendNow ? 'Send to Customer' : 'Save Draft'; }
   }
 }
 
