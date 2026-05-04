@@ -608,11 +608,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 const unitAmt = li.price?.unit_amount
                   ?? Math.round((li.amount_subtotal || 0) / (li.quantity || 1));
                 await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
-                  customer:    stripeCustId,
-                  unit_amount: String(unitAmt),
-                  quantity:    String(li.quantity || 1),
-                  currency:    'usd',
-                  description: li.description || 'Service'
+                  customer:              stripeCustId,
+                  unit_amount_decimal:   String(unitAmt),
+                  quantity:              String(li.quantity || 1),
+                  currency:              'usd',
+                  description:           li.description || 'Service'
                 });
               }
 
