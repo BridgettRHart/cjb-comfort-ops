@@ -873,11 +873,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             ? (item.productName || 'Service')
             : `${item.productName || 'Service'} (${qty}x)`;
           await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
-            customer:    stripeCustId,
-            unit_amount: String(stripeAmt),
-            quantity:    isWhole ? String(Math.max(1, qty)) : '1',
-            currency:    'usd',
-            description: stripeDesc
+            customer:            stripeCustId,
+            unit_amount_decimal: String(stripeAmt),
+            quantity:            isWhole ? String(Math.max(1, qty)) : '1',
+            currency:            'usd',
+            description:         stripeDesc
           });
         }
 
