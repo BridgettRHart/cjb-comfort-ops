@@ -1375,24 +1375,26 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // Cancel old draft/open quote
         try { await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/cancel`, {}); } catch (e) {}
 
-        // Create replacement draft
+        // Create replacement draft — must create Stripe products first (Quotes API
+        // requires price_data[product], not inline product_data)
         const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+        const patchLineItems = [];
+        for (const item of lineItems) {
+          const qty     = Number(item.quantity) || 1;
+          const isWhole = Number.isInteger(qty);
+          const cents   = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
+          const prod    = await stripePost(STRIPE_KEY, '/v1/products', {
+            name: (item.productName || 'Service').trim(), type: 'service'
+          });
+          patchLineItems.push({
+            price_data: { currency: 'usd', product: prod.id, unit_amount: String(cents) },
+            quantity:   String(isWhole ? Math.max(1, qty) : 1)
+          });
+        }
         const quoteParamsObj = {
           customer:   stripeCustId,
           expires_at: String(expiresAt),
-          line_items: lineItems.map(item => {
-            const qty     = Number(item.quantity) || 1;
-            const isWhole = Number.isInteger(qty);
-            const cents   = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
-            return {
-              price_data: {
-                currency:     'usd',
-                product_data: { name: item.productName || 'Service' },
-                unit_amount:  String(cents)
-              },
-              quantity: String(isWhole ? Math.max(1, qty) : 1)
-            };
-          })
+          line_items: patchLineItems
         };
         if (notes)       quoteParamsObj.description                         = notes.slice(0, 500);
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
