@@ -1108,13 +1108,16 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         let finalizeError = null;
         if (finalize) {
           try {
-            const fin = await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}/finalize`, {});
-            hostedUrl   = fin.hosted_quote_url || hostedUrl;
+            await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}/finalize`, {});
+            // Finalize response may omit hosted_quote_url — do a full GET to guarantee it
+            const fullQuote = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}`);
+            hostedUrl   = fullQuote.hosted_quote_url || null;
             quoteStatus = 'open';
+            console.log('Quote finalized. hosted_quote_url:', hostedUrl);
             const atFin = { 'Status': 'Open' };
-            if (hostedUrl)       atFin['Stripe Quote URL']  = hostedUrl;
-            if (fin.number)      atFin['Quote Number']      = fin.number;
-            if (fin.expires_at)  atFin['Expiration Date']   = new Date(fin.expires_at * 1000).toISOString().split('T')[0];
+            if (hostedUrl)                atFin['Stripe Quote URL'] = hostedUrl;
+            if (fullQuote.number)         atFin['Quote Number']     = fullQuote.number;
+            if (fullQuote.expires_at)     atFin['Expiration Date']  = new Date(fullQuote.expires_at * 1000).toISOString().split('T')[0];
             await airtablePatch('Quotes', atQuote.id, atFin);
             if (workOrderId) {
               // Write URL back to WO so field app can restore QR after saving the unit
