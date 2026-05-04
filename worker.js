@@ -848,74 +848,94 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           stripeCustId = cc.id;
         }
 
-        // 4. Delete any existing Stripe draft for this Work Order
-        const existingStripeId = (woRecord?.fields?.['Stripe Invoice ID'] || '').trim();
-        if (existingStripeId) {
-          try {
-            const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
-            if (existingInv.status === 'draft') {
-              await stripeDelete(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
-            }
-          } catch (e) { /* invoice already gone — continue */ }
-        }
-
-        // 5. Delete ALL floating pending items for this customer
-        //    Catches old test items + any items released from the deleted draft above
-        try {
-          const pendRes  = await fetch(
-            `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
-            { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
-          );
-          const pendData = await pendRes.json();
-          for (const pitem of (pendData.data || [])) {
-            if (!pitem.invoice) {
-              await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${pitem.id}`);
-            }
-          }
-        } catch (e) { /* best effort */ }
-
-        // 6. Create fresh pending items — Stripe requires items to exist before invoice creation
-        // Stripe requires integer quantity — fold fractional qty into unit_amount and note in description
-        const woName = woRecord?.fields?.['Work Order Name'] || '';
-        for (const item of lineItems) {
-          const qty     = Number(item.quantity) || 1;
-          const isWhole = Number.isInteger(qty);
-          const stripeAmt  = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
-          const stripeDesc = isWhole
-            ? (item.productName || 'Service')
-            : `${item.productName || 'Service'} (${qty}x)`;
-          await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
-            customer:            stripeCustId,
-            unit_amount_decimal: String(stripeAmt),
-            quantity:            isWhole ? String(Math.max(1, qty)) : '1',
-            currency:            'usd',
-            description:         stripeDesc
-          });
-        }
-
-        // 7. Create invoice — auto-collects all pending items created above
+        // Build shared values used in both update-in-place and new-invoice paths
         const woUnwrap = key => {
           const v = woRecord?.fields?.[key];
           return Array.isArray(v) ? (v[0] || '') : (v || '');
         };
-        const svcAddr = [woUnwrap('Service Address'), woUnwrap('City'), woUnwrap('State'), woUnwrap('Zip')]
+        const woName      = woRecord?.fields?.['Work Order Name'] || '';
+        const svcAddr     = [woUnwrap('Service Address'), woUnwrap('City'), woUnwrap('State'), woUnwrap('Zip')]
           .filter(Boolean).join(', ');
-
-        const descParts = [];
+        const descParts   = [];
         if (svcAddr) descParts.push(`Service Address: ${svcAddr}`);
         if (notes)   descParts.push(notes);
-        const fullDesc = descParts.join('\n\n').slice(0, 500);
-
+        const fullDesc    = descParts.join('\n\n').slice(0, 500);
         const isCommercial = (custRec.fields['Type'] || '').toLowerCase() === 'commercial';
-        const invParams = {
-          customer:          stripeCustId,
-          auto_advance:      'false',
-          collection_method: 'send_invoice',
-          days_until_due:    isCommercial ? '30' : '0'
+
+        // Helper: attach line items directly to a known Stripe invoice ID.
+        // Using the `invoice` param on invoiceitems guarantees attachment — no "floating
+        // pending items" that rely on Stripe auto-collection (which proved unreliable here).
+        const attachLineItems = async (invoiceId) => {
+          for (const item of lineItems) {
+            const qty      = Number(item.quantity) || 1;
+            const isWhole  = Number.isInteger(qty);
+            const stripeAmt  = Math.round((item.unitPrice || 0) * (isWhole ? 1 : qty) * 100);
+            const stripeDesc = isWhole
+              ? (item.productName || 'Service')
+              : `${item.productName || 'Service'} (${qty}x)`;
+            await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
+              customer:            stripeCustId,
+              invoice:             invoiceId,
+              unit_amount_decimal: String(stripeAmt),
+              quantity:            isWhole ? String(Math.max(1, qty)) : '1',
+              currency:            'usd',
+              description:         stripeDesc
+            });
+          }
         };
-        if (fullDesc) invParams.description              = fullDesc;
-        if (woName)   invParams['metadata[work_order]'] = woName;
-        const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
+
+        // 4. Update existing draft in place, or create a new invoice.
+        //    Updating in place keeps the Stripe Invoice ID stable (no stale-ID issues).
+        const existingStripeId = (woRecord?.fields?.['Stripe Invoice ID'] || '').trim();
+        let inv = null;
+
+        if (existingStripeId) {
+          try {
+            const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
+            if (existingInv.status === 'draft') {
+              // Remove current line items from the existing draft
+              const existingLines = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}/lines?limit=100`);
+              await Promise.all(
+                (existingLines.data || [])
+                  .filter(l => l.invoice_item)
+                  .map(l => stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${l.invoice_item}`).catch(() => {}))
+              );
+              // Attach new items directly to the existing draft
+              await attachLineItems(existingStripeId);
+              // Update description on the invoice
+              await stripePost(STRIPE_KEY, `/v1/invoices/${existingStripeId}`, { description: fullDesc });
+              inv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
+            }
+          } catch (e) { /* not a draft, gone, or update failed — fall through to create */ }
+        }
+
+        if (!inv) {
+          // 5. Guard: delete any floating pending items that might interfere
+          try {
+            const pendRes  = await fetch(
+              `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
+              { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+            );
+            const pendData = await pendRes.json();
+            for (const pitem of (pendData.data || [])) {
+              if (!pitem.invoice) await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${pitem.id}`);
+            }
+          } catch (e) { /* best effort */ }
+
+          // 6. Create a new empty draft invoice
+          const invParams = {
+            customer:          stripeCustId,
+            auto_advance:      'false',
+            collection_method: 'send_invoice',
+            days_until_due:    isCommercial ? '30' : '0'
+          };
+          if (fullDesc) invParams.description              = fullDesc;
+          if (woName)   invParams['metadata[work_order]'] = woName;
+          inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
+
+          // 7. Attach line items directly to the new invoice
+          await attachLineItems(inv.id);
+        }
 
         // 8. Finalize + send only if sendNow — otherwise leave as Stripe draft
         let finalInv = inv;
