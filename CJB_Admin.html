@@ -993,8 +993,6 @@ async function selectCustomer(id) {
         : `OR(${woIds.map(wid => `RECORD_ID()="${wid}"`).join(',')})`;
       const woUrl = `${PROXY}/Work%20Orders` +
         `?filterByFormula=${encodeURIComponent(formula)}` +
-        '&fields[]=Work Order Name&fields[]=Status&fields[]=Work Order Type' +
-        '&fields[]=Scheduled Date&fields[]=Total Amount&fields[]=Internal Notes' +
         '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
       const woData = await fetch(woUrl).then(r => r.json());
       currentWorkOrders = woData.records || [];
