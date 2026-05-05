@@ -11,7 +11,7 @@ const WAVE_INCOME_ACCOUNT_ID = 'QWNjb3VudDo2Mzg1NDYxMDc5MTUzNTU5MTg7QnVzaW5lc3M6
 let _waveServiceProductId = null; // cached per Worker instance
 
 const R2_PUBLIC_URL    = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
-const APPROVE_BASE_URL = 'https://bridgettrhart.github.io/cjb-comfort-ops/approve.html';
+const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 
 // Email sending — swap FROM to estimates@cjbcomfort.com after DNS is verified in Resend
 const RESEND_FROM = 'CJB Comfort <noreply@estimates.cjbcomfort.com>';

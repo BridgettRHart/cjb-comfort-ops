@@ -1936,7 +1936,7 @@ async function submitQuote(sendNow) {
     if (sendNow) {
       const wasAlreadyOpen = (quoteStatus === 'open');
       quoteStatus = 'open';
-      quoteApproveUrl = data.approveUrl || `https://bridgettrhart.github.io/cjb-comfort-ops/approve.html?wo=${quoteWOId}`;
+      quoteApproveUrl = data.approveUrl || `https://app.cjbcomfort.com/approve.html?wo=${quoteWOId}`;
       if (wasAlreadyOpen) {
         // Update & Resend — close and confirm
         closeQuoteModal();

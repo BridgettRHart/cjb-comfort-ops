@@ -3727,7 +3727,7 @@ async function sendUnitEstimate() {
 
     const result = await res.json();
     // approveUrl is our own GitHub Pages page — always available, no Stripe dependency
-    unitEstimateUrl = result.approveUrl || `https://bridgetthart.github.io/cjb-comfort-ops/approve.html?wo=${currentJob.id}`;
+    unitEstimateUrl = result.approveUrl || `https://app.cjbcomfort.com/approve.html?wo=${currentJob.id}`;
 
     // Update local WO state so save-while-waiting works correctly
     currentJob.fields['Stripe Quote ID']  = result.stripeQuoteId || '';
