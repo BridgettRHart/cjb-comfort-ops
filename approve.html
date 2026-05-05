@@ -207,6 +207,27 @@
       border: 2px solid #dc2626;
       margin-bottom: 0;
     }
+    .btn-pdf {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 13px 16px;
+      background: white;
+      color: #1e40af;
+      border: 2px solid #1e40af;
+      border-radius: 10px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      text-decoration: none;
+      margin-bottom: 14px;
+      transition: opacity 0.15s;
+    }
+    .btn-pdf:active { opacity: 0.75; }
 
     /* Spinner */
     .spinner-wrap {
@@ -369,6 +390,11 @@ function render(data, woId) {
       ${descHtml}
       ${photosHtml}
       ${itemsCardHtml}
+
+      ${data.stripeQuoteId ? `
+      <a class="btn-pdf" href="${PROXY}/quote-pdf?wo=${encodeURIComponent(woId)}" target="_blank" rel="noopener">
+        ⬇ &nbsp;Download / Print Estimate PDF
+      </a>` : ''}
 
       <div class="action-card" id="action-section">
         <div class="action-title">Do you approve this estimate?</div>
