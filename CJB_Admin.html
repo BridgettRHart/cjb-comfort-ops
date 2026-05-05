@@ -1934,12 +1934,21 @@ async function submitQuote(sendNow) {
     }
 
     if (sendNow) {
+      const wasAlreadyOpen = (quoteStatus === 'open');
       quoteStatus = 'open';
       quoteApproveUrl = data.approveUrl || `https://bridgettrhart.github.io/cjb-comfort-ops/approve.html?wo=${quoteWOId}`;
-      document.getElementById('quote-url-section').classList.remove('hidden');
-      document.getElementById('quote-url-inp').value = quoteApproveUrl;
-      renderQuoteActions('open');
-      if (selectedCustomer) selectCustomer(selectedCustomer.id);
+      if (wasAlreadyOpen) {
+        // Update & Resend — close and confirm
+        closeQuoteModal();
+        if (selectedCustomer) selectCustomer(selectedCustomer.id);
+        showToast('Estimate updated and resent to customer ✓');
+      } else {
+        // First send — stay open, show the link
+        document.getElementById('quote-url-section').classList.remove('hidden');
+        document.getElementById('quote-url-inp').value = quoteApproveUrl;
+        renderQuoteActions('open');
+        if (selectedCustomer) selectCustomer(selectedCustomer.id);
+      }
     } else {
       closeQuoteModal();
       if (selectedCustomer) selectCustomer(selectedCustomer.id);
@@ -2901,6 +2910,20 @@ function extractStripeUrl(internalNotes) {
   if (!internalNotes) return null;
   const m = internalNotes.match(/https:\/\/invoice\.stripe\.com\/[^\s]+/);
   return m ? m[0] : null;
+}
+
+function showToast(msg, duration = 3000) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:12px 22px;border-radius:10px;font-size:15px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.25);pointer-events:none;transition:opacity 0.3s;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, duration);
 }
 
 function esc(s) {
