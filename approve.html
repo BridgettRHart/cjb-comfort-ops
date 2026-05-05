@@ -276,6 +276,7 @@
     }
     .notice-error   { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
     .notice-success { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #065f46; font-weight: 600; }
+    .notice-terms   { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #4b5563; font-size: 12px; line-height: 1.6; text-align: left; border-radius: 10px; padding: 14px 16px; }
 
     /* Footer */
     .site-footer {
@@ -335,11 +336,11 @@
   <div style="margin-top:6px;">
     <a href="https://cjbcomfort.com" target="_blank" rel="noopener">cjbcomfort.com</a>
     <span class="footer-divider">|</span>
-    <a href="https://cjbcomfort.com/terms" target="_blank" rel="noopener">Terms</a>
+    <a href="https://cjbcomfort.com/terms-and-conditions/" target="_blank" rel="noopener">Terms</a>
     <span class="footer-divider">|</span>
-    <a href="https://cjbcomfort.com/refunds" target="_blank" rel="noopener">Refund Policy</a>
+    <a href="https://cjbcomfort.com/refund-policy/" target="_blank" rel="noopener">Refund Policy</a>
   </div>
-  <div style="margin-top:10px;font-size:11px;opacity:0.4;">Licensed · Bonded · Insured</div>
+  <div style="margin-top:10px;font-size:11px;opacity:0.4;">Licensed · Bonded · Insured · ROC #334794</div>
 </footer>
 
 <script>
@@ -451,6 +452,11 @@ function render(data, woId) {
         <button class="btn btn-decline" id="decline-btn" onclick="respond('${woId}', 'declined')">
           No Thanks — Not Right Now
         </button>
+      </div>
+
+      <div class="notice-terms">
+        This estimate is valid 30 days from issue. Pricing is based on current site conditions and material costs. Due to market volatility in equipment, refrigerants, and materials outside our control, pricing may change after the validity period or if site conditions differ. Scope changes require written authorization. Acceptance constitutes agreement to <a href="https://cjbcomfort.com/terms-and-conditions/" target="_blank" rel="noopener" style="color:#1e40af;">Terms</a> at cjbcomfort.com.<br><br>
+        <strong>Licensed • Bonded • Insured • ROC #334794</strong>
       </div>
 
     </div>`;
