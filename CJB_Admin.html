@@ -1939,7 +1939,7 @@ async function submitQuote(sendNow) {
       document.getElementById('quote-url-section').classList.remove('hidden');
       document.getElementById('quote-url-inp').value = quoteApproveUrl;
       renderQuoteActions('open');
-      if (selectedCustomer) loadCustomer(selectedCustomer.id);
+      if (selectedCustomer) selectCustomer(selectedCustomer.id);
     } else {
       closeQuoteModal();
       if (selectedCustomer) selectCustomer(selectedCustomer.id);
