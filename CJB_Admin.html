@@ -206,15 +206,23 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 
 /* Week strip */
 .week-strip { display: flex; gap: 6px; }
-.week-day { flex: 1; border-radius: 8px; padding: 10px 4px; text-align: center; background: #f7f7f7; }
-.week-day.is-today { background: #fff5f5; border: 1.5px solid #c81f25; }
+.week-day { flex: 1; border-radius: 8px; padding: 10px 4px; text-align: center; background: #f7f7f7; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
+.week-day:hover { background: #efefef; }
+.week-day.is-today { background: #fff5f5; border-color: #c81f25; }
 .week-day.has-jobs:not(.is-today) { background: #f0f6ff; }
+.week-day.is-selected:not(.is-today) { border-color: #1a4f8a; background: #e8f0fb; }
+.week-day.is-today.is-selected { border-color: #c81f25; background: #fff0f0; }
 .wd-name { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #aaa; }
 .week-day.is-today .wd-name { color: #c81f25; }
+.week-day.is-selected:not(.is-today) .wd-name { color: #1a4f8a; }
 .wd-num { font-size: 16px; font-weight: 700; color: #2e2e2e; margin: 3px 0 2px; }
 .wd-count { font-size: 11px; color: #aaa; }
 .week-day.has-jobs .wd-count { color: #1a4f8a; }
 .week-day.is-today .wd-count { color: #c81f25; font-weight: 600; }
+.week-nav-btn { background: none; border: none; font-size: 18px; color: #aaa; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.12s; }
+.week-nav-btn:hover { color: #2e2e2e; }
+.week-nav-btn:disabled { opacity: 0.25; cursor: default; }
+.week-range-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; }
 
 /* Today's schedule */
 .sched-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f2f2f2; }
@@ -645,6 +653,8 @@ function switchTab(tab) {
 let _dashWOs = null;
 let _dashFlaggedJobs = null;
 let _dashLoadedAt = 0;
+let _weekOffset   = 0;      // 0 = current week, -1 = last week, +1 = next week
+let _selectedDay  = null;   // YYYY-MM-DD of clicked day, null = auto (today or week's first job day)
 
 const _pad = n => String(n).padStart(2, '0');
 const _azDate = iso => {
@@ -682,6 +692,8 @@ async function loadDashboard(force) {
         `filterByFormula=${jobFormula}&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status`)
     ]);
     _dashLoadedAt = Date.now();
+    _weekOffset  = 0;
+    _selectedDay = null;
     renderDashboard(_dashWOs, _dashFlaggedJobs);
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
@@ -694,13 +706,22 @@ function renderDashboard(wos, flaggedJobs) {
   const todayStr = _azDate(now.toISOString());
   const monthStr = todayStr.substring(0, 7);
 
-  // Build Mon–Sun week day strings
+  // Build Mon–Sun week day strings for the currently-viewed week (offset-aware)
   const dow = now.getDay();
   const mon = new Date(now);
-  mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+  mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + (_weekOffset * 7));
   const weekDays = Array.from({length: 7}, (_, i) => {
     const d = new Date(mon); d.setDate(mon.getDate() + i); return _azDate(d.toISOString());
   });
+
+  // Auto-select today if in current week, else first day of viewed week with jobs (or Mon)
+  if (!_selectedDay || !weekDays.includes(_selectedDay)) {
+    if (_weekOffset === 0) {
+      _selectedDay = todayStr;
+    } else {
+      _selectedDay = weekDays.find(d => wos.some(w => _azDate(w.fields['Scheduled Date']) === d)) || weekDays[0];
+    }
+  }
 
   // Partition records client-side
   const todayWOs     = wos.filter(w => _azDate(w.fields['Scheduled Date']) === todayStr);
@@ -756,17 +777,28 @@ function renderDashboard(wos, flaggedJobs) {
   </div>`;
 
   // ── Week strip ──
+  const weekStart = mon;
+  const weekEnd   = new Date(mon); weekEnd.setDate(mon.getDate() + 6);
+  const fmtMD     = d => d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  const weekLabel = _weekOffset === 0 ? 'This Week' : `${fmtMD(weekStart)} – ${fmtMD(weekEnd)}`;
+
   const weekHtml = `<div class="widget" style="margin-bottom:16px;">
     <div class="widget-hd">
-      <div class="widget-title">This Week</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button class="week-nav-btn" onclick="dashNavWeek(-1)" ${_weekOffset <= -2 ? 'disabled' : ''} title="Previous week">‹</button>
+        <span class="week-range-label">${weekLabel}</span>
+        <button class="week-nav-btn" onclick="dashNavWeek(1)" ${_weekOffset >= 2 ? 'disabled' : ''} title="Next week">›</button>
+        ${_weekOffset !== 0 ? `<button class="week-nav-btn" onclick="dashNavWeek(0)" title="Jump to today" style="font-size:12px;color:#c81f25;">Today</button>` : ''}
+      </div>
       <button class="widget-refresh" onclick="loadDashboard(true)">↻ Refresh</button>
     </div>
     <div class="week-strip">
       ${weekDays.map(ds => {
-        const count   = weekCounts[ds] || 0;
-        const isToday = ds === todayStr;
+        const count      = weekCounts[ds] || 0;
+        const isToday    = ds === todayStr;
+        const isSelected = ds === _selectedDay;
         const d = new Date(ds + 'T12:00:00');
-        return `<div class="week-day${isToday ? ' is-today' : ''}${count ? ' has-jobs' : ''}">
+        return `<div class="week-day${isToday ? ' is-today' : ''}${count ? ' has-jobs' : ''}${isSelected ? ' is-selected' : ''}" onclick="dashSelectDay('${ds}')">
           <div class="wd-name">${dayAbbr[d.getDay()]}</div>
           <div class="wd-num">${d.getDate()}</div>
           <div class="wd-count">${count ? count + (count > 1 ? ' jobs' : ' job') : '—'}</div>
@@ -775,15 +807,21 @@ function renderDashboard(wos, flaggedJobs) {
     </div>
   </div>`;
 
-  // ── Today's schedule ──
+  // ── Selected day schedule ──
+  const selDayWOs = wos.filter(w => _azDate(w.fields['Scheduled Date']) === _selectedDay);
+  const selD      = new Date(_selectedDay + 'T12:00:00');
+  const selLabel  = _selectedDay === todayStr
+    ? 'Today\'s Schedule'
+    : selD.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+
   const schedHtml = `<div class="widget">
     <div class="widget-hd">
-      <div class="widget-title">Today's Schedule</div>
-      <span class="widget-count${todayWOs.length ? ' red' : ''}">${todayWOs.length}</span>
+      <div class="widget-title">${selLabel}</div>
+      <span class="widget-count${selDayWOs.length ? ' red' : ''}">${selDayWOs.length}</span>
     </div>
-    ${!todayWOs.length
-      ? '<div class="widget-empty">No jobs scheduled today</div>'
-      : todayWOs.map(w => {
+    ${!selDayWOs.length
+      ? '<div class="widget-empty">No jobs scheduled</div>'
+      : selDayWOs.map(w => {
           const f      = w.fields;
           const status = f['Status'] || 'Scheduled';
           const cls    = badgeCls[status] || 'b-scheduled';
@@ -867,6 +905,22 @@ function renderDashboard(wos, flaggedJobs) {
 }
 
 // Launch invoice modal from dashboard (doesn't require customer to be pre-selected)
+function dashNavWeek(dir) {
+  if (dir === 0) {
+    _weekOffset  = 0;
+    _selectedDay = null; // will auto-set to today in renderDashboard
+  } else {
+    _weekOffset = Math.max(-2, Math.min(2, _weekOffset + dir));
+    _selectedDay = null; // will auto-set to first job day or Monday
+  }
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs);
+}
+
+function dashSelectDay(ds) {
+  _selectedDay = ds;
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs);
+}
+
 async function dashInvoice(woId) {
   const wo = _dashWOs?.find(w => w.id === woId);
   if (!wo) return;
