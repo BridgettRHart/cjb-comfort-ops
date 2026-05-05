@@ -1275,8 +1275,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
 
-        // Send estimate email to customer (non-fatal)
-        if (approveUrl && custEmail && env.RESEND_API_KEY) {
+        // Send estimate email to customer only when finalizing (not on draft save)
+        if (finalize && approveUrl && custEmail && env.RESEND_API_KEY) {
           try {
             const emailTotal = lineItems.reduce((s, li) => {
               const p = li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount) || 0) / 100;
