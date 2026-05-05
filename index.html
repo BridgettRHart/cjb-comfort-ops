@@ -1720,16 +1720,56 @@
       <a class="btn-pay-open" id="pay-open-link" href="#" target="_blank" rel="noopener">
         💳 &nbsp;Open Payment Page
       </a>
-      <div class="payment-status-row" id="pay-status-row">Checking payment status…</div>
+      <div class="payment-status-row" id="pay-status-row">Waiting for payment…</div>
+      <div style="margin-top:4px;padding-top:16px;border-top:1px solid #f3f4f6;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#9ca3af;margin-bottom:10px;">Paying in person?</div>
+        <div style="display:flex;gap:8px;">
+          <button style="flex:1;padding:12px 8px;background:white;border:2px solid #d1d5db;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#374151;cursor:pointer;" onclick="showOfflineForm('cash')">💵 Cash</button>
+          <button style="flex:1;padding:12px 8px;background:white;border:2px solid #d1d5db;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#374151;cursor:pointer;" onclick="showOfflineForm('check')">📝 Check</button>
+        </div>
+      </div>
     </div>
 
     <div id="pay-body-paid" style="display:none;">
       <div style="font-size:64px;margin-bottom:12px;">✅</div>
       <div style="font-size:24px;font-weight:800;color:#059669;margin-bottom:8px;">Payment Received!</div>
-      <div style="font-size:15px;color:#6b7280;">Work order will update automatically.</div>
+      <div style="font-size:15px;color:#6b7280;" id="pay-paid-method">Work order will update automatically.</div>
     </div>
 
-    <button class="btn-pay-close" onclick="closePaymentOverlay()">Close</button>
+    <!-- Offline payment form (cash / check) -->
+    <div id="pay-body-offline" style="display:none;text-align:left;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <button onclick="hideOfflineForm()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:0;line-height:1;color:#6b7280;">←</button>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:#111827;" id="offline-form-title">Cash Payment</div>
+      </div>
+
+      <div id="offline-check-number-wrap" style="display:none;margin-bottom:14px;">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#6b7280;display:block;margin-bottom:6px;">Check Number</label>
+        <input type="number" id="offline-check-number" inputmode="numeric" placeholder="e.g. 1042"
+          style="width:100%;padding:12px 14px;border:2px solid #d1d5db;border-radius:8px;font-size:18px;font-family:'Barlow Condensed',sans-serif;font-weight:600;">
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#6b7280;display:block;margin-bottom:6px;">Photo <span style="font-weight:400;text-transform:none;">(optional — check front, cash amount, receipt)</span></label>
+        <input type="file" id="offline-photo-input" accept="image/*" capture="environment" style="display:none;" onchange="previewOfflinePhoto(this)">
+        <button onclick="document.getElementById('offline-photo-input').click()"
+          style="width:100%;padding:12px;background:#f9fafb;border:2px dashed #d1d5db;border-radius:8px;font-size:15px;color:#374151;cursor:pointer;font-family:'Barlow',sans-serif;">
+          📷 &nbsp;Take Photo
+        </button>
+        <img id="offline-photo-preview" src="" alt="" style="display:none;width:100%;border-radius:8px;margin-top:8px;max-height:180px;object-fit:cover;">
+      </div>
+
+      <button onclick="confirmOfflinePayment()"
+        style="width:100%;padding:16px;background:#059669;color:white;border:none;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:19px;font-weight:700;cursor:pointer;margin-bottom:8px;">
+        ✓ &nbsp;Confirm Payment Received
+      </button>
+      <button onclick="hideOfflineForm()"
+        style="width:100%;padding:12px;background:none;border:none;color:#9ca3af;font-size:15px;cursor:pointer;font-family:'Barlow',sans-serif;">
+        Cancel
+      </button>
+    </div>
+
+    <button class="btn-pay-close" id="pay-close-btn" onclick="closePaymentOverlay()">Close</button>
   </div>
 </div>
 
@@ -3468,6 +3508,84 @@ function _startPaymentPoll() {
 
 function _stopPaymentPoll() {
   if (_payPollInterval) { clearInterval(_payPollInterval); _payPollInterval = null; }
+}
+
+let _offlineMethod = '';
+
+function showOfflineForm(method) {
+  _offlineMethod = method;
+  const isCheck = method === 'check';
+  document.getElementById('offline-form-title').textContent = isCheck ? 'Check Payment' : 'Cash Payment';
+  document.getElementById('offline-check-number-wrap').style.display = isCheck ? 'block' : 'none';
+  document.getElementById('offline-check-number').value = '';
+  document.getElementById('offline-photo-input').value  = '';
+  document.getElementById('offline-photo-preview').style.display = 'none';
+  document.getElementById('offline-photo-preview').src  = '';
+
+  // Hide other panels, show offline form
+  document.getElementById('pay-body-ready').style.display   = 'none';
+  document.getElementById('pay-body-pending').style.display = 'none';
+  document.getElementById('pay-body-offline').style.display = 'block';
+  document.getElementById('pay-close-btn').style.display    = 'none';
+}
+
+function hideOfflineForm() {
+  document.getElementById('pay-body-offline').style.display = 'none';
+  document.getElementById('pay-body-ready').style.display   = 'block';
+  document.getElementById('pay-close-btn').style.display    = '';
+}
+
+function previewOfflinePhoto(input) {
+  if (!input.files || !input.files[0]) return;
+  const preview = document.getElementById('offline-photo-preview');
+  preview.src = URL.createObjectURL(input.files[0]);
+  preview.style.display = 'block';
+}
+
+async function confirmOfflinePayment() {
+  if (!_payWoId) return;
+  const label   = _offlineMethod === 'check' ? 'Check' : 'Cash';
+  const checkNo = document.getElementById('offline-check-number').value.trim();
+  const photoFile = document.getElementById('offline-photo-input').files?.[0];
+
+  const confirmBtn = document.querySelector('#pay-body-offline button[onclick="confirmOfflinePayment()"]');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Saving…'; }
+
+  try {
+    // Upload photo if provided
+    let photoNote = '';
+    if (photoFile) {
+      try {
+        const form = new FormData();
+        form.append('photo', photoFile);
+        form.append('woId', _payWoId);
+        const upRes = await fetch(`${PROXY}/upload-photo`, { method: 'POST', body: form });
+        const upData = await upRes.json();
+        if (upData.url) photoNote = `\nPayment photo: ${upData.url}`;
+      } catch(e) { /* non-fatal — continue without photo */ }
+    }
+
+    // Build note
+    const methodNote = label + (checkNo ? ` #${checkNo}` : '');
+    const existing   = (currentJob && currentJob.fields['Internal Notes']) || '';
+    const separator  = existing ? '\n' : '';
+    const newNotes   = existing + separator + `Paid on-site — ${methodNote}${photoNote}`;
+
+    await apiPatch('Work Orders', _payWoId, {
+      'Status': 'Paid',
+      'Internal Notes': newNotes
+    });
+
+    _stopPaymentPoll();
+    if (currentJob) { currentJob.fields['Status'] = 'Paid'; currentJob.fields['Internal Notes'] = newNotes; }
+    document.getElementById('pay-body-offline').style.display = 'none';
+    document.getElementById('pay-body-paid').style.display    = 'block';
+    document.getElementById('pay-paid-method').textContent    = `Marked paid by ${methodNote}. Office has been notified.`;
+    document.getElementById('pay-close-btn').style.display    = '';
+  } catch(e) {
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = '✓ Confirm Payment Received'; }
+    alert('Could not save — please tell office to mark as paid manually.');
+  }
 }
 
 function closePaymentOverlay() {
