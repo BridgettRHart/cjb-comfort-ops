@@ -1195,6 +1195,100 @@
     letter-spacing: 1.2px;
     text-transform: uppercase;
   }
+
+  /* ── Payment overlay ──────────────────────────── */
+  .payment-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 800;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .payment-overlay.open { display: flex; }
+  .payment-sheet {
+    background: white;
+    border-radius: 20px 20px 0 0;
+    padding: 28px 24px 48px;
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    text-align: center;
+    animation: slideUp 0.25s ease-out;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .payment-handle {
+    width: 40px; height: 4px;
+    background: #d1d5db;
+    border-radius: 2px;
+    margin: 0 auto 20px;
+  }
+  .payment-customer {
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase;
+    color: #6b7280; margin-bottom: 4px;
+  }
+  .payment-amount {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 38px; font-weight: 800;
+    color: #111827; margin-bottom: 20px;
+  }
+  .payment-qr-wrap {
+    background: #f9fafb;
+    border-radius: 14px;
+    padding: 16px;
+    display: inline-block;
+    margin-bottom: 10px;
+  }
+  .payment-qr-wrap img { width: 200px; height: 200px; display: block; }
+  .payment-qr-label {
+    font-size: 13px; color: #6b7280; margin-bottom: 20px;
+  }
+  .btn-pay-open {
+    display: block; width: 100%;
+    padding: 18px 16px;
+    background: #059669; color: white;
+    border: none; border-radius: 12px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 20px; font-weight: 700;
+    cursor: pointer; margin-bottom: 12px;
+    text-decoration: none; letter-spacing: 0.3px;
+  }
+  .payment-status-row {
+    font-size: 13px; color: #6b7280;
+    margin-bottom: 16px; min-height: 20px;
+  }
+  .payment-status-row.paid {
+    color: #059669; font-weight: 700; font-size: 16px;
+  }
+  .btn-pay-close {
+    background: none; border: none;
+    color: #9ca3af; font-size: 15px;
+    padding: 8px 16px; cursor: pointer;
+    font-family: 'Barlow', sans-serif;
+  }
+  .btn-collect-payment {
+    display: block; width: 100%;
+    padding: 16px; margin-top: 12px;
+    background: #111827; color: #f0b429;
+    border: none; border-radius: 10px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 19px; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.3px;
+  }
+  .btn-check-invoice {
+    display: block; width: 100%;
+    padding: 14px; margin-top: 12px;
+    background: white; color: #374151;
+    border: 2px solid #d1d5db; border-radius: 10px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 17px; font-weight: 600;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -1604,6 +1698,41 @@
 <!-- TOAST -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<!-- PAYMENT OVERLAY -->
+<div class="payment-overlay" id="payment-overlay" role="dialog" aria-modal="true" aria-label="Collect payment">
+  <div class="payment-sheet">
+    <div class="payment-handle"></div>
+    <div class="payment-customer" id="pay-customer"></div>
+    <div class="payment-amount" id="pay-amount"></div>
+
+    <div id="pay-body-pending" style="display:none;">
+      <div style="font-size:48px;margin-bottom:12px;">⏳</div>
+      <div style="font-size:17px;font-weight:600;color:#374151;margin-bottom:8px;">Invoice not ready yet</div>
+      <div style="font-size:14px;color:#6b7280;margin-bottom:24px;line-height:1.5;">Office is still processing the invoice.<br>Tap below to check again.</div>
+      <button class="btn-check-invoice" onclick="refreshPaymentStatus()">↻ &nbsp;Check for Invoice</button>
+    </div>
+
+    <div id="pay-body-ready" style="display:none;">
+      <div class="payment-qr-wrap">
+        <img id="pay-qr-img" src="" alt="Payment QR code">
+      </div>
+      <div class="payment-qr-label">Customer scans with their phone camera to pay</div>
+      <a class="btn-pay-open" id="pay-open-link" href="#" target="_blank" rel="noopener">
+        💳 &nbsp;Open Payment Page
+      </a>
+      <div class="payment-status-row" id="pay-status-row">Checking payment status…</div>
+    </div>
+
+    <div id="pay-body-paid" style="display:none;">
+      <div style="font-size:64px;margin-bottom:12px;">✅</div>
+      <div style="font-size:24px;font-weight:800;color:#059669;margin-bottom:8px;">Payment Received!</div>
+      <div style="font-size:15px;color:#6b7280;">Work order will update automatically.</div>
+    </div>
+
+    <button class="btn-pay-close" onclick="closePaymentOverlay()">Close</button>
+  </div>
+</div>
+
 <!-- SKIP REASON SHEET -->
 <div id="skip-reason-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;align-items:flex-end;justify-content:center;" role="dialog" aria-modal="true" aria-label="Skip reason required">
   <div style="background:white;border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;">
@@ -2000,9 +2129,24 @@ function renderJobDetail(record) {
       ▶ Continue Job — View Units
     </button>`;
   } else if (['Complete','Invoiced','Paid'].includes(status)) {
-    statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
-      ✓ Job Complete
-    </div>`;
+    const invoiceUrl = extractInvoiceUrl(f['Internal Notes'] || '');
+    const totalAmt   = f['Total Amount'] ? `$${Number(f['Total Amount']).toFixed(2)}` : '';
+    const custName   = f['Customer Name'] || 'Customer';
+    if (status === 'Paid') {
+      statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
+        ✅ Paid — Thank you!
+      </div>`;
+    } else if (invoiceUrl) {
+      statusBtn = `<div style="text-align:center;padding:10px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Visit Complete</div>
+        <button class="btn-collect-payment" onclick="openPaymentOverlay('${escAttr(invoiceUrl)}','${escAttr(custName)}','${escAttr(totalAmt)}','${record.id}')">
+          💳 &nbsp;Collect Payment
+        </button>`;
+    } else {
+      statusBtn = `<div style="text-align:center;padding:10px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Visit Complete</div>
+        <button class="btn-check-invoice" onclick="checkForInvoice('${record.id}','${escAttr(custName)}','${escAttr(totalAmt)}')">
+          ↻ &nbsp;Check for Invoice
+        </button>`;}
+
   } else {
     statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="Continue working on this job">
       ▶ Continue Job — View Units
@@ -3224,6 +3368,114 @@ async function submitComplete() {
 // ═══════════════════════
 function openMaps(address) {
   window.open('https://www.google.com/maps/search/?api=1&query=' + (encodeURIComponent(address)) + '', '_blank');
+}
+
+// ═══════════════════════════════════════
+// PAYMENT OVERLAY
+// ═══════════════════════════════════════
+let _payPollInterval = null;
+let _payWoId         = null;
+
+function extractInvoiceUrl(notes) {
+  if (!notes) return '';
+  const m = notes.match(/https:\/\/invoice\.stripe\.com\/[^\s]+/);
+  return m ? m[0] : '';
+}
+
+function openPaymentOverlay(invoiceUrl, customerName, totalAmt, woId) {
+  _payWoId = woId;
+  document.getElementById('pay-customer').textContent = customerName || '';
+  document.getElementById('pay-amount').textContent   = totalAmt || '';
+
+  // Set QR code + open link
+  const qrSrc = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(invoiceUrl)}&choe=UTF-8`;
+  document.getElementById('pay-qr-img').src   = qrSrc;
+  document.getElementById('pay-open-link').href = invoiceUrl;
+
+  // Show correct body panel
+  document.getElementById('pay-body-pending').style.display = 'none';
+  document.getElementById('pay-body-ready').style.display   = 'block';
+  document.getElementById('pay-body-paid').style.display    = 'none';
+  document.getElementById('pay-status-row').textContent     = 'Waiting for payment…';
+  document.getElementById('pay-status-row').className       = 'payment-status-row';
+
+  document.getElementById('payment-overlay').classList.add('open');
+  _startPaymentPoll();
+}
+
+async function checkForInvoice(woId, customerName, totalAmt) {
+  _payWoId = woId;
+  document.getElementById('pay-customer').textContent = customerName || '';
+  document.getElementById('pay-amount').textContent   = totalAmt || '';
+  document.getElementById('pay-body-pending').style.display = 'block';
+  document.getElementById('pay-body-ready').style.display   = 'none';
+  document.getElementById('pay-body-paid').style.display    = 'none';
+  document.getElementById('payment-overlay').classList.add('open');
+
+  // Try to find invoice URL immediately
+  await refreshPaymentStatus();
+}
+
+async function refreshPaymentStatus() {
+  if (!_payWoId) return;
+  try {
+    const data = await apiGet(`Work Orders/${_payWoId}`);
+    const f    = data.fields;
+    const url  = extractInvoiceUrl(f['Internal Notes'] || '');
+    const status = f['Status'] || '';
+
+    if (status === 'Paid') {
+      _stopPaymentPoll();
+      document.getElementById('pay-body-pending').style.display = 'none';
+      document.getElementById('pay-body-ready').style.display   = 'none';
+      document.getElementById('pay-body-paid').style.display    = 'block';
+      currentJob = data;
+      return;
+    }
+    if (url) {
+      const totalAmt = f['Total Amount'] ? `$${Number(f['Total Amount']).toFixed(2)}` : '';
+      if (totalAmt) document.getElementById('pay-amount').textContent = totalAmt;
+      const qrSrc = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(url)}&choe=UTF-8`;
+      document.getElementById('pay-qr-img').src    = qrSrc;
+      document.getElementById('pay-open-link').href = url;
+      document.getElementById('pay-body-pending').style.display = 'none';
+      document.getElementById('pay-body-ready').style.display   = 'block';
+      document.getElementById('pay-status-row').textContent     = 'Waiting for payment…';
+      _startPaymentPoll();
+      currentJob = data;
+    }
+    // else: still pending — leave pending panel visible
+  } catch(e) { /* silent fail */ }
+}
+
+function _startPaymentPoll() {
+  _stopPaymentPoll();
+  _payPollInterval = setInterval(async () => {
+    if (!_payWoId) return;
+    try {
+      const data   = await apiGet(`Work Orders/${_payWoId}`);
+      const status = data.fields['Status'] || '';
+      if (status === 'Paid') {
+        _stopPaymentPoll();
+        document.getElementById('pay-body-ready').style.display = 'none';
+        document.getElementById('pay-body-paid').style.display  = 'block';
+        currentJob = data;
+        renderJobDetail(data);
+      }
+    } catch(e) { /* silent */ }
+  }, 20000); // poll every 20 seconds
+}
+
+function _stopPaymentPoll() {
+  if (_payPollInterval) { clearInterval(_payPollInterval); _payPollInterval = null; }
+}
+
+function closePaymentOverlay() {
+  _stopPaymentPoll();
+  document.getElementById('payment-overlay').classList.remove('open');
+  // Refresh job detail in case status changed
+  if (_payWoId && currentJob) renderJobDetail(currentJob);
+  _payWoId = null;
 }
 
 function escHtml(str) {
