@@ -276,6 +276,35 @@
     }
     .notice-error   { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
     .notice-success { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #065f46; font-weight: 600; }
+
+    /* Footer */
+    .site-footer {
+      background: #0f1729;
+      color: rgba(255,255,255,0.55);
+      text-align: center;
+      padding: 28px 20px 36px;
+      font-size: 13px;
+      line-height: 1.7;
+      margin-top: 12px;
+    }
+    .site-footer a {
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+    }
+    .site-footer a:hover { color: white; }
+    .footer-name {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .footer-divider {
+      display: inline-block;
+      margin: 0 8px;
+      opacity: 0.35;
+    }
   </style>
 </head>
 <body>
@@ -295,6 +324,23 @@
   <div class="lightbox-close" aria-label="Close">×</div>
   <img id="lightbox-img" src="" alt="Estimate photo">
 </div>
+
+<footer class="site-footer">
+  <div class="footer-name">CJB Comfort</div>
+  <div>
+    <a href="tel:4809007882">(480) 900-7882</a>
+    <span class="footer-divider">|</span>
+    <a href="mailto:invoices@cjbcomfort.com">invoices@cjbcomfort.com</a>
+  </div>
+  <div style="margin-top:6px;">
+    <a href="https://cjbcomfort.com" target="_blank" rel="noopener">cjbcomfort.com</a>
+    <span class="footer-divider">|</span>
+    <a href="https://cjbcomfort.com/terms" target="_blank" rel="noopener">Terms</a>
+    <span class="footer-divider">|</span>
+    <a href="https://cjbcomfort.com/refunds" target="_blank" rel="noopener">Refund Policy</a>
+  </div>
+  <div style="margin-top:10px;font-size:11px;opacity:0.4;">Licensed · Bonded · Insured</div>
+</footer>
 
 <script>
 const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
