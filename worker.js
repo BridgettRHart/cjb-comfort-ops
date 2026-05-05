@@ -967,7 +967,27 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           await attachLineItems(inv.id);
         }
 
-        // 8. Finalize + send only if sendNow — otherwise leave as Stripe draft
+        // 8. Before finalizing: purge any floating pending invoice items for this customer.
+        //    When Stripe finalizes an invoice it auto-collects ALL unattached pending items
+        //    for the customer onto it — doubling items if any strays exist from a prior
+        //    failed save or the old "floating items" approach. Run this on every path
+        //    (update-in-place AND new invoice) right before finalize.
+        if (sendNow) {
+          try {
+            const pendRes  = await fetch(
+              `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&pending=true&limit=100`,
+              { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+            );
+            const pendData = await pendRes.json();
+            for (const pitem of (pendData.data || [])) {
+              if (!pitem.invoice) {
+                await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${pitem.id}`).catch(() => {});
+              }
+            }
+          } catch (e) { /* best effort — don't block send */ }
+        }
+
+        // 9. Finalize + send only if sendNow — otherwise leave as Stripe draft
         let finalInv = inv;
         if (sendNow) {
           await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
