@@ -1831,11 +1831,52 @@ const azDateStr = isoStr => {
 // ═══════════════════════
 let scheduleView = 'today'; // 'today' | 'week'
 
+// ── Auto-refresh ─────────────────────────────────────────────
+let _autoRefreshInterval = null;
+const AUTO_REFRESH_MS = 60_000; // 60 seconds
+
+async function _silentRefresh() {
+  // Don't interrupt if payment overlay is open or user is mid-flow on active/summary/complete screens
+  const payOverlay = document.getElementById('payment-overlay');
+  if (payOverlay && payOverlay.classList.contains('open')) return;
+  const activeScreen = document.querySelector('.screen.active');
+  const activeId = activeScreen ? activeScreen.id : '';
+  // Always refresh the jobs list (handles its own render quietly)
+  loadTodaysJobs().catch(() => {});
+  // If detail screen is showing and we have a current job, silently re-fetch it
+  if (activeId === 'screen-detail' && currentJob) {
+    try {
+      const updated = await fetch(`${PROXY}/Work%20Orders/${currentJob.id}`).then(r => r.json());
+      if (updated && updated.id) {
+        const oldStatus = currentJob.fields['Status'];
+        const newStatus = updated.fields['Status'];
+        currentJob = updated;
+        // Re-render detail only if something meaningful changed
+        if (oldStatus !== newStatus) renderJobDetail(currentJob);
+      }
+    } catch(e) { /* non-fatal */ }
+  }
+}
+
+function _startAutoRefresh() {
+  if (_autoRefreshInterval) return;
+  _autoRefreshInterval = setInterval(_silentRefresh, AUTO_REFRESH_MS);
+}
+function _stopAutoRefresh() {
+  if (_autoRefreshInterval) { clearInterval(_autoRefreshInterval); _autoRefreshInterval = null; }
+}
+
+// Pause refresh when tab/screen goes to background, resume when visible
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { _stopAutoRefresh(); } else { _startAutoRefresh(); }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   setGreeting();
   buildPartsGrid();
   loadTechName();
   loadTodaysJobs();
+  _startAutoRefresh();
 });
 
 async function loadTechName() {
