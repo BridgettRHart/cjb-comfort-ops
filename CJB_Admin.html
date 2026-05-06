@@ -397,6 +397,30 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .sp-foot { padding: 12px 16px; }
 }
 
+/* ── ESTIMATES ──────────────────────────────────────────────────────────────── */
+.est-filter-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.est-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 4px 10px; font-size: 11px; font-weight: 600; color: #888; cursor: pointer; font-family: inherit; border-radius: 0; }
+.est-tab:hover:not(.active) { color: #555; }
+.est-tab.active { color: #c81f25; border-bottom: 2px solid #c81f25; }
+.est-list { overflow-y: auto; flex: 1; }
+.est-item { padding: 12px 14px; border-bottom: 1px solid #f2f2f2; cursor: pointer; transition: background 0.1s; }
+.est-item:hover { background: #fafafa; }
+.est-item.selected { background: #fff5f5; border-left: 3px solid #c81f25; padding-left: 11px; }
+.est-status-pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; }
+.est-pill-draft    { background: #f3f4f6; color: #6b7280; }
+.est-pill-sent     { background: #dbeafe; color: #1d4ed8; }
+.est-pill-approved { background: #dcfce7; color: #166534; }
+.est-pill-declined { background: #fee2e2; color: #991b1b; }
+.est-pill-expired  { background: #f3f4f6; color: #9ca3af; }
+.est-days-chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 5px; }
+.est-days-green  { background: #dcfce7; color: #166534; }
+.est-days-yellow { background: #fef9c3; color: #854d0e; }
+.est-days-red    { background: #fee2e2; color: #991b1b; }
+.est-days-gray   { background: #f3f4f6; color: #9ca3af; }
+.est-cust-result-item { padding: 8px 10px; cursor: pointer; border-radius: 6px; font-size: 13px; }
+.est-cust-result-item:hover { background: #f9f9f9; }
+.est-cust-results-wrap { max-height: 220px; overflow-y: auto; border: 1px solid #e8e8e8; border-radius: 7px; margin-top: 6px; }
+
 /* ── EQUIPMENT ──────────────────────────────────────────────────────────────── */
 .eq-prop-group { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin: 10px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #f0f0f0; }
 .eq-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
@@ -427,6 +451,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 <div class="tab-bar">
   <button class="tab-btn active" id="tab-dash" onclick="switchTab('dash')">Dashboard</button>
   <button class="tab-btn" id="tab-customers" onclick="switchTab('customers')">Customers</button>
+  <button class="tab-btn" id="tab-estimates" onclick="switchTab('estimates')">Estimates</button>
 </div>
 
 <!-- Dashboard view -->
@@ -452,6 +477,121 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="empty-state">
       <span class="arrow">←</span>
       <span>Select a customer</span>
+    </div>
+  </div>
+</div>
+
+<!-- Estimates view -->
+<div class="app" id="app-estimates" style="display:none;">
+  <div class="sidebar">
+    <div class="sidebar-hd">
+      <h2>Estimates <span id="est-count"></span></h2>
+      <div class="est-filter-tabs">
+        <button class="est-tab active" id="est-tab-active" onclick="setEstFilter('active')">Active</button>
+        <button class="est-tab" id="est-tab-approved" onclick="setEstFilter('approved')">Approved</button>
+        <button class="est-tab" id="est-tab-declined" onclick="setEstFilter('declined')">Declined</button>
+        <button class="est-tab" id="est-tab-all" onclick="setEstFilter('all')">All</button>
+      </div>
+      <button class="sidebar-add-btn" onclick="openNewEstimateFlow()">+ New Estimate</button>
+    </div>
+    <div class="est-list" id="est-list">
+      <div class="empty-list">Loading…</div>
+    </div>
+  </div>
+
+  <div class="detail" id="est-detail">
+    <div class="empty-state">
+      <span class="arrow">←</span>
+      <span>Select an estimate</span>
+    </div>
+  </div>
+</div>
+
+<!-- New Estimate Wizard Modal -->
+<div class="modal-bg hidden" id="est-wizard-modal">
+  <div class="modal" style="max-width:520px;">
+    <!-- Step 1: Customer selection -->
+    <div id="est-step-1">
+      <div class="modal-title">New Estimate</div>
+      <div class="modal-sub">Step 1 of 2 — Select a customer</div>
+      <div class="form-group">
+        <label class="form-label">Search Customers</label>
+        <input class="form-inp" id="est-cust-search" type="text" placeholder="Name or email…"
+          oninput="estFilterCustomers()" autocomplete="off">
+        <div class="est-cust-results-wrap">
+          <div id="est-cust-results"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="add-link" onclick="document.getElementById('est-new-cust-wrap').style.display=document.getElementById('est-new-cust-wrap').style.display==='none'?'block':'none'">
+          + New Customer
+        </button>
+      </div>
+      <div id="est-new-cust-wrap" style="display:none;margin-top:10px;padding:14px;background:#f9f9f9;border-radius:8px;border:1px solid #e8e8e8;">
+        <div class="form-section-hd" style="margin-top:0;">New Customer</div>
+        <div class="form-group">
+          <label class="form-label">Customer Name <span style="color:#c81f25;">*</span></label>
+          <input class="form-inp" id="enc-custname" type="text" placeholder="e.g. Smith Family or ABC Corp">
+        </div>
+        <div class="form-row-2">
+          <div class="form-group"><label class="form-label">First Name</label>
+            <input class="form-inp" id="enc-first" type="text"></div>
+          <div class="form-group"><label class="form-label">Last Name</label>
+            <input class="form-inp" id="enc-last" type="text"></div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-group"><label class="form-label">Email</label>
+            <input class="form-inp" id="enc-email" type="email"></div>
+          <div class="form-group"><label class="form-label">Phone</label>
+            <input class="form-inp" id="enc-phone" type="tel"></div>
+        </div>
+        <div class="modal-actions" style="justify-content:flex-start;margin-top:4px;">
+          <button class="btn btn-red btn-sm" onclick="estCreateCustomer()">Save &amp; Continue →</button>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-gray" onclick="closeEstWizard()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Property selection -->
+    <div id="est-step-2" style="display:none;">
+      <div class="modal-title">New Estimate</div>
+      <div class="modal-sub">Step 2 of 2 — Select a property</div>
+      <div id="est-wiz-cust-label" style="background:#f4faf5;border:1.5px solid #1a6b35;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:700;color:#1a2e1f;"></div>
+      <div class="form-group">
+        <label class="form-label">Select Property</label>
+        <div class="est-cust-results-wrap">
+          <div id="est-prop-results"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="add-link" onclick="document.getElementById('est-new-prop-wrap').style.display=document.getElementById('est-new-prop-wrap').style.display==='none'?'block':'none'">
+          + New Property
+        </button>
+      </div>
+      <div id="est-new-prop-wrap" style="display:none;margin-top:10px;padding:14px;background:#f9f9f9;border-radius:8px;border:1px solid #e8e8e8;">
+        <div class="form-section-hd" style="margin-top:0;">New Property</div>
+        <div class="form-group"><label class="form-label">Property Name</label>
+          <input class="form-inp" id="enp-name" type="text" placeholder="e.g. Main Residence"></div>
+        <div class="form-group"><label class="form-label">Service Address</label>
+          <input class="form-inp" id="enp-addr" type="text"></div>
+        <div class="form-row-3">
+          <div class="form-group"><label class="form-label">City</label>
+            <input class="form-inp" id="enp-city" type="text"></div>
+          <div class="form-group"><label class="form-label">State</label>
+            <input class="form-inp" id="enp-state" type="text" maxlength="2" value="AZ"></div>
+          <div class="form-group"><label class="form-label">Zip</label>
+            <input class="form-inp" id="enp-zip" type="text" maxlength="10"></div>
+        </div>
+        <div class="modal-actions" style="justify-content:flex-start;margin-top:4px;">
+          <button class="btn btn-red btn-sm" onclick="estCreateProperty()">Save &amp; Continue →</button>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-gray" onclick="closeEstWizard()">Cancel</button>
+        <button class="btn btn-gray" onclick="document.getElementById('est-step-1').style.display='';document.getElementById('est-step-2').style.display='none';">← Back</button>
+      </div>
     </div>
   </div>
 </div>
@@ -588,6 +728,13 @@ let liCount = 0;
 let invoiceWOId   = null;
 let invoiceCustId = null;
 
+// ── Estimates state ──────────────────────────────────────────────────────────
+let _allEstimates  = [];
+let _estFilter     = 'active';
+let _selectedEst   = null;
+let _estWizCustId  = null;
+let _estWizCust    = null;
+
 // ── Init ────────────────────────────────────────────────────────────────────
 async function loadAirtableSelectOptions() {
   try {
@@ -645,9 +792,12 @@ async function init() {
 function switchTab(tab) {
   document.getElementById('tab-dash').classList.toggle('active', tab === 'dash');
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
+  document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
   document.getElementById('dash-view').style.display      = tab === 'dash'      ? '' : 'none';
   document.getElementById('app-customers').style.display  = tab === 'customers' ? '' : 'none';
+  document.getElementById('app-estimates').style.display  = tab === 'estimates' ? '' : 'none';
   if (tab === 'dash') loadDashboard();
+  if (tab === 'estimates') loadEstimates();
   if (tab === 'customers' && isMobile()) {
     // Always land on the list view when switching to customers on mobile
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
@@ -1753,7 +1903,7 @@ async function openQuoteModal(woId, custId) {
   document.getElementById('quote-url-section').classList.add('hidden');
   renderQuoteActions('loading');
 
-  const wo = currentWorkOrders.find(w => w.id === woId);
+  const wo = currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId);
   document.getElementById('quote-modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
   document.getElementById('quote-modal').classList.remove('hidden');
 
@@ -3499,6 +3649,381 @@ async function spBook() {
     btn.disabled = false; btn.textContent = 'Book Appointment';
     alert('Error: ' + err.message);
   }
+}
+
+// ── ESTIMATES ────────────────────────────────────────────────────────────────
+
+async function loadEstimates() {
+  document.getElementById('est-list').innerHTML = '<div class="empty-list">Loading…</div>';
+  const formula = encodeURIComponent(`{Work Order Type}="Estimate Only"`);
+  const qs = `filterByFormula=${formula}&sort[0][field]=Work Order Number&sort[0][direction]=desc&maxRecords=200`;
+  try {
+    const res = await fetch(`${PROXY}/Work%20Orders?${qs}`);
+    const data = await res.json();
+    _allEstimates = (data.records || []).filter(r => r.fields['Active'] !== false);
+    document.getElementById('est-count').textContent = '(' + _allEstimates.length + ')';
+    renderEstimatesList();
+  } catch(e) {
+    document.getElementById('est-list').innerHTML = '<div class="empty-list">Could not load estimates.</div>';
+  }
+}
+
+function renderEstimatesList() {
+  const el = document.getElementById('est-list');
+  let filtered;
+  if (_estFilter === 'active') {
+    filtered = _allEstimates.filter(r => {
+      const s = r.fields['Status'] || '';
+      return !s || s === 'Draft' || s === 'Estimate Sent';
+    });
+  } else if (_estFilter === 'approved') {
+    filtered = _allEstimates.filter(r => r.fields['Status'] === 'Estimate Approved');
+  } else if (_estFilter === 'declined') {
+    filtered = _allEstimates.filter(r => r.fields['Status'] === 'Estimate Declined' || r.fields['Status'] === 'Estimate Expired');
+  } else {
+    filtered = _allEstimates;
+  }
+
+  if (!filtered.length) {
+    const msgs = { active:'No active estimates', approved:'No approved estimates', declined:'No declined estimates', all:'No estimates yet' };
+    el.innerHTML = `<div class="empty-list">${msgs[_estFilter] || 'No estimates'}</div>`;
+    return;
+  }
+
+  const fmt$ = n => n != null ? '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '';
+
+  el.innerHTML = filtered.map(wo => {
+    const f = wo.fields;
+    const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '(no customer)');
+    const addr     = Array.isArray(f['Service Address']) ? f['Service Address'][0] : (f['Service Address'] || '');
+    const total    = f['Total Amount'] != null ? fmt$(f['Total Amount']) : '';
+    const status   = f['Status'] || 'Draft';
+    const isSelected = _selectedEst && _selectedEst.id === wo.id;
+
+    const pillClass = status === 'Estimate Sent' ? 'est-pill-sent'
+      : status === 'Estimate Approved' ? 'est-pill-approved'
+      : status === 'Estimate Declined' ? 'est-pill-declined'
+      : status === 'Estimate Expired'  ? 'est-pill-expired'
+      : 'est-pill-draft';
+
+    // Days-remaining chip: 30-day window from Scheduled Date
+    let daysChip = '';
+    if (f['Scheduled Date'] && status !== 'Estimate Approved' && status !== 'Estimate Declined' && status !== 'Estimate Expired') {
+      const created = new Date(f['Scheduled Date']);
+      const expires = new Date(created.getTime() + 30 * 24 * 3600000);
+      const now     = new Date();
+      const daysLeft = Math.ceil((expires - now) / (24 * 3600000));
+      if (daysLeft < 0) {
+        daysChip = `<span class="est-days-chip est-days-gray">Expired</span>`;
+      } else if (daysLeft < 7) {
+        daysChip = `<span class="est-days-chip est-days-red">${daysLeft}d left</span>`;
+      } else if (daysLeft <= 14) {
+        daysChip = `<span class="est-days-chip est-days-yellow">${daysLeft}d left</span>`;
+      } else {
+        daysChip = `<span class="est-days-chip est-days-green">${daysLeft}d left</span>`;
+      }
+    }
+
+    return `<div class="est-item${isSelected ? ' selected' : ''}" onclick="selectEstimate('${wo.id}')">
+      <div style="font-size:13px;font-weight:600;">${esc(custName)}</div>
+      ${addr ? `<div style="font-size:11px;color:#888;margin-top:2px;">${esc(addr)}</div>` : ''}
+      <div style="margin-top:5px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+        <span class="est-status-pill ${pillClass}">${esc(status || 'Draft')}</span>
+        ${daysChip}
+        ${total ? `<span style="font-size:11px;color:#555;margin-left:auto;">${esc(total)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectEstimate(woId) {
+  _selectedEst = _allEstimates.find(w => w.id === woId) || null;
+  renderEstimatesList();
+  renderEstimateDetail();
+}
+
+function renderEstimateDetail() {
+  const det = document.getElementById('est-detail');
+  if (!_selectedEst) {
+    det.innerHTML = '<div class="empty-state"><span class="arrow">←</span><span>Select an estimate</span></div>';
+    return;
+  }
+  const wo = _selectedEst;
+  const f  = wo.fields;
+  const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '(no customer)');
+  const addr     = Array.isArray(f['Service Address']) ? f['Service Address'][0] : (f['Service Address'] || '');
+  const status   = f['Status'] || 'Draft';
+  const total    = f['Total Amount'] != null ? '$' + Number(f['Total Amount']).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+  const custId   = (f['Customer'] || [])[0] || null;
+
+  const pillClass = status === 'Estimate Sent' ? 'est-pill-sent'
+    : status === 'Estimate Approved' ? 'est-pill-approved'
+    : status === 'Estimate Declined' ? 'est-pill-declined'
+    : status === 'Estimate Expired'  ? 'est-pill-expired'
+    : 'est-pill-draft';
+
+  let daysChip = '';
+  if (f['Scheduled Date'] && status !== 'Estimate Approved' && status !== 'Estimate Declined' && status !== 'Estimate Expired') {
+    const created  = new Date(f['Scheduled Date']);
+    const expires  = new Date(created.getTime() + 30 * 24 * 3600000);
+    const now      = new Date();
+    const daysLeft = Math.ceil((expires - now) / (24 * 3600000));
+    if (daysLeft < 0) {
+      daysChip = `<span class="est-days-chip est-days-gray">Expired</span>`;
+    } else if (daysLeft < 7) {
+      daysChip = `<span class="est-days-chip est-days-red">${daysLeft}d left</span>`;
+    } else if (daysLeft <= 14) {
+      daysChip = `<span class="est-days-chip est-days-yellow">${daysLeft}d left</span>`;
+    } else {
+      daysChip = `<span class="est-days-chip est-days-green">${daysLeft}d left</span>`;
+    }
+  }
+
+  const createdDate = f['Scheduled Date']
+    ? new Date(f['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
+    : '—';
+
+  const actionBtns = status === 'Estimate Approved'
+    ? `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>
+       <button class="btn btn-red" onclick="convertEstimateToJob('${wo.id}')">Convert to Job →</button>`
+    : status === 'Estimate Sent'
+    ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Update &amp; Resend</button>`
+    : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>`;
+
+  det.innerHTML = `
+    <div class="cust-card">
+      <div class="cust-card-name">${esc(custName)}</div>
+      ${addr ? `<div style="font-size:13px;color:#555;margin-bottom:8px;">${esc(addr)}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span class="est-status-pill ${pillClass}">${esc(status || 'Draft')}</span>
+        ${daysChip}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;color:#555;margin-bottom:14px;">
+        <div><span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#aaa;">Total</span><br><strong style="font-size:18px;color:#c81f25;">${esc(total)}</strong></div>
+        <div><span style="font-size:11px;font-weight:700;text-transform:uppercase;color:#aaa;">Estimate Created</span><br>${esc(createdDate)}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${actionBtns}
+      </div>
+    </div>`;
+}
+
+function setEstFilter(filter) {
+  _estFilter = filter;
+  ['active','approved','declined','all'].forEach(f => {
+    const btn = document.getElementById('est-tab-' + f);
+    if (btn) btn.classList.toggle('active', f === filter);
+  });
+  renderEstimatesList();
+}
+
+function openNewEstimateFlow() {
+  _estWizCustId = null;
+  _estWizCust   = null;
+  // Reset wizard
+  document.getElementById('est-step-1').style.display = '';
+  document.getElementById('est-step-2').style.display = 'none';
+  document.getElementById('est-cust-search').value    = '';
+  document.getElementById('est-new-cust-wrap').style.display = 'none';
+  // Clear new customer form
+  ['enc-custname','enc-first','enc-last','enc-email','enc-phone'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  // Pre-populate with first 10 customers
+  const initial = [...allCustomers].sort((a,b) =>
+    (a.fields['Customer Name']||'').localeCompare(b.fields['Customer Name']||'')
+  ).slice(0, 10);
+  renderEstCustResults(initial);
+  document.getElementById('est-wizard-modal').classList.remove('hidden');
+}
+
+function estFilterCustomers() {
+  const q = (document.getElementById('est-cust-search').value || '').toLowerCase().trim();
+  const matches = q
+    ? allCustomers.filter(c =>
+        (c.fields['Customer Name'] || '').toLowerCase().includes(q) ||
+        (c.fields['Email'] || '').toLowerCase().includes(q)
+      ).slice(0, 15)
+    : [...allCustomers].sort((a,b) =>
+        (a.fields['Customer Name']||'').localeCompare(b.fields['Customer Name']||'')
+      ).slice(0, 10);
+  renderEstCustResults(matches);
+}
+
+function renderEstCustResults(customers) {
+  const el = document.getElementById('est-cust-results');
+  if (!customers.length) {
+    el.innerHTML = '<div style="padding:10px;color:#bbb;font-size:13px;">No customers found</div>';
+    return;
+  }
+  el.innerHTML = customers.map(c => {
+    const f = c.fields;
+    const meta = f['Email'] || f['Phone'] || '';
+    return `<div class="est-cust-result-item" onclick="estSelectCustomer('${c.id}')">
+      <div style="font-weight:600;">${esc(f['Customer Name'] || '(no name)')}</div>
+      ${meta ? `<div style="font-size:11px;color:#888;">${esc(meta)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function estSelectCustomer(custId) {
+  _estWizCustId = custId;
+  _estWizCust   = allCustomers.find(c => c.id === custId) || null;
+  const custName = _estWizCust?.fields['Customer Name'] || '';
+
+  document.getElementById('est-wiz-cust-label').textContent = custName;
+  document.getElementById('est-step-1').style.display = 'none';
+  document.getElementById('est-step-2').style.display = '';
+  document.getElementById('est-new-prop-wrap').style.display = 'none';
+
+  // Clear new property form
+  ['enp-name','enp-addr','enp-city','enp-state','enp-zip'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = id === 'enp-state' ? 'AZ' : '';
+  });
+
+  // Fetch properties for this customer
+  const propEl = document.getElementById('est-prop-results');
+  propEl.innerHTML = '<div style="padding:10px;color:#aaa;font-size:13px;">Loading properties…</div>';
+
+  try {
+    const formula = `{Customer}="${custId}"`;
+    const res  = await fetch(`${PROXY}/Properties?filterByFormula=${encodeURIComponent(formula)}&fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Active`);
+    const data = await res.json();
+    const props = (data.records || []).filter(p => p.fields['Active'] !== false);
+
+    if (!props.length) {
+      propEl.innerHTML = '<div style="padding:10px;color:#bbb;font-size:13px;">No properties on file — add one below</div>';
+      return;
+    }
+    propEl.innerHTML = props.map(p => {
+      const pf   = p.fields;
+      const addr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(', ');
+      return `<div class="est-cust-result-item" onclick="estSelectProperty('${p.id}')">
+        <div style="font-weight:600;">${esc(pf['Property Name'] || '(unnamed)')}</div>
+        ${addr ? `<div style="font-size:11px;color:#888;">${esc(addr)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    propEl.innerHTML = '<div style="padding:10px;color:#c81f25;font-size:13px;">Could not load properties</div>';
+  }
+}
+
+async function estCreateCustomer() {
+  const custName = (document.getElementById('enc-custname')?.value || '').trim();
+  if (!custName) { alert('Customer Name is required.'); return; }
+  const fields = {
+    'Customer Name': custName,
+    'First Name':    (document.getElementById('enc-first')?.value  || '').trim(),
+    'Last Name':     (document.getElementById('enc-last')?.value   || '').trim(),
+    'Email':         (document.getElementById('enc-email')?.value  || '').trim(),
+    'Phone':         (document.getElementById('enc-phone')?.value  || '').trim(),
+    'Active':        true,
+  };
+  Object.keys(fields).forEach(k => { if (!fields[k] && k !== 'Active') delete fields[k]; });
+  try {
+    const res  = await fetch(`${PROXY}/Customers`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    allCustomers.push(data);
+    filteredCustomers = [...allCustomers];
+    renderCustList();
+    estSelectCustomer(data.id);
+  } catch(err) { alert('Error creating customer: ' + err.message); }
+}
+
+async function estCreateProperty() {
+  const addr = (document.getElementById('enp-addr')?.value || '').trim();
+  if (!addr) { alert('Service address is required.'); return; }
+  const name = (document.getElementById('enp-name')?.value || '').trim() || addr;
+  const fields = {
+    'Property Name':   name,
+    'Service Address': addr,
+    'City':            (document.getElementById('enp-city')?.value  || '').trim(),
+    'State':           (document.getElementById('enp-state')?.value || 'AZ').trim().toUpperCase(),
+    'Zip':             (document.getElementById('enp-zip')?.value   || '').trim(),
+    'Active':          true,
+  };
+  if (_estWizCustId) {
+    fields['Customer'] = [_estWizCustId];
+    if (_estWizCust?.fields['Email']) fields['Customer Email'] = _estWizCust.fields['Email'];
+  }
+  try {
+    const res  = await fetch(`${PROXY}/Properties`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    allProperties.push(data);
+    estSelectProperty(data.id);
+  } catch(err) { alert('Error creating property: ' + err.message); }
+}
+
+async function estSelectProperty(propId) {
+  closeEstWizard();
+
+  // Show loading state in estimates list
+  document.getElementById('est-list').innerHTML = '<div class="empty-list">Creating estimate…</div>';
+
+  const custName = _estWizCust?.fields['Customer Name'] || 'Customer';
+  const today    = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+
+  const fields = {
+    'Work Order Name': `${custName} — Estimate — ${today}`,
+    'Work Order Type': 'Estimate Only',
+    'Customer':        [_estWizCustId],
+    'Property':        [propId],
+    'Active':          true,
+    'Scheduled Date':  new Date().toISOString(),
+  };
+
+  try {
+    const res  = await fetch(`${PROXY}/Work%20Orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    _allEstimates.unshift(data);
+    document.getElementById('est-count').textContent = '(' + _allEstimates.length + ')';
+    _selectedEst = data;
+    setEstFilter('active');
+    renderEstimateDetail();
+    // Open quote modal immediately
+    openQuoteModal(data.id, _estWizCustId);
+  } catch(err) {
+    alert('Error creating estimate: ' + err.message);
+    loadEstimates();
+  }
+}
+
+async function convertEstimateToJob(woId) {
+  const wo = _allEstimates.find(w => w.id === woId);
+  if (!wo) return;
+  const custName = Array.isArray(wo.fields['Customer Name']) ? wo.fields['Customer Name'][0] : (wo.fields['Customer Name'] || 'Customer');
+  if (!confirm(`Convert this estimate to a scheduled job? A new Work Order will be created for Cornell to schedule.`)) return;
+
+  const custId  = (wo.fields['Customer'] || [])[0] || null;
+  const propId  = (wo.fields['Property'] || [])[0] || null;
+  const today   = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+
+  const fields = {
+    'Work Order Name':  `${custName} — Job — ${today}`,
+    'Work Order Type':  'Repair',
+    'Status':           'Scheduled',
+    'Active':           true,
+    'Internal Notes':   `Converted from estimate: ${wo.fields['Work Order Name'] || woId}`,
+  };
+  if (custId) fields['Customer']        = [custId];
+  if (propId) fields['Property']        = [propId];
+
+  try {
+    const res  = await fetch(`${PROXY}/Work%20Orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    showToast('Job created! Open the Work Orders tab to schedule it.');
+  } catch(err) { alert('Error converting estimate: ' + err.message); }
+}
+
+function closeEstWizard() {
+  document.getElementById('est-wizard-modal').classList.add('hidden');
 }
 
 init().then(() => {
