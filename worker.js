@@ -827,6 +827,45 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Mark invoice paid out-of-band (cash / check) ─────────────────────
+    if (path === '/api/invoice/pay-offline' && request.method === 'POST') {
+      try {
+        const { workOrderId, method, checkNumber } = await request.json();
+        if (!workOrderId) throw new Error('workOrderId required');
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+
+        const wo = await airtableGetById('Work Orders', workOrderId);
+        const stripeInvoiceId = (wo.fields['Stripe Invoice ID'] || '').trim();
+        if (!stripeInvoiceId) {
+          // No Stripe invoice on this WO — nothing to do, not an error
+          return new Response(JSON.stringify({ ok: true, skipped: true }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        // Build a readable payment note for Stripe metadata
+        const paymentNote = method === 'check'
+          ? `Check${checkNumber ? ' #' + checkNumber : ''}`
+          : 'Cash';
+
+        // Update invoice metadata before marking paid
+        await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
+          'metadata[payment_method]': paymentNote,
+          'metadata[collected_by]':   'Technician — on site'
+        });
+
+        // Mark invoice as paid out of band — triggers invoice.paid webhook
+        await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}/pay`, {
+          paid_out_of_band: 'true'
+        });
+
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Stripe Invoice — create / update ─────────────────────────────────
     if (path === '/api/invoice' && request.method === 'POST') {
       try {

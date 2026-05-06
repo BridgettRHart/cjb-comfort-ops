@@ -3576,6 +3576,19 @@ async function confirmOfflinePayment() {
       'Internal Notes': newNotes
     });
 
+    // Mark Stripe invoice paid out-of-band so it closes in Stripe and fires the webhook
+    try {
+      await fetch(`${PROXY}/invoice/pay-offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workOrderId: _payWoId,
+          method:      _offlineMethod,
+          checkNumber: checkNo || ''
+        })
+      });
+    } catch(e) { /* non-fatal — Airtable already updated */ }
+
     _stopPaymentPoll();
     if (currentJob) { currentJob.fields['Status'] = 'Paid'; currentJob.fields['Internal Notes'] = newNotes; }
     document.getElementById('pay-body-offline').style.display = 'none';
