@@ -1448,9 +1448,15 @@
             <input type="text" class="form-input" id="eq-serial-active" placeholder="From nameplate">
           </div>
         </div>
-        <div class="form-field" style="margin-bottom:12px;">
+        <div class="form-field" style="margin-bottom:10px;">
           <label class="form-label" for="eq-location-active">Location</label>
           <input type="text" class="form-input" id="eq-location-active" placeholder="e.g. Rooftop Zone 1">
+        </div>
+        <div class="form-field" style="margin-bottom:12px;">
+          <label class="form-label" for="eq-related-active">Part of a system? <span style="font-weight:400;color:var(--gray-text);">(optional)</span></label>
+          <select class="form-input" id="eq-related-active" style="-webkit-appearance:none;">
+            <option value="">— Standalone unit —</option>
+          </select>
         </div>
         <input type="hidden" id="eq-photo-url-active">
         <div style="display:flex;gap:8px;">
@@ -2793,7 +2799,19 @@ async function handleTagScan(input, context) {
 
 function toggleAddEquipmentActive() {
   const form = document.getElementById('add-equipment-form-active');
-  if (form) form.style.display = form.style.display === 'block' ? 'none' : 'block';
+  if (!form) return;
+  const opening = form.style.display !== 'block';
+  form.style.display = opening ? 'block' : 'none';
+  // Populate "part of a system" dropdown from equipment already on file at this property
+  if (opening) {
+    const sel = document.getElementById('eq-related-active');
+    if (sel) {
+      sel.innerHTML = '<option value="">— Standalone unit —</option>'
+        + (currentWorkOrderEquipment || []).map(eq =>
+            `<option value="${eq.id}">${escHtml(eq.fields['Equipment Name'] || 'Unknown Unit')}</option>`
+          ).join('');
+    }
+  }
 }
 
 async function saveNewEquipmentActive() {
@@ -2827,6 +2845,8 @@ async function saveNewEquipmentActive() {
   const location = document.getElementById('eq-location-active').value.trim();
   if (location) fields['Location in Building'] = location;
   if (photoUrl) fields['Photo URLs'] = photoUrl;
+  const relatedId = (document.getElementById('eq-related-active')?.value || '').trim();
+  if (relatedId) fields['Related Equipment'] = [relatedId];
   if (custLinks && custLinks.length > 0) fields['Customer'] = [custLinks[0]];
   if (propLinks && propLinks.length > 0) fields['Property'] = [propLinks[0]];
 
