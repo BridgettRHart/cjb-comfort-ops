@@ -2959,7 +2959,14 @@ async function openWOForm(existingRecord) {
     (email  && (p.fields['Customer Email']||'').toLowerCase() === email)
   );
 
-  const fmtDTL = iso => iso ? iso.substring(0,16) : '';
+  // Convert UTC ISO from Airtable → AZ local time (UTC-7, no DST) for datetime-local inputs
+  const fmtDTL = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return iso.substring(0, 16);
+    const az = new Date(d.getTime() - 7 * 3600000);
+    return az.toISOString().substring(0, 16);
+  };
   const linkedPropId = (f['Property']||[])[0] || '';
   const linkedTechId = (f['Technician']||[])[0] || '';
 
