@@ -826,6 +826,53 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Stripe publishable key (safe to expose — for client-side Elements) ──
+    if (path === '/api/config/stripe-pk' && request.method === 'GET') {
+      const pk = env.STRIPE_PUBLISHABLE_KEY || '';
+      return new Response(JSON.stringify({ publishableKey: pk }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // ── Charge a card via Stripe Elements PaymentMethod ───────────────────
+    if (path === '/api/invoice/charge-card' && request.method === 'POST') {
+      try {
+        const { workOrderId, paymentMethodId } = await request.json();
+        if (!workOrderId) throw new Error('workOrderId required');
+        if (!paymentMethodId) throw new Error('paymentMethodId required');
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+
+        const wo = await airtableGetById('Work Orders', workOrderId);
+        const stripeInvoiceId = (wo.fields['Stripe Invoice ID'] || '').trim();
+        if (!stripeInvoiceId) {
+          return new Response(JSON.stringify({ error: 'No Stripe invoice on file for this work order. Create an invoice first.' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        // Attach metadata before charging
+        await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
+          'metadata[payment_method]': 'Card — key-in',
+          'metadata[collected_by]':   'Admin — manual entry'
+        });
+
+        // Pay the open invoice with the supplied PaymentMethod
+        const paid = await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}/pay`, {
+          payment_method: paymentMethodId,
+          off_session:    'true'
+        });
+
+        if (paid.status === 'paid') {
+          return new Response(JSON.stringify({ ok: true }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        } else {
+          return new Response(JSON.stringify({ error: `Stripe returned status: ${paid.status}` }),
+            { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Mark invoice paid out-of-band (cash / check) ─────────────────────
     if (path === '/api/invoice/pay-offline' && request.method === 'POST') {
       try {
@@ -1548,6 +1595,44 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
+    }
+
+    // ── Equipment POST — serial number deduplication ─────────────────────
+    // Prevents duplicate records when a tech retries a failed save or
+    // double-scans the same data tag. If a real serial number is provided,
+    // check whether that unit already exists at this property before creating.
+    if (path === '/api/Equipment' && request.method === 'POST') {
+      const body = await request.json();
+      const fields = body.fields || {};
+      const serial  = (fields['Serial Number'] || '').trim();
+      const propId  = (fields['Property'] || [])[0] || '';
+
+      if (serial && serial !== 'SN-PENDING' && propId) {
+        try {
+          const formula = `AND({Serial Number}="${serial.replace(/"/g, '\\"')}",SEARCH("${propId}",ARRAYJOIN({Property},";")))`;
+          const dupRes  = await airtableGet('Equipment', formula);
+          if (dupRes.records && dupRes.records.length > 0) {
+            // Already exists — return it as if we just created it (idempotent)
+            return new Response(JSON.stringify(dupRes.records[0]), {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
+        } catch(e) { /* dedup check failed — fall through and create normally */ }
+      }
+
+      // No duplicate found — create via normal Airtable proxy
+      const atBase = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Equipment`;
+      const atRes  = await fetch(atBase, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const atBody = await atRes.text();
+      return new Response(atBody, {
+        status: atRes.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     // ── Airtable proxy ────────────────────────────────────────────────────

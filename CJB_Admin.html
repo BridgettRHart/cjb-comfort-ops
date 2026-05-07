@@ -9,6 +9,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="CJB Admin">
 <meta name="theme-color" content="#2e2e2e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f0f0; color: #2e2e2e; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
@@ -303,6 +305,8 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .modal { border-radius: 16px 16px 0 0; max-height: 94vh; max-width: 100%; padding: 20px 16px; }
   .modal-actions { flex-direction: column-reverse; }
   .modal-actions .btn { width: 100%; text-align: center; }
+  /* Payment modal mobile — bottom sheet */
+  .apm-sheet { border-radius: 20px 20px 0 0; max-height: 94vh; max-width: 100%; }
 
   /* Invoice modal — line items table scroll */
   .li-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -438,6 +442,143 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .eq-chip-x:hover { color: #c81f25; }
 .cond-excellent { color: #1a6b35; } .cond-good { color: #1a4f8a; }
 .cond-fair { color: #8a6500; } .cond-poor { color: #c81f25; } .cond-eol { color: #888; }
+
+/* ── Admin Payment Modal ─────────────────────────────────── */
+.apm-sheet {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  animation: apmSlideIn 0.25s ease-out;
+}
+@keyframes apmSlideIn {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.apm-handle {
+  width: 40px; height: 4px;
+  background: #d1d5db;
+  border-radius: 2px;
+  margin: 18px auto 0;
+  flex-shrink: 0;
+}
+.apm-top {
+  padding: 16px 24px 20px;
+  text-align: center;
+  border-bottom: 1px solid #f3f4f6;
+  flex-shrink: 0;
+}
+.apm-customer {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+.apm-amount {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 42px;
+  font-weight: 800;
+  color: #111827;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.apm-label { font-size: 12px; color: #9ca3af; }
+.apm-methods { display: flex; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
+.apm-method-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #9ca3af;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+}
+.apm-method-btn:hover { color: #374151; }
+.apm-method-btn.active { color: #c81f25; border-bottom-color: #c81f25; }
+.apm-method-icon { font-size: 20px; line-height: 1; }
+.apm-panel { padding: 24px; flex: 1; display: flex; flex-direction: column; align-items: center; }
+.apm-hint { font-size: 13px; color: #6b7280; text-align: center; margin: 0 0 18px; line-height: 1.5; }
+.apm-qr-wrap {
+  background: #f9fafb;
+  border-radius: 14px;
+  padding: 16px;
+  display: inline-block;
+  margin-bottom: 10px;
+}
+.apm-qr { width: 200px; height: 200px; display: block; }
+.apm-qr-label { font-size: 13px; color: #6b7280; text-align: center; margin-bottom: 18px; }
+.apm-open-btn {
+  display: block; width: 100%;
+  padding: 18px 16px;
+  background: #111827; color: #f0b429;
+  border: none; border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px; font-weight: 700;
+  cursor: pointer; margin-bottom: 10px;
+  text-decoration: none; letter-spacing: 0.3px;
+  text-align: center;
+}
+.apm-poll-btn {
+  display: block; width: 100%;
+  padding: 14px;
+  background: white; color: #374151;
+  border: 2px solid #d1d5db; border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.apm-status { font-size: 13px; color: #6b7280; margin-top: 12px; min-height: 20px; text-align: center; }
+.apm-big-icon { font-size: 52px; text-align: center; display: block; margin: 0 0 16px; }
+.apm-confirm-btn {
+  display: block; width: 100%;
+  padding: 18px 16px;
+  background: #059669; color: white;
+  border: none; border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px; font-weight: 700;
+  cursor: pointer; margin-bottom: 8px;
+  text-align: center;
+}
+.apm-confirm-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.apm-check-group { width: 100%; margin-bottom: 18px; text-align: left; }
+.apm-check-label {
+  font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: #6b7280; display: block; margin-bottom: 6px;
+}
+.apm-check-input {
+  width: 100%; padding: 12px 14px;
+  border: 2px solid #d1d5db; border-radius: 8px;
+  font-size: 18px; font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 600; color: #111827;
+}
+.apm-paid-emoji { font-size: 64px; text-align: center; display: block; margin-bottom: 12px; }
+.apm-paid-title { font-size: 24px; font-weight: 800; color: #059669; margin-bottom: 8px; text-align: center; }
+.apm-paid-detail { font-size: 15px; color: #6b7280; text-align: center; }
+.apm-footer { padding: 0 24px 32px; flex-shrink: 0; text-align: center; }
+.apm-close-btn {
+  background: none; border: none;
+  color: #9ca3af; font-size: 15px;
+  padding: 14px 24px; cursor: pointer;
+  font-family: inherit; width: 100%;
+}
+.apm-card-focused { border-color: #c81f25 !important; }
 </style>
 </head>
 <body>
@@ -639,6 +780,89 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <button class="btn btn-gray" id="draft-btn" onclick="submitInvoice(false)">Save Draft</button>
       <button class="btn btn-green" id="send-btn" onclick="submitInvoice(true)">Send Invoice Now</button>
     </div>
+  </div>
+</div>
+
+<!-- Collect Payment modal -->
+<div class="modal-bg hidden" id="admin-pay-modal" onclick="if(event.target===this)closeAdminPayModal()">
+  <div class="apm-sheet">
+
+    <!-- Handle + customer / amount -->
+    <div class="apm-handle"></div>
+    <div class="apm-top">
+      <div class="apm-customer" id="apm-customer">Customer</div>
+      <div class="apm-amount" id="apm-amount">—</div>
+      <div class="apm-label">Balance due</div>
+    </div>
+
+    <!-- Method tabs -->
+    <div class="apm-methods" id="apm-methods">
+      <button class="apm-method-btn active" id="apm-tab-card" onclick="setAdminPayMethod('card')">
+        <span class="apm-method-icon">💳</span><span>Card</span>
+      </button>
+      <button class="apm-method-btn" id="apm-tab-cash" onclick="setAdminPayMethod('cash')">
+        <span class="apm-method-icon">💵</span><span>Cash</span>
+      </button>
+      <button class="apm-method-btn" id="apm-tab-check" onclick="setAdminPayMethod('check')">
+        <span class="apm-method-icon">📝</span><span>Check</span>
+      </button>
+      <button class="apm-method-btn" id="apm-tab-keyin" onclick="setAdminPayMethod('keyin')">
+        <span class="apm-method-icon">🔢</span><span>Key-in</span>
+      </button>
+    </div>
+
+    <!-- Card panel -->
+    <div class="apm-panel" id="apm-card-panel">
+      <p class="apm-hint">Have customer scan to pay on their phone — or open the link on their device.</p>
+      <div class="apm-qr-wrap">
+        <img id="apm-qr" src="" alt="Payment QR code" class="apm-qr">
+      </div>
+      <div class="apm-qr-label">Customer scans with their phone camera to pay</div>
+      <a id="apm-open-link" href="#" target="_blank" rel="noopener" class="apm-open-btn">💳 &nbsp;Open Payment Page</a>
+      <button class="apm-poll-btn" onclick="checkAdminPayStatus()">↻ &nbsp;Check if Paid</button>
+      <div class="apm-status" id="apm-card-status">Waiting for payment…</div>
+    </div>
+
+    <!-- Cash panel -->
+    <div class="apm-panel" id="apm-cash-panel" style="display:none;">
+      <span class="apm-big-icon">💵</span>
+      <p class="apm-hint">Confirm you have received cash payment in full.</p>
+      <button class="apm-confirm-btn" onclick="submitAdminPayment('cash')">✓ &nbsp;Mark Paid — Cash</button>
+    </div>
+
+    <!-- Check panel -->
+    <div class="apm-panel" id="apm-check-panel" style="display:none;">
+      <span class="apm-big-icon">📝</span>
+      <div class="apm-check-group">
+        <label class="apm-check-label">Check Number <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+        <input type="text" id="apm-check-no" class="apm-check-input" placeholder="e.g. 1042" inputmode="numeric">
+      </div>
+      <button class="apm-confirm-btn" onclick="submitAdminPayment('check')">✓ &nbsp;Mark Paid — Check</button>
+    </div>
+
+    <!-- Key-in card panel -->
+    <div class="apm-panel" id="apm-keyin-panel" style="display:none;">
+      <span class="apm-big-icon">🔢</span>
+      <p class="apm-hint">Enter the customer's card details below. Card info is handled securely by Stripe — never stored on your servers.</p>
+      <div id="apm-card-element-wrap" style="width:100%;margin-bottom:18px;">
+        <div id="apm-card-element" style="padding:14px 16px;border:2px solid #d1d5db;border-radius:10px;background:#fff;min-height:46px;"></div>
+        <div id="apm-card-errors" style="color:#c81f25;font-size:13px;margin-top:8px;min-height:18px;"></div>
+      </div>
+      <button class="apm-confirm-btn" id="apm-keyin-btn" onclick="submitKeyInPayment()">Charge Card</button>
+    </div>
+
+    <!-- Paid confirmation panel -->
+    <div class="apm-panel" id="apm-paid-panel" style="display:none;">
+      <span class="apm-paid-emoji">✅</span>
+      <div class="apm-paid-title">Payment Received!</div>
+      <div class="apm-paid-detail" id="apm-paid-detail"></div>
+    </div>
+
+    <!-- Footer -->
+    <div class="apm-footer">
+      <button class="apm-close-btn" onclick="closeAdminPayModal()">Close</button>
+    </div>
+
   </div>
 </div>
 
@@ -1295,7 +1519,10 @@ function renderDetail(customer, props, wos, contacts) {
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
-        } else if (status === 'Invoiced' || status === 'Paid') {
+        } else if (status === 'Invoiced') {
+          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect Payment</button>`;
+          if (stripeUrl) invoiceBtn += ` <a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View ↗</a>`;
+        } else if (status === 'Paid') {
           if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;
         }
 
@@ -4031,6 +4258,248 @@ async function convertEstimateToJob(woId) {
 
 function closeEstWizard() {
   document.getElementById('est-wizard-modal').classList.add('hidden');
+}
+
+// ── Admin Payment Modal ───────────────────────────────────────────────────────
+let _apmWoId        = null;
+let _apmInvoiceId   = null;
+let _apmInvoiceUrl  = null;
+let _apmPoll        = null;
+let _apmMethod      = 'card';
+let _apmStripe      = null;  // Stripe.js instance
+let _apmStripeCard  = null;  // mounted Card Element
+let _apmStripePkPromise = null; // cache the PK fetch
+
+async function openAdminPayModal(woId) {
+  _apmWoId = woId;
+  _apmMethod = 'card';
+
+  // Reset UI
+  ['apm-card-panel','apm-cash-panel','apm-check-panel','apm-keyin-panel','apm-paid-panel']
+    .forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('apm-card-panel').style.display = 'flex';
+  document.getElementById('apm-card-status').textContent = 'Waiting for payment…';
+  document.getElementById('apm-check-no').value = '';
+  document.getElementById('apm-card-errors').textContent = '';
+  ['apm-tab-card','apm-tab-cash','apm-tab-check','apm-tab-keyin'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+  document.getElementById('apm-tab-card').classList.add('active');
+  _apmStripeCard = null; // force remount next time key-in is opened
+  document.querySelectorAll('.apm-confirm-btn').forEach(b => { b.disabled = false; b.textContent = b.textContent; });
+  document.getElementById('apm-customer').textContent = 'Loading…';
+  document.getElementById('apm-amount').textContent = '—';
+  document.getElementById('admin-pay-modal').classList.remove('hidden');
+
+  try {
+    const res  = await fetch(`${PROXY}/Work%20Orders/${woId}`);
+    const wo   = await res.json();
+    const f    = wo.fields || {};
+
+    const custName   = f['Customer Name'] || 'Customer';
+    const total      = f['Total Amount'] ? '$' + Number(f['Total Amount']).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    const invoiceUrl = extractStripeUrl(f['Internal Notes'] || '');
+    _apmInvoiceId  = (f['Stripe Invoice ID'] || '').trim();
+    _apmInvoiceUrl = invoiceUrl || '';
+
+    document.getElementById('apm-customer').textContent = custName;
+    document.getElementById('apm-amount').textContent   = total;
+
+    if (invoiceUrl) {
+      const encoded = encodeURIComponent(invoiceUrl);
+      document.getElementById('apm-qr').src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encoded}`;
+      document.getElementById('apm-open-link').href = invoiceUrl;
+    } else {
+      document.getElementById('apm-qr').style.display = 'none';
+      document.getElementById('apm-open-link').style.display = 'none';
+      document.getElementById('apm-card-status').textContent = 'No invoice link on file — use Cash or Check.';
+    }
+
+    // Start polling for card payment
+    _startApmPoll();
+
+  } catch(e) {
+    document.getElementById('apm-customer').textContent = 'Could not load invoice';
+  }
+}
+
+function setAdminPayMethod(method) {
+  _apmMethod = method;
+  ['card','cash','check','keyin'].forEach(m => {
+    document.getElementById(`apm-tab-${m}`).classList.toggle('active', m === method);
+    document.getElementById(`apm-${m}-panel`).style.display = m === method ? 'flex' : 'none';
+  });
+  document.getElementById('apm-paid-panel').style.display = 'none';
+  if (method === 'card') { _startApmPoll(); } else { _stopApmPoll(); }
+  if (method === 'keyin') { _initStripeElements(); }
+}
+
+function _startApmPoll() {
+  _stopApmPoll();
+  _apmPoll = setInterval(checkAdminPayStatus, 15000);
+}
+function _stopApmPoll() {
+  if (_apmPoll) { clearInterval(_apmPoll); _apmPoll = null; }
+}
+
+async function checkAdminPayStatus() {
+  if (!_apmWoId) return;
+  try {
+    const res = await fetch(`${PROXY}/Work%20Orders/${_apmWoId}`);
+    const wo  = await res.json();
+    if ((wo.fields || {})['Status'] === 'Paid') {
+      _stopApmPoll();
+      _showApmPaid('Card payment confirmed by Stripe');
+    } else {
+      document.getElementById('apm-card-status').textContent = 'Not yet paid — checking every 15s…';
+    }
+  } catch(e) { /* non-fatal */ }
+}
+
+async function submitAdminPayment(method) {
+  const btn = document.querySelector(`#apm-${method}-panel .apm-confirm-btn`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const checkNo = method === 'check' ? (document.getElementById('apm-check-no').value.trim()) : '';
+
+  try {
+    const res = await fetch(`${PROXY}/invoice/pay-offline`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workOrderId: _apmWoId, method, checkNumber: checkNo }),
+    });
+    if (!res.ok) throw new Error('Server error');
+    const label = method === 'check'
+      ? `Check${checkNo ? ' #' + checkNo : ''}`
+      : 'Cash';
+    _stopApmPoll();
+    _showApmPaid(`Recorded as ${label}`);
+    showToast('✓ Payment recorded');
+    // Refresh customer detail so WO status updates
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = method === 'cash' ? '✓  Mark Paid — Cash' : '✓  Mark Paid — Check'; }
+    showToast('⚠ Could not record payment — try again');
+  }
+}
+
+function _showApmPaid(detail) {
+  ['apm-card-panel','apm-cash-panel','apm-check-panel'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  document.getElementById('apm-methods').style.pointerEvents = 'none';
+  document.getElementById('apm-paid-detail').textContent = detail;
+  document.getElementById('apm-paid-panel').style.display = 'flex';
+}
+
+function closeAdminPayModal() {
+  _stopApmPoll();
+  _apmWoId = null;
+  _apmInvoiceId = null;
+  _apmInvoiceUrl = null;
+  if (_apmStripeCard) { try { _apmStripeCard.destroy(); } catch(e) {} _apmStripeCard = null; }
+  document.getElementById('apm-qr').style.display = '';
+  document.getElementById('apm-open-link').style.display = '';
+  document.getElementById('apm-methods').style.pointerEvents = '';
+  document.getElementById('admin-pay-modal').classList.add('hidden');
+}
+
+// ── Stripe Elements — key-in card entry ──────────────────────────────────────
+
+async function _loadStripeJs() {
+  if (window.Stripe) return;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://js.stripe.com/v3/';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function _getStripePk() {
+  if (!_apmStripePkPromise) {
+    _apmStripePkPromise = fetch(`${PROXY}/config/stripe-pk`)
+      .then(r => r.json())
+      .then(d => d.publishableKey || '');
+  }
+  return _apmStripePkPromise;
+}
+
+async function _initStripeElements() {
+  const errEl = document.getElementById('apm-card-errors');
+  if (_apmStripeCard) return; // already mounted
+
+  try {
+    await _loadStripeJs();
+    const pk = await _getStripePk();
+    if (!pk) { errEl.textContent = 'Stripe not configured — contact admin.'; return; }
+
+    _apmStripe = Stripe(pk);
+    const elements = _apmStripe.elements();
+    _apmStripeCard = elements.create('card', {
+      hidePostalCode: false,
+      style: {
+        base: {
+          fontFamily: "'Barlow', -apple-system, sans-serif",
+          fontSize: '16px',
+          color: '#111827',
+          '::placeholder': { color: '#9ca3af' },
+        },
+        invalid: { color: '#c81f25' },
+      }
+    });
+
+    _apmStripeCard.mount('#apm-card-element');
+
+    _apmStripeCard.on('focus', () => {
+      document.getElementById('apm-card-element').classList.add('apm-card-focused');
+    });
+    _apmStripeCard.on('blur', () => {
+      document.getElementById('apm-card-element').classList.remove('apm-card-focused');
+    });
+    _apmStripeCard.on('change', e => {
+      errEl.textContent = e.error ? e.error.message : '';
+    });
+  } catch(e) {
+    errEl.textContent = 'Could not load card input — check your connection.';
+  }
+}
+
+async function submitKeyInPayment() {
+  const errEl = document.getElementById('apm-card-errors');
+  const btn   = document.getElementById('apm-keyin-btn');
+  if (!_apmStripe || !_apmStripeCard) { errEl.textContent = 'Card input not ready yet.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Charging…';
+  errEl.textContent = '';
+
+  try {
+    // Tokenise the card client-side — raw numbers never leave the browser
+    const { paymentMethod, error } = await _apmStripe.createPaymentMethod({
+      type: 'card',
+      card: _apmStripeCard,
+    });
+    if (error) { errEl.textContent = error.message; btn.disabled = false; btn.textContent = 'Charge Card'; return; }
+
+    const res = await fetch(`${PROXY}/invoice/charge-card`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workOrderId: _apmWoId, paymentMethodId: paymentMethod.id }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Charge failed');
+
+    _stopApmPoll();
+    _showApmPaid('Card charged successfully');
+    showToast('✓ Card payment recorded');
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch(e) {
+    errEl.textContent = e.message || 'Charge failed — please try again.';
+    btn.disabled = false;
+    btn.textContent = 'Charge Card';
+  }
 }
 
 init().then(() => {

@@ -2555,6 +2555,16 @@ async function renderActiveEquipmentList() {
       const serial = ef['Serial Number'] && ef['Serial Number'] !== 'SN-PENDING' ? ef['Serial Number'] : '';
       const meta = [brand, tons, refrig, location, serial].filter(Boolean).join(' · ');
 
+      // Optimistic record still saving — show a pending card, no actions
+      if (eq.id.startsWith('_temp_')) {
+        return '<div class="unit-action-card" style="opacity:0.6;">'
+          + '<div class="unit-card-header"><div class="unit-status-dot pending"></div>'
+          + '<div class="unit-card-name">' + escHtml(name) + '</div></div>'
+          + (meta ? '<div class="unit-card-meta">' + escHtml(meta) + '</div>' : '')
+          + '<div class="unit-card-actions"><span style="font-size:12px;color:var(--gray-text);">⏳ Saving…</span></div>'
+          + '</div>';
+      }
+
       const jobRecord = jobsByEquipment[eq.id];
       const isComplete = jobRecord && jobRecord.fields['Status'] === 'Complete';
       const isSkipped = jobRecord && jobRecord.fields['Status'] === 'Cancelled';
@@ -2798,12 +2808,16 @@ async function saveNewEquipmentActive() {
   const type = document.getElementById('eq-type-active').value;
   if (!type) { showToast('⚠ Select equipment type', 'error'); return; }
 
+  // Disable button immediately — prevents double-tap duplicates
+  const saveBtn = document.querySelector('#add-equipment-form-active button[onclick="saveNewEquipmentActive()"]');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
   const f = currentJob.fields;
   const custLinks = f['Customer'];
   const propLinks = f['Property'];
   const tons = document.getElementById('eq-tons-active').value;
   const tonsStr = tons ? tons + ' Ton ' : '';
-  const sameType = currentWorkOrderEquipment.filter(e => e.fields['Equipment Type'] === type).length;
+  const sameType = currentWorkOrderEquipment.filter(e => !e.id.startsWith('_temp_') && e.fields['Equipment Type'] === type).length;
   const eqName = `${tonsStr}${type} — Unit ${sameType + 1}`;
 
   const serial   = (document.getElementById('eq-serial-active')?.value   || '').trim();
@@ -2830,19 +2844,39 @@ async function saveNewEquipmentActive() {
   if (custLinks && custLinks.length > 0) fields['Customer'] = [custLinks[0]];
   if (propLinks && propLinks.length > 0) fields['Property'] = [propLinks[0]];
 
+  // ── Optimistic UI: show unit in list immediately ──────────────────────────
+  const tempId = `_temp_${Date.now()}`;
+  const optimisticRecord = { id: tempId, fields: { ...fields, 'Equipment Name': eqName } };
+  currentWorkOrderEquipment.push(optimisticRecord);
+  toggleAddEquipmentActive(); // close form right away
+  // Reset scan state
+  const prev = document.getElementById('tag-preview-active');
+  if (prev) { prev.style.display = 'none'; prev.src = ''; }
+  const photoInp = document.getElementById('eq-photo-url-active');
+  if (photoInp) photoInp.value = '';
+  await renderActiveEquipmentList(); // renders with "Saving…" card
+
   try {
     const result = await apiPost('Equipment', fields);
-    currentWorkOrderEquipment.push({ id: result.id, fields: { ...fields, 'Equipment Name': eqName } });
-    showToast('✓ Unit added', 'success');
-    toggleAddEquipmentActive();
-    // Reset scan state
-    const prev = document.getElementById('tag-preview-active');
-    if (prev) { prev.style.display = 'none'; prev.src = ''; }
-    const photoInp = document.getElementById('eq-photo-url-active');
-    if (photoInp) photoInp.value = '';
+    // Replace optimistic record with real one from Airtable
+    const idx = currentWorkOrderEquipment.findIndex(e => e.id === tempId);
+    if (idx !== -1) currentWorkOrderEquipment[idx] = { id: result.id, fields: { ...fields, 'Equipment Name': eqName } };
+    showToast('✓ Unit saved', 'success');
     await renderActiveEquipmentList();
   } catch(err) {
-    showToast('⚠ Could not save unit', 'error');
+    // Roll back — remove the optimistic record and re-open the form with data intact
+    currentWorkOrderEquipment = currentWorkOrderEquipment.filter(e => e.id !== tempId);
+    await renderActiveEquipmentList();
+    toggleAddEquipmentActive(); // re-open form
+    // Restore form values so Cornell doesn't have to re-enter
+    document.getElementById('eq-type-active').value = type;
+    if (refrig) document.getElementById('eq-refrigerant-active').value = refrig;
+    if (brand)  document.getElementById('eq-brand-active').value    = brand;
+    if (model)  document.getElementById('eq-model-active').value    = model;
+    if (serial) document.getElementById('eq-serial-active').value   = serial;
+    if (location) document.getElementById('eq-location-active').value = location;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & Add to Visit'; }
+    showToast('⚠ No connection — tap Save when signal returns', 'error');
   }
 }
 
