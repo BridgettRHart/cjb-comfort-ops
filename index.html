@@ -2334,62 +2334,6 @@ function renderJobDetail(record) {
       </div>` : ''}
     </div>
 
-    <div class="detail-section" id="equipment-section" style="display:none;">
-      <div style="padding:12px 16px;" id="equipment-list"></div>
-      <div class="add-equipment-form" id="add-equipment-form" style="margin:0 16px 16px;">
-        <div class="form-label" style="margin-bottom:12px;">Add Equipment — New Unit</div>
-        <div class="form-field">
-          <label class="form-label" for="eq-type">Type</label>
-          <select class="form-input" id="eq-type" style="-webkit-appearance:none;">
-            <option value="">Select type...</option>
-            <option>Split System</option>
-            <option>Package Unit</option>
-            <option>Heat Pump</option>
-            <option>Mini Split</option>
-            <option>WSHP</option>
-            <option>Air Handler</option>
-            <option>Condenser</option>
-            <option>Furnace</option>
-            <option>Evaporative Cooler</option>
-            <option>RTU</option>
-            <option>Other</option>
-          </select>
-        </div>
-        <div style="display:flex;gap:10px;">
-          <div class="form-field" style="flex:1;margin-bottom:10px;">
-            <label class="form-label" for="eq-tons">Tons</label>
-            <input type="number" class="form-input" id="eq-tons" placeholder="e.g. 3.5" step="0.5" min="0.5" max="25">
-          </div>
-          <div class="form-field" style="flex:1;margin-bottom:10px;">
-            <label class="form-label" for="eq-refrigerant">Refrigerant</label>
-            <select class="form-input" id="eq-refrigerant" style="-webkit-appearance:none;">
-              <option value="">Unknown</option>
-              <option>R-410A</option>
-              <option>R-22</option>
-              <option>R-32</option>
-              <option>R-454B</option>
-              <option>Other</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-field" style="margin-bottom:10px;">
-          <label class="form-label" for="eq-brand">Brand</label>
-          <input type="text" class="form-input" id="eq-brand" placeholder="Carrier, Goodman, Lennox...">
-        </div>
-        <div class="form-field" style="margin-bottom:10px;">
-          <label class="form-label" for="eq-model">Model / Serial</label>
-          <input type="text" class="form-input" id="eq-model" placeholder="From nameplate or control board">
-        </div>
-        <div class="form-field" style="margin-bottom:12px;">
-          <label class="form-label" for="eq-location">Location in Building</label>
-          <input type="text" class="form-input" id="eq-location" placeholder="e.g. Rooftop Zone 1, Hallway end unit">
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-dark" style="flex:1;padding:10px;" onclick="saveNewEquipment()">Save Unit</button>
-          <button class="btn btn-outline" style="flex:1;padding:10px;" onclick="toggleAddEquipment()">Cancel</button>
-        </div>
-      </div>
-    </div>
 
     <div class="detail-section" style="margin-bottom:12px;">
       <div class="detail-section-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleEquipmentPreview()">
@@ -3918,58 +3862,6 @@ async function uploadJobPhotos() {
     if (statusEl) statusEl.textContent = 'Photo upload failed — continuing';
     return [];
   }
-}
-
-// ── stub: summary-estimate-section no longer exists, kept for safety ──
-function renderSummaryEstimate() {
-  // no-op — estimate now handled inline in screen-complete
-}
-function openEstimateModal()  {} // no-op
-function closeEstimateModal() {} // no-op
-// ── end stubs ──
-
-// This block is now dead code — will be removed after next test cycle
-function _oldRenderSummaryEstimate_DEAD() {
-  const el = document.getElementById('summary-estimate-section');
-  if (!el || !currentJob) return;
-  const f      = currentJob.fields;
-  const status  = f['Status'] || '';
-  const quoteId = f['Stripe Quote ID'] || '';
-
-  let html = '<div class="detail-section" style="padding:16px;">'
-    + '<div style="font-size:11px;font-weight:700;letter-spacing:0.8px;color:var(--gray-text);text-transform:uppercase;margin-bottom:10px;">Estimate</div>';
-
-  if (!quoteId) {
-    html += '<div style="font-size:13px;color:var(--gray-text);margin-bottom:6px;">For <strong>additional work</strong> the customer needs to approve — not today\'s service call.</div>'
-      + '<div style="font-size:11px;color:var(--gray-text);margin-bottom:12px;">Today\'s parts &amp; labor go on the invoice. Use this for a separate repair or install quote.</div>'
-      + '<button class="btn btn-full" style="background:#1e40af;color:#fff;font-size:14px;padding:12px;" onclick="openEstimateModal()">📋 Create &amp; Send Estimate</button>';
-  } else if (status === 'Estimate Sent') {
-    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
-      + '<span style="background:#dbeafe;color:#1e40af;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">Estimate Sent</span>'
-      + '<span style="font-size:12px;color:var(--gray-text);">Awaiting customer response</span>'
-      + '</div>'
-      + '<div style="display:flex;gap:8px;">'
-      + '<button class="btn btn-outline" style="flex:1;font-size:13px;" onclick="openEstimateModal()">Edit / Resend</button>'
-      + '<button class="btn" style="flex:1;font-size:13px;background:#dc2626;color:#fff;" onclick="recordEstimateDecline(event)">Customer Declined</button>'
-      + '</div>';
-  } else if (status === 'Estimate Approved') {
-    html += '<div style="display:flex;align-items:center;gap:8px;">'
-      + '<span style="background:#d1fae5;color:#065f46;font-size:13px;font-weight:700;padding:5px 14px;border-radius:20px;">✓ Customer Approved</span>'
-      + '</div>';
-  } else if (status === 'Estimate Declined') {
-    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
-      + '<span style="background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">Declined</span>'
-      + '<span style="font-size:12px;color:var(--gray-text);">Customer declined estimate</span>'
-      + '</div>'
-      + '<button class="btn btn-full" style="background:#1e40af;color:#fff;font-size:13px;padding:10px;" onclick="openEstimateModal()">📋 Re-create Estimate</button>';
-  } else if (quoteId) {
-    // Has a quote ID but WO status isn't an estimate-specific status
-    html += '<div style="font-size:13px;color:var(--gray-text);margin-bottom:10px;">Estimate exists for this visit.</div>'
-      + '<button class="btn btn-outline btn-full" style="font-size:13px;" onclick="openEstimateModal()">View / Edit Estimate</button>';
-  }
-
-  html += '</div>';
-  el.innerHTML = html;
 }
 
 // Open the estimate build modal
