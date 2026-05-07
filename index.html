@@ -3030,9 +3030,9 @@ function openCompleteForm() {
   selectedParts = [];
   renderSelectedParts();
 
-  // Pre-fill from existing job if this unit was already completed
+  // Pre-fill from existing job if this unit was already completed or has a draft saved (In Progress)
   const existingJob = currentJobsByEquipment[selectedEquipmentId];
-  if (existingJob && existingJob.fields['Status'] === 'Complete') {
+  if (existingJob && (existingJob.fields['Status'] === 'Complete' || existingJob.fields['Status'] === 'In Progress')) {
     const jf = existingJob.fields;
     if (jf['Work Performed']) document.getElementById('field-work').value = jf['Work Performed'];
     if (jf['Diagnosis']) document.getElementById('field-diagnosis').value = jf['Diagnosis'];
@@ -3401,9 +3401,9 @@ async function submitComplete() {
     // Record whether this visit resulted in a repair estimate
     if (repairsNeeded) jobFields['Repairs Estimated'] = true;
 
-    // Save job record
+    // Save job record — patch if a draft (In Progress) or completed record already exists
     const existingJob = currentJobsByEquipment[selectedEquipmentId];
-    if (existingJob && existingJob.fields['Status'] === 'Complete') {
+    if (existingJob && (existingJob.fields['Status'] === 'Complete' || existingJob.fields['Status'] === 'In Progress')) {
       await apiPatch('Jobs', existingJob.id, jobFields);
     } else {
       await apiPost('Jobs', jobFields);
@@ -4133,6 +4133,55 @@ async function submitFieldEstimate() {
     // Update local state so buttons re-render correctly
     currentJob.fields['Stripe Quote ID'] = result.stripeQuoteId || result.id || '';
     currentJob.fields['Status']          = 'Estimate Sent';
+
+    // Save a draft Job record so form data survives navigation / refresh
+    try {
+      const woFields       = currentJob.fields;
+      const workPerformed  = (document.getElementById('field-work')?.value         || '').trim();
+      const diagnosis      = (document.getElementById('field-diagnosis')?.value     || '').trim();
+      const recommendations= (document.getElementById('field-recommendations')?.value || '').trim();
+      const officeNotes    = (document.getElementById('field-followup-notes')?.value || '').trim();
+      const otherParts     = (document.getElementById('field-parts-other')?.value   || '').trim();
+      const partLines      = selectedParts.map(p => {
+        const qty   = p.qty && p.qty > 1 ? p.qty + 'x ' : '';
+        const price = p.price ? ' | $' + p.price.toFixed(2) : '';
+        return qty + p.name + price;
+      });
+      if (otherParts) partLines.push('Custom: ' + otherParts);
+
+      const now = new Date();
+      const dateStr       = now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      const customerName  = woFields['Customer Name'] || 'Customer';
+      const jobTypeName   = woFields['Work Order Type'] || 'Service';
+      const unitLabel     = selectedEquipmentName ? ' — ' + selectedEquipmentName : '';
+      const autoJobName   = customerName + unitLabel + ' — ' + jobTypeName + ' — ' + dateStr;
+
+      const draftFields = {
+        'Job Name':      autoJobName,
+        'Work Order':    [currentJob.id],
+        'Job Type':      jobTypeName,
+        'Status':        'In Progress',
+        'Actual Start':  woFields['Actual Start'] || now.toISOString(),
+        'Repairs Estimated': true,
+      };
+      if (workPerformed)                  draftFields['Work Performed']    = workPerformed;
+      if (diagnosis)                      draftFields['Diagnosis']         = diagnosis;
+      if (recommendations)                draftFields['Recommendations']   = recommendations;
+      if (partLines.length)               draftFields['Parts Used']        = partLines.join('\n');
+      if (uploadedPhotoUrls.length)       draftFields['Photo URLs']        = uploadedPhotoUrls.join('\n');
+      if (woFields['Customer']?.length)   draftFields['Customer']          = woFields['Customer'];
+      if (woFields['Technician']?.length) draftFields['Technician']        = woFields['Technician'];
+      if (woFields['Property']?.length)   draftFields['Property']          = woFields['Property'];
+      if (selectedEquipmentId)            draftFields['Equipment']         = [selectedEquipmentId];
+      if (officeNotes) {
+        draftFields['Follow Up Required'] = true;
+        draftFields['Follow Up Notes']    = officeNotes;
+      }
+
+      const draftJob = await apiPost('Jobs', draftFields);
+      // Store so openCompleteForm can restore values if Cornell navigates back
+      currentJobsByEquipment[selectedEquipmentId] = draftJob;
+    } catch(e) { /* non-fatal — estimate is sent regardless */ }
 
     // Show success panel
     document.getElementById('fq-build-state').style.display = 'none';
