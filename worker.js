@@ -861,6 +861,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         });
 
         if (paid.status === 'paid') {
+          // Patch Airtable immediately — don't wait for the webhook (avoids race on UI refresh)
+          await airtablePatch('Work Orders', workOrderId, { 'Status': 'Paid' });
           return new Response(JSON.stringify({ ok: true }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         } else {

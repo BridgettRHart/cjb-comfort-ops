@@ -4350,6 +4350,7 @@ async function checkAdminPayStatus() {
     if ((wo.fields || {})['Status'] === 'Paid') {
       _stopApmPoll();
       _showApmPaid('Card payment confirmed by Stripe');
+      if (selectedCustomer) selectCustomer(selectedCustomer.id);
     } else {
       document.getElementById('apm-card-status').textContent = 'Not yet paid — checking every 15s…';
     }
