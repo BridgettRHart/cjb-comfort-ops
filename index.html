@@ -1415,10 +1415,6 @@
           <label class="form-label" for="eq-type-active">Type</label>
           <select class="form-input" id="eq-type-active" style="-webkit-appearance:none;">
             <option value="">Select type...</option>
-            <option>Split System</option><option>Package Unit</option><option>Heat Pump</option>
-            <option>Mini Split</option><option>WSHP</option><option>Air Handler</option>
-            <option>Condenser</option><option>Furnace</option><option>Evaporative Cooler</option>
-            <option>RTU</option><option>Other</option>
           </select>
         </div>
         <div style="display:flex;gap:10px;">
@@ -1429,8 +1425,7 @@
           <div class="form-field" style="flex:1;margin-bottom:10px;">
             <label class="form-label" for="eq-refrigerant-active">Refrigerant</label>
             <select class="form-input" id="eq-refrigerant-active" style="-webkit-appearance:none;">
-              <option value="">Unknown</option><option>R-410A</option><option>R-22</option>
-              <option>R-32</option><option>R-454B</option><option>Other</option>
+              <option value="">Unknown</option>
             </select>
           </div>
         </div>
@@ -1842,6 +1837,44 @@ const azDateStr = isoStr => {
 // ═══════════════════════
 let scheduleView = 'today'; // 'today' | 'week'
 
+// ── Airtable field options cache ─────────────────────────────
+let _eqFieldOpts = null; // { types: [...], refrigerants: [...] }
+
+async function loadEquipmentFieldOptions() {
+  if (_eqFieldOpts) return _eqFieldOpts;
+  try {
+    const res  = await fetch(`${PROXY}/meta/tables`);
+    const data = await res.json();
+    const eqTable = (data.tables || []).find(t => t.name === 'Equipment');
+    if (!eqTable) return null;
+    const getChoices = name => {
+      const field = (eqTable.fields || []).find(f => f.name === name);
+      return (field?.options?.choices || []).map(c => c.name);
+    };
+    _eqFieldOpts = {
+      types:       getChoices('Equipment Type'),
+      refrigerants: getChoices('Refrigerant Type')
+    };
+  } catch(e) { /* fall through — dropdowns stay with placeholder only */ }
+  return _eqFieldOpts;
+}
+
+function _populateEqDropdowns() {
+  if (!_eqFieldOpts) return;
+  const typeEl   = document.getElementById('eq-type-active');
+  const refEl    = document.getElementById('eq-refrigerant-active');
+  if (typeEl && _eqFieldOpts.types.length) {
+    const cur = typeEl.value;
+    typeEl.innerHTML = '<option value="">Select type...</option>'
+      + _eqFieldOpts.types.map(t => `<option${t === cur ? ' selected' : ''}>${t}</option>`).join('');
+  }
+  if (refEl && _eqFieldOpts.refrigerants.length) {
+    const cur = refEl.value;
+    refEl.innerHTML = '<option value="">Unknown</option>'
+      + _eqFieldOpts.refrigerants.map(r => `<option${r === cur ? ' selected' : ''}>${r}</option>`).join('');
+  }
+}
+
 // ── Auto-refresh ─────────────────────────────────────────────
 let _autoRefreshInterval = null;
 const AUTO_REFRESH_MS = 60_000; // 60 seconds
@@ -1887,6 +1920,7 @@ document.addEventListener('DOMContentLoaded', () => {
   buildPartsGrid();
   loadTechName();
   loadTodaysJobs();
+  loadEquipmentFieldOptions(); // pre-fetch so dropdowns are ready when form opens
   _startAutoRefresh();
 });
 
@@ -2802,8 +2836,10 @@ function toggleAddEquipmentActive() {
   if (!form) return;
   const opening = form.style.display !== 'block';
   form.style.display = opening ? 'block' : 'none';
-  // Populate "part of a system" dropdown from equipment already on file at this property
   if (opening) {
+    // Populate type/refrigerant from Airtable field options (fetched on load)
+    _populateEqDropdowns();
+    // Populate "part of a system" dropdown from equipment already on file at this property
     const sel = document.getElementById('eq-related-active');
     if (sel) {
       sel.innerHTML = '<option value="">— Standalone unit —</option>'
