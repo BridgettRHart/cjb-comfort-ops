@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>CJB — Admin</title>
 <link rel="apple-touch-icon" href="icon-admin.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,6 +13,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
+button, a, [onclick] { touch-action: manipulation; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f0f0; color: #2e2e2e; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 
 .header { background: #c81f25; color: #fff; padding: 0 20px; height: 52px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
@@ -398,7 +399,25 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 @media (max-width: 768px) {
   .sched-panel { width: 100%; }
   .sp-body { padding: 14px 16px; }
-  .sp-foot { padding: 12px 16px; }
+
+  /* Fix iOS auto-zoom: inputs must be 16px on mobile */
+  .form-inp, select.form-inp, .sp-end-sel, .apm-check-input { font-size: 16px !important; padding: 13px 14px; }
+  textarea.form-inp { font-size: 16px !important; }
+
+  /* Full-width stacked footer buttons */
+  .sp-foot { padding: 12px 16px; flex-direction: column-reverse; gap: 8px; }
+  .sp-foot .btn { width: 100%; text-align: center; padding: 15px; font-size: 16px; }
+
+  /* Bigger touch targets for day buttons */
+  .sp-day-btn { padding: 10px 3px; }
+  .sp-db-d { font-size: 17px; }
+
+  /* Bigger time slots */
+  .sp-tslot { min-height: 40px; }
+  .sp-tlbl { line-height: 40px; }
+
+  /* Slightly larger week nav buttons */
+  .sp-week-arr { padding: 10px 16px; font-size: 18px; }
 }
 
 /* ── ESTIMATES ──────────────────────────────────────────────────────────────── */
@@ -925,11 +944,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <span class="sp-hd-title">Schedule Appointment</span>
     <button class="sp-close" onclick="closeSchedPanel()">✕</button>
   </div>
-  <div class="sp-steps">
-    <div class="sp-step sp-active" id="sp-s1">1. Who</div>
-    <div class="sp-step" id="sp-s2">2. Details</div>
-    <div class="sp-step" id="sp-s3">3. When</div>
-  </div>
+  <div class="sp-steps" id="sp-steps"></div>
   <div class="sp-body" id="sp-body"></div>
   <div class="sp-foot" id="sp-foot"></div>
 </div>
@@ -3392,10 +3407,18 @@ function openSchedPanel() {
   _sp = {
     step: 1,
     cust: null, custProps: [], custContacts: [], custEquipment: [],
-    newName: '', newPhone: '',
+    // New customer — Step 1 (Who)
+    newName: '', newPhone: '', newEmail: '', newReferredBy: '',
+    // New customer — Step 2 (Where)
+    newServiceStreet: '', newServiceCity: '', newServiceState: 'AZ', newServiceZip: '',
+    newBillingStreet: '', newBillingCity: '', newBillingState: 'AZ', newBillingZip: '',
+    billingSameAsService: true,
+    newContactName: '',
+    // Job details — Step 3
     woType: 'Maintenance', priority: 'Routine', mode: ' All Units',
     propId: null, contId: null, prob: '', notes: '',
     specificEq: [],
+    // Scheduling — Step 4
     weekStart: mon,
     selDate: _azDate(now.toISOString()),
     weekWOs: null,
@@ -3415,27 +3438,56 @@ function closeSchedPanel() {
   document.getElementById('sched-panel').classList.remove('open');
 }
 
+function _spIsNew() { return !_sp.cust; }
+
+function _spVisualStep() {
+  // Map internal step (1-4) to visual step number
+  if (!_spIsNew()) {
+    // Existing customer: internal steps are 1 → 3 → 4, visual are 1 → 2 → 3
+    if (_sp.step === 1) return 1;
+    if (_sp.step === 3) return 2;
+    return 3;
+  }
+  return _sp.step; // New customer: 1,2,3,4 map directly
+}
+
 function spRender() {
-  ['1','2','3'].forEach((n, i) => {
-    const el = document.getElementById('sp-s' + n);
-    if (!el) return;
-    const s = i + 1;
-    el.className = 'sp-step' + (s === _sp.step ? ' sp-active' : s < _sp.step ? ' sp-done' : '');
-  });
+  // Dynamic step indicator
+  const steps = _spIsNew()
+    ? ['Who', 'Where', 'Details', 'When']
+    : ['Who', 'Details', 'When'];
+  const vStep = _spVisualStep();
+  document.getElementById('sp-steps').innerHTML = steps.map((lbl, i) => {
+    const v = i + 1;
+    const cls = v === vStep ? ' sp-active' : v < vStep ? ' sp-done' : '';
+    return `<div class="sp-step${cls}">${v}. ${lbl}</div>`;
+  }).join('');
+
+  // Footer buttons
   const foot = document.getElementById('sp-foot');
   if (_sp.step === 1) {
-    foot.innerHTML = `<button class="btn btn-gray" onclick="closeSchedPanel()">Cancel</button>
-      <button class="btn btn-red" onclick="spGoNext()">Next: Details →</button>`;
+    foot.innerHTML = `
+      <button class="btn btn-gray" onclick="closeSchedPanel()">Cancel</button>
+      <button class="btn btn-red" onclick="spGoNext()">Continue →</button>`;
   } else if (_sp.step === 2) {
-    foot.innerHTML = `<button class="btn btn-gray" onclick="spGoBack()">← Back</button>
-      <button class="btn btn-red" onclick="spGoNext()">Next: Schedule →</button>`;
+    foot.innerHTML = `
+      <button class="btn btn-gray" onclick="spGoBack()">← Back</button>
+      <button class="btn btn-red" onclick="spGoNext()">Next: Details →</button>`;
+  } else if (_sp.step === 3) {
+    foot.innerHTML = `
+      <button class="btn btn-gray" onclick="spGoBack()">← Back</button>
+      <button class="btn btn-red" onclick="spGoNext()">Next: When →</button>`;
   } else {
-    foot.innerHTML = `<button class="btn btn-gray" onclick="spGoBack()">← Back</button>
+    foot.innerHTML = `
+      <button class="btn btn-gray" onclick="spGoBack()">← Back</button>
       <button class="btn btn-green" id="sp-book-btn" onclick="spBook()">Book Appointment</button>`;
   }
+
+  // Render body
   if (_sp.step === 1) spRenderStep1();
-  else if (_sp.step === 2) spRenderStep2();
-  else spRenderStep3();
+  else if (_sp.step === 2) spRenderStepWhere();
+  else if (_sp.step === 3) spRenderStep2(); // Details
+  else spRenderStep3();                      // When
 }
 
 // ── Step 1: Who ──
@@ -3450,19 +3502,71 @@ function spRenderStep1() {
       </div>
       <div id="sp-sel-area"></div>
     </div>
+
     <div class="sp-new-sect">
       <div class="sp-new-lbl">Or add a new customer</div>
+
+      <div class="form-group">
+        <label class="form-label">Full Name <span style="color:#c81f25;">*</span></label>
+        <input class="form-inp" id="sp-nname" type="text" placeholder="First and last name"
+          value="${escAttr(_sp.newName)}" autocomplete="name">
+      </div>
+
       <div class="form-row-2">
-        <div class="form-group" style="margin-bottom:0;"><label class="form-label">Name</label>
-          <input class="form-inp" id="sp-nname" type="text" placeholder="Full name" value="${escAttr(_sp.newName)}"></div>
-        <div class="form-group" style="margin-bottom:0;"><label class="form-label">Phone</label>
-          <input class="form-inp" id="sp-nphone" type="tel" placeholder="(480) 555-1234" value="${escAttr(_sp.newPhone)}"></div>
+        <div class="form-group">
+          <label class="form-label">Phone</label>
+          <input class="form-inp" id="sp-nphone" type="tel" placeholder="(480) 555-1234"
+            value="${escAttr(_sp.newPhone)}" autocomplete="tel">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email <span style="color:#c81f25;">*</span></label>
+          <input class="form-inp" id="sp-nemail" type="email" placeholder="name@email.com"
+            value="${escAttr(_sp.newEmail)}" autocomplete="email">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Referred By <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+        <div class="sp-ta-wrap">
+          <input class="form-inp" id="sp-nreferred" type="text"
+            placeholder="Search existing customers…"
+            oninput="spSearchReferred(this.value)"
+            onfocus="if(this.value) spSearchReferred(this.value)"
+            autocomplete="off"
+            value="${escAttr(_sp.newReferredBy)}">
+          <div class="sp-ta-drop" id="sp-ref-drop"></div>
+        </div>
       </div>
     </div>`;
+
   if (_sp.cust) {
     document.getElementById('sp-search').value = _sp.cust.fields['Customer Name'] || '';
     spShowSelCust();
   }
+}
+
+function spSearchReferred(q) {
+  const drop = document.getElementById('sp-ref-drop');
+  if (!drop) return;
+  q = (q || '').toLowerCase().trim();
+  if (!q) { drop.classList.remove('open'); return; }
+  const matches = allCustomers.filter(c =>
+    (c.fields['Customer Name'] || '').toLowerCase().includes(q)
+  ).slice(0, 6);
+  drop.innerHTML = !matches.length
+    ? '<div style="padding:10px 14px;font-size:13px;color:#bbb;">No matches</div>'
+    : matches.map(c => `<div class="sp-ta-item" onclick="spPickReferred('${escAttr(c.id)}','${escAttr(c.fields['Customer Name'] || '')}')">
+        <div class="sp-ta-name">${esc(c.fields['Customer Name'] || '')}</div>
+      </div>`).join('');
+  drop.classList.add('open');
+}
+
+function spPickReferred(id, name) {
+  _sp.newReferredBy = name;
+  const inp = document.getElementById('sp-nreferred');
+  const drop = document.getElementById('sp-ref-drop');
+  if (inp) inp.value = name;
+  if (drop) drop.classList.remove('open');
 }
 
 function spSearchCust(q) {
@@ -3533,7 +3637,85 @@ function spClearCust() {
   spShowSelCust();
 }
 
-// ── Step 2: Details ──
+// ── Step 2: Where (new customers only) ──
+function spRenderStepWhere() {
+  const s = _sp;
+  document.getElementById('sp-body').innerHTML = `
+    <div style="background:#f4faf5;border:1.5px solid #1a6b35;border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:13px;font-weight:700;color:#1a2e1f;">
+      ${esc(s.newName)}${s.newEmail ? `<span style="font-weight:400;color:#555;"> · ${esc(s.newEmail)}</span>` : ''}
+    </div>
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#aaa;margin-bottom:12px;">Service Location</div>
+
+    <div class="form-group">
+      <label class="form-label">Street Address <span style="color:#c81f25;">*</span></label>
+      <input class="form-inp" id="sp-saddr" type="text" placeholder="123 Main St"
+        value="${escAttr(s.newServiceStreet)}" autocomplete="street-address">
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">City</label>
+        <input class="form-inp" id="sp-scity" type="text" placeholder="Mesa"
+          value="${escAttr(s.newServiceCity)}" autocomplete="address-level2">
+      </div>
+      <div class="form-group">
+        <label class="form-label">State &amp; Zip</label>
+        <div style="display:flex;gap:8px;">
+          <input class="form-inp" id="sp-sstate" type="text" maxlength="2" placeholder="AZ"
+            value="${escAttr(s.newServiceState)}" style="width:62px;flex-shrink:0;" autocomplete="address-level1">
+          <input class="form-inp" id="sp-szip" type="text" placeholder="85201"
+            value="${escAttr(s.newServiceZip)}" inputmode="numeric" autocomplete="postal-code">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:4px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:4px 0;">
+        <input type="checkbox" id="sp-bsame" ${s.billingSameAsService ? 'checked' : ''}
+          onchange="spToggleBilling()" style="width:18px;height:18px;flex-shrink:0;accent-color:#c81f25;">
+        <span style="font-size:14px;font-weight:600;color:#444;">Billing address same as service address</span>
+      </label>
+    </div>
+
+    <div id="sp-billing-wrap" style="display:${s.billingSameAsService ? 'none' : 'block'};">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#aaa;margin:14px 0 10px;">Billing Address</div>
+      <div class="form-group">
+        <label class="form-label">Street Address</label>
+        <input class="form-inp" id="sp-baddr" type="text" placeholder="123 Main St"
+          value="${escAttr(s.newBillingStreet)}" autocomplete="billing street-address">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input class="form-inp" id="sp-bcity" type="text" placeholder="Mesa"
+            value="${escAttr(s.newBillingCity)}" autocomplete="billing address-level2">
+        </div>
+        <div class="form-group">
+          <label class="form-label">State &amp; Zip</label>
+          <div style="display:flex;gap:8px;">
+            <input class="form-inp" id="sp-bstate" type="text" maxlength="2" placeholder="AZ"
+              value="${escAttr(s.newBillingState)}" style="width:62px;flex-shrink:0;">
+            <input class="form-inp" id="sp-bzip" type="text" placeholder="85201"
+              value="${escAttr(s.newBillingZip)}" inputmode="numeric">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:8px;">
+      <label class="form-label">On-Site Contact <span style="font-weight:400;text-transform:none;">(if different from ${escAttr(s.newName || 'customer name')})</span></label>
+      <input class="form-inp" id="sp-ncontact" type="text" placeholder="Full name of person who will be on site"
+        value="${escAttr(s.newContactName)}" autocomplete="name">
+    </div>`;
+}
+
+function spToggleBilling() {
+  const same = document.getElementById('sp-bsame')?.checked ?? true;
+  const wrap = document.getElementById('sp-billing-wrap');
+  if (wrap) wrap.style.display = same ? 'none' : 'block';
+}
+
+// ── Step 3: Details (was Step 2) ──
 function spRenderStep2() {
   const custLabel = _sp.cust?.fields['Customer Name'] || _sp.newName || 'New Customer';
   const propOpts = _sp.custProps.map(p =>
@@ -3795,26 +3977,73 @@ function spNavWeek(dir) {
 
 function spGoNext() {
   if (_sp.step === 1) {
-    _sp.newName  = (document.getElementById('sp-nname')?.value  || '').trim();
-    _sp.newPhone = (document.getElementById('sp-nphone')?.value || '').trim();
-    if (!_sp.cust && !_sp.newName) { alert('Select an existing customer or enter a new customer name.'); return; }
-    _sp.step = 2;
+    // Save Step 1 values
+    _sp.newName      = (document.getElementById('sp-nname')?.value     || '').trim();
+    _sp.newPhone     = (document.getElementById('sp-nphone')?.value    || '').trim();
+    _sp.newEmail     = (document.getElementById('sp-nemail')?.value    || '').trim();
+    _sp.newReferredBy = (document.getElementById('sp-nreferred')?.value || '').trim();
+
+    if (!_sp.cust && !_sp.newName) {
+      alert('Select an existing customer or enter a new customer name.');
+      return;
+    }
+    if (!_sp.cust && !_sp.newEmail) {
+      alert('Email is required — we use it for estimates and invoices.');
+      document.getElementById('sp-nemail')?.focus();
+      return;
+    }
+    // Existing customer skips the "Where" step
+    _sp.step = _sp.cust ? 3 : 2;
+
   } else if (_sp.step === 2) {
-    _sp.woType     = document.getElementById('sp-type')?.value    || 'Maintenance';
-    _sp.priority   = document.getElementById('sp-pri')?.value     || 'Routine';
-    _sp.mode       = document.getElementById('sp-mode')?.value    || ' All Units';
-    _sp.propId     = document.getElementById('sp-prop')?.value    || null;
-    _sp.contId     = document.getElementById('sp-contact')?.value || null;
-    _sp.prob       = (document.getElementById('sp-prob')?.value   || '').trim();
-    _sp.notes      = (document.getElementById('sp-notes')?.value  || '').trim();
-    // specificEq is updated live via spPickEq/spRemoveEq — already in _sp.specificEq
+    // Save Step 2 — Where (new customers only)
+    _sp.newServiceStreet = (document.getElementById('sp-saddr')?.value  || '').trim();
+    _sp.newServiceCity   = (document.getElementById('sp-scity')?.value  || '').trim();
+    _sp.newServiceState  = (document.getElementById('sp-sstate')?.value || 'AZ').trim().toUpperCase();
+    _sp.newServiceZip    = (document.getElementById('sp-szip')?.value   || '').trim();
+    _sp.billingSameAsService = document.getElementById('sp-bsame')?.checked ?? true;
+    _sp.newContactName   = (document.getElementById('sp-ncontact')?.value || '').trim();
+
+    if (!_sp.newServiceStreet) {
+      alert('Service address is required — we need it to dispatch and create the property record.');
+      document.getElementById('sp-saddr')?.focus();
+      return;
+    }
+
+    if (_sp.billingSameAsService) {
+      _sp.newBillingStreet = _sp.newServiceStreet;
+      _sp.newBillingCity   = _sp.newServiceCity;
+      _sp.newBillingState  = _sp.newServiceState;
+      _sp.newBillingZip    = _sp.newServiceZip;
+    } else {
+      _sp.newBillingStreet = (document.getElementById('sp-baddr')?.value  || '').trim();
+      _sp.newBillingCity   = (document.getElementById('sp-bcity')?.value  || '').trim();
+      _sp.newBillingState  = (document.getElementById('sp-bstate')?.value || 'AZ').trim().toUpperCase();
+      _sp.newBillingZip    = (document.getElementById('sp-bzip')?.value   || '').trim();
+    }
     _sp.step = 3;
+
+  } else if (_sp.step === 3) {
+    // Save Step 3 — Details
+    _sp.woType   = document.getElementById('sp-type')?.value    || 'Maintenance';
+    _sp.priority = document.getElementById('sp-pri')?.value     || 'Routine';
+    _sp.mode     = document.getElementById('sp-mode')?.value    || ' All Units';
+    _sp.propId   = document.getElementById('sp-prop')?.value    || null;
+    _sp.contId   = document.getElementById('sp-contact')?.value || null;
+    _sp.prob     = (document.getElementById('sp-prob')?.value   || '').trim();
+    _sp.notes    = (document.getElementById('sp-notes')?.value  || '').trim();
+    // specificEq updated live via spPickEq/spRemoveEq
+    _sp.step = 4;
   }
   spRender();
 }
 
 function spGoBack() {
-  _sp.step = Math.max(1, _sp.step - 1);
+  if (_sp.step === 3 && _sp.cust) {
+    _sp.step = 1; // existing customer skips Where going back too
+  } else {
+    _sp.step = Math.max(1, _sp.step - 1);
+  }
   spRender();
 }
 
@@ -3822,12 +4051,30 @@ async function spBook() {
   if (_sp.startH === null || !_sp.selDate) { alert('Please select a date and time slot.'); return; }
   const btn = document.getElementById('sp-book-btn');
   btn.disabled = true; btn.textContent = 'Booking…';
+
   try {
     let custId = _sp.cust?.id || null;
+    let propId = _sp.propId || null;
+    let contId = _sp.contId || null;
+
+    // ── 1. Create Customer (if new) ──────────────────────────────────────
     if (!custId) {
-      const res = await fetch(`${PROXY}/Customers`, {
+      btn.textContent = 'Creating customer…';
+      const custFields = {
+        'Customer Name': _sp.newName,
+        'Active': true,
+      };
+      if (_sp.newPhone)        custFields['Phone']           = _sp.newPhone;
+      if (_sp.newEmail)        custFields['Email']           = _sp.newEmail;
+      if (_sp.newReferredBy)   custFields['Referred By']     = _sp.newReferredBy;
+      if (_sp.newBillingStreet) custFields['Billing Address'] = _sp.newBillingStreet;
+      if (_sp.newBillingCity)   custFields['Billing City']   = _sp.newBillingCity;
+      if (_sp.newBillingState)  custFields['Billing State']  = _sp.newBillingState;
+      if (_sp.newBillingZip)    custFields['Billing Zip']    = _sp.newBillingZip;
+
+      const res  = await fetch(`${PROXY}/Customers`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { 'Customer Name': _sp.newName, ...(_sp.newPhone ? { 'Phone': _sp.newPhone } : {}), 'Active': true } })
+        body: JSON.stringify({ fields: custFields })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || 'Failed to create customer');
@@ -3837,39 +4084,88 @@ async function spBook() {
       renderCustList();
     }
 
-    // AZ local time → UTC: AZ date midnight UTC + slot offset + 7h
+    // ── 2. Create Property (new customers with service address) ──────────
+    if (!propId && _sp.newServiceStreet) {
+      btn.textContent = 'Creating property…';
+      const propFields = {
+        'Property Name': `${_sp.newName} — ${_sp.newServiceStreet}`,
+        'Customer':         [custId],
+        'Service Address':  _sp.newServiceStreet,
+        'City':             _sp.newServiceCity,
+        'State':            _sp.newServiceState || 'AZ',
+        'Zip':              _sp.newServiceZip,
+        'Active':           true,
+      };
+      if (_sp.newEmail) propFields['Customer Email'] = _sp.newEmail;
+
+      const res  = await fetch(`${PROXY}/Properties`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: propFields })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to create property');
+      propId = data.id;
+      if (window.allProperties) allProperties.push(data);
+    }
+
+    // ── 3. Create Contact (if on-site contact name differs from customer) ─
+    if (!contId && _sp.newContactName && _sp.newContactName !== _sp.newName) {
+      btn.textContent = 'Creating contact…';
+      const parts = _sp.newContactName.trim().split(/\s+/);
+      const contactFields = {
+        'Contact Name':       _sp.newContactName,
+        'First Name':         parts[0] || '',
+        'Last Name':          parts.slice(1).join(' ') || '',
+        'Customers':          [custId],
+        'Is Primary Contact': true,
+        'Active':             true,
+      };
+      if (propId) contactFields['Properties'] = [propId];
+
+      const res  = await fetch(`${PROXY}/Contacts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: contactFields })
+      });
+      const data = await res.json();
+      if (res.ok) contId = data.id;
+      // Non-fatal — WO can be booked without a contact record
+    }
+
+    // ── 4. Create Work Order ─────────────────────────────────────────────
+    btn.textContent = 'Booking…';
     const startMs = new Date(_sp.selDate + 'T00:00:00Z').getTime()
                   + (_sp.startH * 60 + _sp.startM) * 60000
-                  + 7 * 3600000;
-    const delta = parseInt(document.getElementById('sp-endsel')?.value || '120');
+                  + 7 * 3600000;  // AZ is UTC-7
+    const delta    = parseInt(document.getElementById('sp-endsel')?.value || '120');
     const startUTC = new Date(startMs).toISOString();
     const endUTC   = new Date(startMs + delta * 60000).toISOString();
 
-    const techId = document.getElementById('sp-tech')?.value || null;
+    const techId   = document.getElementById('sp-tech')?.value || null;
     const custName = _sp.cust?.fields['Customer Name'] || _sp.newName;
-    const dateStr  = new Date(_sp.selDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const dateStr  = new Date(_sp.selDate + 'T12:00:00').toLocaleDateString('en-US',
+      { month: 'short', day: 'numeric', year: 'numeric' });
 
-    const fields = {
-      'Work Order Name':  `${custName} — ${dateStr}`,
-      'Customer':         [custId],
-      'Work Order Type':  _sp.woType,
-      'Priority':         _sp.priority,
-      'Service Mode':     _sp.mode,
-      'Scheduled Date':   startUTC,
-      'Scheduled End':    endUTC,
-      'Status':           'Scheduled',
-      'Active':           true,
+    const woFields = {
+      'Work Order Name': `${custName} — ${dateStr}`,
+      'Customer':        [custId],
+      'Work Order Type': _sp.woType,
+      'Priority':        _sp.priority,
+      'Service Mode':    _sp.mode,
+      'Scheduled Date':  startUTC,
+      'Scheduled End':   endUTC,
+      'Status':          'Scheduled',
+      'Active':          true,
     };
-    if (_sp.propId)  fields['Property']            = [_sp.propId];
-    if (_sp.contId)  fields['Primary Contact']     = [_sp.contId];
-    if (techId)      fields['Technician']          = [techId];
-    if (_sp.prob)    fields['Problem Description'] = _sp.prob;
-    if (_sp.notes)   fields['Notes']               = _sp.notes;
-    if (_sp.specificEq?.length) fields['Specific Equipment'] = _sp.specificEq.map(r => r.id);
+    if (propId)              woFields['Property']            = [propId];
+    if (contId)              woFields['Primary Contact']     = [contId];
+    if (techId)              woFields['Technician']          = [techId];
+    if (_sp.prob)            woFields['Problem Description'] = _sp.prob;
+    if (_sp.notes)           woFields['Notes']               = _sp.notes;
+    if (_sp.specificEq?.length) woFields['Specific Equipment'] = _sp.specificEq.map(r => r.id);
 
-    const res = await fetch(`${PROXY}/Work%20Orders`, {
+    const res  = await fetch(`${PROXY}/Work%20Orders`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields })
+      body: JSON.stringify({ fields: woFields })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
