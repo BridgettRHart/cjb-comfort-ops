@@ -4281,7 +4281,12 @@ async function recordEstimateDecline(evt) {
     btn.textContent = 'Customer Declined';
     delete btn.dataset.confirm;
   }
-} // end _oldRenderSummaryEstimate_DEAD
+}
+
+// Estimate status is shown inline on screen-complete, not on the summary screen.
+// This stub exists so callers (showWorkOrderSummary, submitFieldEstimate,
+// recordEstimateDecline) don't throw a silent JS error and block navigation.
+function renderSummaryEstimate() {}
 </script>
 </body>
 </html>
