@@ -1519,7 +1519,7 @@ function renderDetail(customer, props, wos, contacts) {
         const stripeUrl       = extractStripeUrl(wf['Internal Notes']);
 
         // Quote button: show for any status except Invoiced / Paid / Cancelled
-        const noEstimateStatuses = ['Invoiced','Paid','Cancelled'];
+        const noEstimateStatuses = ['Cancelled'];
         let quoteBtn = '';
         if (!noEstimateStatuses.includes(status)) {
           quoteBtn = hasQuote
@@ -4413,31 +4413,26 @@ async function estSelectCustomer(custId) {
     if (el) el.value = id === 'enp-state' ? 'AZ' : '';
   });
 
-  // Fetch properties for this customer
+  // Filter properties from already-loaded allProperties (linked field = array of record IDs)
   const propEl = document.getElementById('est-prop-results');
-  propEl.innerHTML = '<div style="padding:10px;color:#aaa;font-size:13px;">Loading properties…</div>';
+  const custEmail = (_estWizCust?.fields['Email'] || '').toLowerCase();
+  const props = allProperties.filter(p => {
+    if ((p.fields['Customer'] || []).includes(custId)) return true;
+    return custEmail && (p.fields['Customer Email'] || '').toLowerCase() === custEmail;
+  });
 
-  try {
-    const formula = `{Customer}="${custId}"`;
-    const res  = await fetch(`${PROXY}/Properties?filterByFormula=${encodeURIComponent(formula)}&fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Active`);
-    const data = await res.json();
-    const props = (data.records || []).filter(p => p.fields['Active'] !== false);
-
-    if (!props.length) {
-      propEl.innerHTML = '<div style="padding:10px;color:#bbb;font-size:13px;">No properties on file — add one below</div>';
-      return;
-    }
-    propEl.innerHTML = props.map(p => {
-      const pf   = p.fields;
-      const addr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(', ');
-      return `<div class="est-cust-result-item" onclick="estSelectProperty('${p.id}')">
-        <div style="font-weight:600;">${esc(pf['Property Name'] || '(unnamed)')}</div>
-        ${addr ? `<div style="font-size:11px;color:#888;">${esc(addr)}</div>` : ''}
-      </div>`;
-    }).join('');
-  } catch(e) {
-    propEl.innerHTML = '<div style="padding:10px;color:#c81f25;font-size:13px;">Could not load properties</div>';
+  if (!props.length) {
+    propEl.innerHTML = '<div style="padding:10px;color:#bbb;font-size:13px;">No properties on file — add one below</div>';
+    return;
   }
+  propEl.innerHTML = props.map(p => {
+    const pf   = p.fields;
+    const addr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(', ');
+    return `<div class="est-cust-result-item" onclick="estSelectProperty('${p.id}')">
+      <div style="font-weight:600;">${esc(pf['Property Name'] || '(unnamed)')}</div>
+      ${addr ? `<div style="font-size:11px;color:#888;">${esc(addr)}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 async function estCreateCustomer() {
