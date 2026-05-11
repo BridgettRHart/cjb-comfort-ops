@@ -771,6 +771,21 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               });
             }
           }
+
+          // Maintenance contract proposal payment → activate contract
+          if (inv.metadata?.invoice_type === 'maintenance_contract' && inv.metadata?.contract_airtable_id) {
+            const contractId = inv.metadata.contract_airtable_id;
+            const startDate  = new Date();
+            const endDate    = new Date(startDate);
+            endDate.setFullYear(endDate.getFullYear() + 1);
+            endDate.setDate(endDate.getDate() - 1);
+            await airtablePatch('Maintenance Contracts', contractId, {
+              'Status':                 'Active',
+              'Start Date':             startDate.toISOString().split('T')[0],
+              'End Date':               endDate.toISOString().split('T')[0],
+              'Visits Used This Year':  0,
+            });
+          }
         }
 
         return new Response('ok', { status: 200 });
@@ -884,6 +899,191 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         return new Response(JSON.stringify({
           ok: true, visitsUsed, nextServiceDue: nextDueStr,
           renewalNeeded, nextWorkOrderId,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Contract proposal page (customer-facing) ──────────────────────────────
+    if (path === '/api/contract/proposal' && request.method === 'GET') {
+      const contractId = url.searchParams.get('id') || '';
+      if (!contractId) return new Response('Missing contract id', { status: 400 });
+      try {
+        const contract = await airtableGetById('Maintenance Contracts', contractId);
+        const cf = contract.fields;
+        const custName   = Array.isArray(cf['Customer Name'])  ? cf['Customer Name'][0]  : (cf['Customer Name']  || '');
+        const propName   = Array.isArray(cf['Property Name'])  ? cf['Property Name'][0]  : (cf['Property Name']  || '');
+        const propAddr   = Array.isArray(cf['Service Address']) ? cf['Service Address'][0] : (cf['Service Address'] || '');
+        const planName   = cf['Plan Name']  || 'Annual Maintenance Agreement';
+        const annual     = cf['Annual Value'] != null ? '$' + Number(cf['Annual Value']).toLocaleString('en-US', {minimumFractionDigits:2}) : '';
+        const startDate  = cf['Start Date']  ? new Date(cf['Start Date']  + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : '';
+        const endDate    = cf['End Date']    ? new Date(cf['End Date']    + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : '';
+        const services   = cf['Included Services'] || '';
+        const discount   = cf['Repair Discount %'] ? cf['Repair Discount %'] + '% discount on repairs' : '';
+        const payUrl     = cf['Stripe Invoice URL'] || '';
+        const visitFreq  = cf['Visit Frequency'] || '';
+        const visitsPerYear = cf['Visits Per Year'] || '';
+
+        const servicesHtml = services
+          ? services.split('\n').filter(Boolean).map(s => `<li>${s}</li>`).join('')
+          : '';
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maintenance Agreement Proposal — CJB Comfort</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; color: #111827; min-height: 100vh; }
+  .wrap { max-width: 600px; margin: 0 auto; padding: 24px 16px 48px; }
+  .header { background: #111827; color: white; border-radius: 12px; padding: 24px; margin-bottom: 24px; text-align: center; }
+  .header-logo { font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #f0b429; margin-bottom: 8px; }
+  .header-title { font-size: 22px; font-weight: 800; }
+  .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+  .row:last-child { border-bottom: none; }
+  .row-label { color: #6b7280; }
+  .row-value { font-weight: 600; text-align: right; }
+  .amount { font-size: 36px; font-weight: 800; color: #111827; text-align: center; margin: 8px 0 4px; }
+  .amount-label { font-size: 13px; color: #6b7280; text-align: center; }
+  ul { padding-left: 18px; }
+  ul li { font-size: 14px; line-height: 2; color: #374151; }
+  .discount { background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #166534; font-weight: 600; }
+  .accept-btn { display: block; width: 100%; background: #059669; color: white; border: none; border-radius: 12px; padding: 18px; font-size: 18px; font-weight: 800; cursor: pointer; text-align: center; text-decoration: none; margin-top: 8px; letter-spacing: 0.3px; }
+  .accept-btn:hover { background: #047857; }
+  .footer { text-align: center; font-size: 12px; color: #9ca3af; margin-top: 24px; line-height: 1.6; }
+  .check { color: #059669; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="header-logo">CJB Comfort</div>
+    <div class="header-title">Maintenance Agreement Proposal</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Prepared For</div>
+    <div class="row"><span class="row-label">Customer</span><span class="row-value">${custName}</span></div>
+    ${propName ? `<div class="row"><span class="row-label">Property</span><span class="row-value">${propName}</span></div>` : ''}
+    ${propAddr ? `<div class="row"><span class="row-label">Service Address</span><span class="row-value">${propAddr}</span></div>` : ''}
+  </div>
+
+  <div class="card">
+    <div class="card-label">Plan Details — ${planName}</div>
+    ${annual ? `<div class="amount">${annual}</div><div class="amount-label">per year</div><br>` : ''}
+    ${visitFreq ? `<div class="row"><span class="row-label">Visit Frequency</span><span class="row-value">${visitFreq}</span></div>` : ''}
+    ${visitsPerYear ? `<div class="row"><span class="row-label">Visits Per Year</span><span class="row-value">${visitsPerYear}</span></div>` : ''}
+    ${startDate ? `<div class="row"><span class="row-label">Start Date</span><span class="row-value">${startDate}</span></div>` : ''}
+    ${endDate   ? `<div class="row"><span class="row-label">End Date</span><span class="row-value">${endDate}</span></div>` : ''}
+  </div>
+
+  ${servicesHtml ? `<div class="card">
+    <div class="card-label">What's Included</div>
+    <ul>${servicesHtml}</ul>
+  </div>` : ''}
+
+  ${discount ? `<div class="discount"><span class="check">✓</span>${discount} for all maintenance agreement customers</div><br>` : ''}
+
+  <div class="card">
+    <div class="card-label">Ready to Accept?</div>
+    <p style="font-size:14px;color:#6b7280;margin-bottom:16px;line-height:1.6;">By clicking the button below you agree to the terms of this maintenance agreement and will be taken to a secure payment page to complete your first year's payment.</p>
+    ${payUrl
+      ? `<a class="accept-btn" href="${payUrl}" target="_blank" rel="noopener">✓ Accept &amp; Pay Now</a>`
+      : `<div style="background:#f9fafb;border-radius:8px;padding:14px;text-align:center;font-size:13px;color:#9ca3af;">Payment link will appear here once the invoice is ready.</div>`}
+  </div>
+
+  <div class="footer">
+    Questions? Call or text us — we're happy to walk you through it.<br>
+    CJB Comfort · Licensed &amp; Insured · Arizona
+  </div>
+</div>
+</body>
+</html>`;
+
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      } catch(err) {
+        return new Response('Could not load proposal: ' + err.message, { status: 500 });
+      }
+    }
+
+    // ── Send contract proposal invoice ────────────────────────────────────────
+    if (path === '/api/contract/send-proposal' && request.method === 'POST') {
+      const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+      try {
+        const { contractId } = await request.json();
+        if (!contractId) return new Response(JSON.stringify({ error: 'Missing contractId' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const contract = await airtableGetById('Maintenance Contracts', contractId);
+        const cf = contract.fields;
+
+        // Get customer email
+        const custId   = (cf['Customer'] || [])[0];
+        const custRec  = custId ? await airtableGetById('Customers', custId) : null;
+        const custEmail = custRec?.fields?.['Email'] || '';
+        const custName  = cf['Customer Name']
+          ? (Array.isArray(cf['Customer Name']) ? cf['Customer Name'][0] : cf['Customer Name'])
+          : (custRec?.fields?.['Customer Name'] || '');
+        if (!custEmail) return new Response(JSON.stringify({ error: 'Customer has no email address on file.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const annualValue = cf['Annual Value'] || 0;
+        const planName    = cf['Plan Name'] || 'Annual Maintenance Agreement';
+
+        // Find or create Stripe customer
+        const srchRes  = await fetch(
+          `https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
+          { headers: { Authorization: `Bearer ${STRIPE_KEY}` } });
+        const srchData = await srchRes.json();
+        let stripeCustId;
+        if (srchData.data?.length > 0) {
+          stripeCustId = srchData.data[0].id;
+        } else {
+          const cc = await stripePost(STRIPE_KEY, '/v1/customers', { email: custEmail, name: custName });
+          stripeCustId = cc.id;
+        }
+
+        // Create invoice item
+        await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
+          customer:    stripeCustId,
+          amount:      Math.round(annualValue * 100),
+          currency:    'usd',
+          description: planName,
+        });
+
+        // Create invoice with contract metadata
+        const workerUrl = new URL(request.url).origin;
+        const proposalUrl = `${workerUrl}/api/contract/proposal?id=${contractId}`;
+        const inv = await stripePost(STRIPE_KEY, '/v1/invoices', {
+          customer:             stripeCustId,
+          description:          `${planName} — Review your agreement: ${proposalUrl}`,
+          'metadata[invoice_type]':             'maintenance_contract',
+          'metadata[contract_airtable_id]':     contractId,
+          'collection_method':  'send_invoice',
+          'days_until_due':     '30',
+        });
+
+        // Finalize and send
+        await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
+        const sent = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
+
+        // Write Stripe Invoice ID + URL back to contract
+        await airtablePatch('Maintenance Contracts', contractId, {
+          'Stripe Invoice ID':  sent.id,
+          'Stripe Invoice URL': sent.hosted_invoice_url || '',
+        });
+
+        return new Response(JSON.stringify({
+          ok: true,
+          stripeInvoiceId: sent.id,
+          hostedUrl: sent.hosted_invoice_url || '',
+          proposalUrl,
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(err) {
         return new Response(JSON.stringify({ error: err.message }),

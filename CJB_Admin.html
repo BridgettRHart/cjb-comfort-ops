@@ -707,6 +707,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="sidebar-hd">
       <h2>Contracts <span id="ctr-count"></span></h2>
       <input class="search-box" id="ctr-search" type="text" placeholder="Search customer or property…" oninput="filterContracts()">
+      <button class="sidebar-add-btn" onclick="openNewContractModal()">+ New Contract</button>
     </div>
     <div class="cust-list" id="ctr-list">
       <div class="empty-list">Loading…</div>
@@ -717,6 +718,122 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <span class="arrow">←</span>
       <span>Select a contract</span>
     </div>
+  </div>
+</div>
+
+<!-- New Contract Modal -->
+<div class="modal-bg hidden" id="ctr-wizard-modal">
+  <div class="modal" style="max-width:540px;max-height:90vh;overflow-y:auto;">
+
+    <!-- Step 1: Customer -->
+    <div id="ctr-wiz-step-1">
+      <div class="modal-title">New Contract</div>
+      <div class="modal-sub">Step 1 of 3 — Select a customer</div>
+      <div class="form-group">
+        <label class="form-label">Search Customers</label>
+        <input class="form-inp" id="ctr-cust-search" type="text" placeholder="Name or email…" oninput="ctrWizFilterCustomers()" autocomplete="off">
+        <div class="est-cust-results-wrap"><div id="ctr-cust-results"></div></div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-gray" onclick="closeCtrWizard()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Property -->
+    <div id="ctr-wiz-step-2" style="display:none;">
+      <div class="modal-title">New Contract</div>
+      <div class="modal-sub">Step 2 of 3 — Select a property</div>
+      <div id="ctr-wiz-cust-label" style="background:#f4faf5;border:1.5px solid #1a6b35;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:700;color:#1a2e1f;"></div>
+      <div class="form-group">
+        <label class="form-label">Select Property</label>
+        <div class="est-cust-results-wrap"><div id="ctr-prop-results"></div></div>
+      </div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-gray" onclick="closeCtrWizard()">Cancel</button>
+        <button class="btn btn-gray" onclick="ctrWizBack(2)">← Back</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Contract Terms -->
+    <div id="ctr-wiz-step-3" style="display:none;">
+      <div class="modal-title" id="ctr-wiz-title">New Contract</div>
+      <div class="modal-sub">Step 3 of 3 — Contract terms</div>
+      <div id="ctr-wiz-context-label" style="background:#f4faf5;border:1.5px solid #1a6b35;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:700;color:#1a2e1f;display:none;"></div>
+
+      <div class="form-group">
+        <label class="form-label">Plan Name <span style="color:#c81f25;">*</span></label>
+        <input class="form-inp" id="ctr-plan-name" type="text" placeholder="e.g. Annual HVAC Maintenance — Chilton">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">Plan Type</label>
+          <select class="form-inp" id="ctr-plan-type">
+            <option>Annual Maintenance</option>
+            <option>Quarterly Filters</option>
+            <option>Full Coverage</option>
+            <option>Custom</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Billing Cycle</label>
+          <select class="form-inp" id="ctr-billing-cycle">
+            <option>Annual</option>
+            <option>Semi-Annual</option>
+            <option>Quarterly</option>
+            <option>Monthly</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">Annual Value <span style="color:#c81f25;">*</span></label>
+          <input class="form-inp" id="ctr-annual-value" type="number" min="0" step="0.01" placeholder="5100.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Repair Discount %</label>
+          <input class="form-inp" id="ctr-repair-discount" type="number" min="0" max="100" step="1" placeholder="10">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">Visit Frequency</label>
+          <select class="form-inp" id="ctr-visit-freq">
+            <option>Semi-Annual</option>
+            <option>Annual</option>
+            <option>Quarterly</option>
+            <option>Monthly</option>
+            <option>Bi-Monthly</option>
+            <option>As Needed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Visits Per Year</label>
+          <input class="form-inp" id="ctr-visits-per-year" type="number" min="1" step="1" placeholder="2">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label class="form-label">Start Date <span style="color:#c81f25;">*</span></label>
+          <input class="form-inp" id="ctr-start-date" type="date" oninput="ctrAutoEndDate()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">End Date</label>
+          <input class="form-inp" id="ctr-end-date" type="date">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Included Services</label>
+        <textarea class="notes-inp" id="ctr-included-services" rows="3" placeholder="Filter and belt changes, drain line cleaning, full inspection…"></textarea>
+      </div>
+
+      <div id="ctr-save-error" style="display:none;background:#fef2f2;color:#c81f25;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-gray" onclick="closeCtrWizard()">Cancel</button>
+        <button class="btn btn-gray" id="ctr-wiz-back-btn" onclick="ctrWizBack(3)">← Back</button>
+        <button class="btn btn-red" id="ctr-save-btn" onclick="saveNewContract()">Save Contract</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -4440,9 +4557,36 @@ function renderContractDetail(cf, jobs, contractId) {
     : '<div style="font-size:13px;color:#9ca3af;padding:8px 0;">No completed visits yet.</div>';
 
   // Action buttons
-  const renewalBtn = renewal
-    ? `<button class="btn btn-red btn-sm" onclick="alert('Renewal invoice coming soon.')">⚠ Send Renewal Invoice</button>`
-    : '';
+  const stripeInvId  = cf['Stripe Invoice ID']  || '';
+  const stripeInvUrl = cf['Stripe Invoice URL'] || '';
+  const proposalUrl  = `${PROXY}/contract/proposal?id=${contractId}`;
+
+  let actionBar = '';
+  if (status === 'Pending') {
+    if (stripeInvId) {
+      actionBar = `
+        <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#166534;margin-bottom:6px;">Proposal Invoice Sent</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input type="text" readonly value="${escAttr(proposalUrl)}" style="flex:1;font-size:11px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;background:#fff;min-width:0;">
+            <button class="btn btn-gray btn-sm" onclick="ctrCopyProposalUrl('${escAttr(proposalUrl)}')">Copy Link</button>
+            ${stripeInvUrl ? `<a class="btn btn-gray btn-sm" href="${escAttr(stripeInvUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>` : ''}
+          </div>
+        </div>
+        <div class="ctr-action-bar">
+          <button class="btn btn-gray btn-sm" onclick="markContractAccepted('${contractId}')">✓ Mark Accepted</button>
+        </div>`;
+    } else {
+      actionBar = `<div class="ctr-action-bar">
+        <button class="btn btn-red btn-sm" onclick="sendContractProposal('${contractId}')">📨 Send Proposal Invoice</button>
+        <button class="btn btn-gray btn-sm" onclick="markContractAccepted('${contractId}')">✓ Mark Accepted (manual)</button>
+      </div>`;
+    }
+  } else if (renewal) {
+    actionBar = `<div class="ctr-action-bar">
+      <button class="btn btn-red btn-sm" onclick="openNewContractModal('${contractId}')">↻ Renew Contract</button>
+    </div>`;
+  }
 
   detailEl.innerHTML = `
     ${isMobile() ? `<button class="mobile-back" onclick="ctrMobileBack()">← Contracts</button>` : ''}
@@ -4453,7 +4597,7 @@ function renderContractDetail(cf, jobs, contractId) {
       </div>
       <div class="ctr-detail-sub">${esc(custName)}${propName ? ' · ' + esc(propName) : ''}</div>
 
-      ${(renewalBtn) ? `<div class="ctr-action-bar">${renewalBtn}</div>` : ''}
+      ${actionBar}
 
       <div class="ctr-info-grid">
         <div class="ctr-info-cell">
@@ -4498,6 +4642,273 @@ function renderContractDetail(cf, jobs, contractId) {
       <div class="ctr-section-hd">Visit History</div>
       ${visitHistoryHtml}
     </div>`;
+}
+
+// ── Contract wizard state ────────────────────────────────────────────────────
+let _ctrWizCustId = null;
+let _ctrWizCust   = null;
+let _ctrWizPropId = null;
+let _ctrRenewalFromId = null;
+
+function openNewContractModal(renewFromContractId = null) {
+  _ctrRenewalFromId = renewFromContractId || null;
+  _ctrWizCustId = null; _ctrWizCust = null; _ctrWizPropId = null;
+
+  // Clear step 1
+  const s = document.getElementById('ctr-cust-search');
+  if (s) s.value = '';
+  document.getElementById('ctr-cust-results').innerHTML = '';
+
+  // Clear step 3 fields
+  ['ctr-plan-name','ctr-annual-value','ctr-repair-discount','ctr-visits-per-year','ctr-start-date','ctr-end-date']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('ctr-included-services').value = '';
+  document.getElementById('ctr-save-error').style.display = 'none';
+
+  if (renewFromContractId) {
+    // Renewing — skip steps 1 & 2, pre-fill from existing contract
+    const existing = _allContracts.find(c => c.id === renewFromContractId);
+    if (existing) {
+      const cf = existing.fields;
+      _ctrWizCustId = (cf['Customer'] || [])[0] || null;
+      _ctrWizCust   = allCustomers.find(c => c.id === _ctrWizCustId) || null;
+      _ctrWizPropId = (cf['Property'] || [])[0] || null;
+
+      document.getElementById('ctr-wiz-title').textContent = 'Renew Contract';
+      const ctx = document.getElementById('ctr-wiz-context-label');
+      const custName = Array.isArray(cf['Customer Name']) ? cf['Customer Name'][0] : (cf['Customer Name'] || '');
+      ctx.textContent = `Renewing: ${custName}`;
+      ctx.style.display = 'block';
+      document.getElementById('ctr-wiz-back-btn').style.display = 'none';
+
+      // Pre-fill terms, bump dates 1 year
+      document.getElementById('ctr-plan-name').value           = cf['Plan Name'] || '';
+      document.getElementById('ctr-plan-type').value           = cf['Plan Type'] || 'Annual Maintenance';
+      document.getElementById('ctr-billing-cycle').value       = cf['Billing Cycle'] || 'Annual';
+      document.getElementById('ctr-annual-value').value        = cf['Annual Value'] || '';
+      document.getElementById('ctr-repair-discount').value     = cf['Repair Discount %'] || '';
+      document.getElementById('ctr-visit-freq').value          = cf['Visit Frequency'] || 'Semi-Annual';
+      document.getElementById('ctr-visits-per-year').value     = cf['Visits Per Year'] || 2;
+      document.getElementById('ctr-included-services').value   = cf['Included Services'] || '';
+
+      // Bump start/end 1 year from existing end date (or today)
+      const baseDate = cf['End Date'] ? new Date(cf['End Date']) : new Date();
+      const newStart = new Date(baseDate);
+      newStart.setDate(newStart.getDate() + 1);
+      const newEnd = new Date(newStart);
+      newEnd.setFullYear(newEnd.getFullYear() + 1);
+      newEnd.setDate(newEnd.getDate() - 1);
+      document.getElementById('ctr-start-date').value = newStart.toISOString().split('T')[0];
+      document.getElementById('ctr-end-date').value   = newEnd.toISOString().split('T')[0];
+
+      ctrWizShowStep(3);
+    }
+  } else {
+    document.getElementById('ctr-wiz-title').textContent = 'New Contract';
+    document.getElementById('ctr-wiz-context-label').style.display = 'none';
+    document.getElementById('ctr-wiz-back-btn').style.display = '';
+    ctrWizShowStep(1);
+  }
+
+  document.getElementById('ctr-wizard-modal').classList.remove('hidden');
+}
+
+function closeCtrWizard() {
+  document.getElementById('ctr-wizard-modal').classList.add('hidden');
+}
+
+function ctrWizShowStep(n) {
+  [1,2,3].forEach(i =>
+    document.getElementById(`ctr-wiz-step-${i}`).style.display = i === n ? '' : 'none');
+}
+
+function ctrWizBack(fromStep) {
+  ctrWizShowStep(fromStep - 1);
+}
+
+function ctrWizFilterCustomers() {
+  const q = (document.getElementById('ctr-cust-search').value || '').toLowerCase();
+  const results = q.length < 1 ? [] : allCustomers.filter(c => {
+    const f = c.fields;
+    return (f['Customer Name'] || '').toLowerCase().includes(q)
+      || (f['Email'] || '').toLowerCase().includes(q);
+  }).slice(0, 12);
+  document.getElementById('ctr-cust-results').innerHTML = results.length
+    ? results.map(c => {
+        const f = c.fields;
+        const meta = [f['Email'], f['Phone']].filter(Boolean).join(' · ');
+        return `<div class="est-cust-result-item" onclick="ctrWizSelectCustomer('${c.id}')">
+          <div style="font-weight:600;">${esc(f['Customer Name'] || '')}</div>
+          ${meta ? `<div style="font-size:11px;color:#888;">${esc(meta)}</div>` : ''}
+        </div>`;
+      }).join('')
+    : (q ? '<div style="padding:8px 10px;font-size:13px;color:#aaa;">No results</div>' : '');
+}
+
+function ctrWizSelectCustomer(custId) {
+  _ctrWizCustId = custId;
+  _ctrWizCust   = allCustomers.find(c => c.id === custId) || null;
+  document.getElementById('ctr-wiz-cust-label').textContent = _ctrWizCust?.fields['Customer Name'] || '';
+  ctrWizShowStep(2);
+
+  // Load properties for this customer from allProperties (in-memory)
+  const custEmail = (_ctrWizCust?.fields['Email'] || '').toLowerCase();
+  const props = allProperties.filter(p => {
+    if ((p.fields['Customer'] || []).includes(custId)) return true;
+    return custEmail && (p.fields['Customer Email'] || '').toLowerCase() === custEmail;
+  });
+  const propEl = document.getElementById('ctr-prop-results');
+  if (!props.length) {
+    propEl.innerHTML = '<div style="padding:10px;color:#bbb;font-size:13px;">No properties on file for this customer.</div>';
+    return;
+  }
+  propEl.innerHTML = props.map(p => {
+    const pf = p.fields;
+    const addr = [pf['Service Address'], pf['City'], pf['State']].filter(Boolean).join(', ');
+    return `<div class="est-cust-result-item" onclick="ctrWizSelectProperty('${p.id}')">
+      <div style="font-weight:600;">${esc(pf['Property Name'] || '(unnamed)')}</div>
+      ${addr ? `<div style="font-size:11px;color:#888;">${esc(addr)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function ctrWizSelectProperty(propId) {
+  _ctrWizPropId = propId;
+  const prop = allProperties.find(p => p.id === propId);
+  const custName = _ctrWizCust?.fields['Customer Name'] || '';
+  const propName = prop?.fields['Property Name'] || '';
+  const ctx = document.getElementById('ctr-wiz-context-label');
+  ctx.textContent = [custName, propName].filter(Boolean).join(' — ');
+  ctx.style.display = 'block';
+  ctrWizShowStep(3);
+}
+
+function ctrAutoEndDate() {
+  const startVal = document.getElementById('ctr-start-date').value;
+  if (!startVal) return;
+  const end = new Date(startVal + 'T12:00:00');
+  end.setFullYear(end.getFullYear() + 1);
+  end.setDate(end.getDate() - 1);
+  document.getElementById('ctr-end-date').value = end.toISOString().split('T')[0];
+}
+
+async function saveNewContract() {
+  const planName   = (document.getElementById('ctr-plan-name').value || '').trim();
+  const annualVal  = parseFloat(document.getElementById('ctr-annual-value').value || '0');
+  const startDate  = document.getElementById('ctr-start-date').value;
+  const errEl = document.getElementById('ctr-save-error');
+  errEl.style.display = 'none';
+
+  if (!planName)   { errEl.textContent = 'Plan Name is required.';   errEl.style.display = ''; return; }
+  if (!annualVal)  { errEl.textContent = 'Annual Value is required.'; errEl.style.display = ''; return; }
+  if (!startDate)  { errEl.textContent = 'Start Date is required.';  errEl.style.display = ''; return; }
+  if (!_ctrWizCustId) { errEl.textContent = 'No customer selected.'; errEl.style.display = ''; return; }
+
+  const btn = document.getElementById('ctr-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const fields = {
+    'Contract Name':       planName,
+    'Plan Name':           planName,
+    'Plan Type':           document.getElementById('ctr-plan-type').value,
+    'Billing Cycle':       document.getElementById('ctr-billing-cycle').value,
+    'Annual Value':        annualVal,
+    'Visit Frequency':     document.getElementById('ctr-visit-freq').value,
+    'Visits Per Year':     parseInt(document.getElementById('ctr-visits-per-year').value || '2'),
+    'Visits Used This Year': 0,
+    'Start Date':          startDate,
+    'Status':              'Pending',
+    'Active':              true,
+    'Customer':            [_ctrWizCustId],
+  };
+  const endDate   = document.getElementById('ctr-end-date').value;
+  const discount  = document.getElementById('ctr-repair-discount').value;
+  const services  = document.getElementById('ctr-included-services').value.trim();
+  if (endDate)   fields['End Date']           = endDate;
+  if (discount)  fields['Repair Discount %']  = parseFloat(discount);
+  if (services)  fields['Included Services']  = services;
+  if (_ctrWizPropId) fields['Property'] = [_ctrWizPropId];
+
+  // Link primary contact if available
+  const cust = allCustomers.find(c => c.id === _ctrWizCustId);
+  if (cust?.fields['Email']) fields['Customer Email'] = cust.fields['Email'];
+
+  try {
+    const res  = await fetch(`${PROXY}/Maintenance Contracts`,
+      { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({fields}) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    _allContracts.unshift(data);
+    _filteredContracts = [..._allContracts];
+    document.getElementById('ctr-count').textContent = '(' + _allContracts.length + ')';
+    renderContractList();
+    closeCtrWizard();
+    selectContract(data.id);
+
+    // If this was a renewal, mark the old contract expired
+    if (_ctrRenewalFromId) {
+      await fetch(`${PROXY}/Maintenance Contracts/${_ctrRenewalFromId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({fields:{'Status':'Expired'}}) });
+      const old = _allContracts.find(c => c.id === _ctrRenewalFromId);
+      if (old) old.fields['Status'] = 'Expired';
+      renderContractList();
+    }
+  } catch(err) {
+    errEl.textContent = 'Error: ' + err.message;
+    errEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Contract';
+  }
+}
+
+async function sendContractProposal(contractId) {
+  const btn = document.querySelector(`[onclick="sendContractProposal('${contractId}')"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const res  = await fetch(`${PROXY}/contract/send-proposal`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contractId }) });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Unknown error');
+    // Refresh contract from Airtable so detail view shows updated fields
+    const fresh = await fetch(`${PROXY}/Maintenance Contracts/${contractId}`).then(r => r.json());
+    const idx = _allContracts.findIndex(c => c.id === contractId);
+    if (idx !== -1) _allContracts[idx] = fresh;
+    _selectedContract = fresh;
+    selectContract(contractId);
+  } catch(err) {
+    alert('Could not send proposal: ' + err.message);
+    if (btn) { btn.disabled = false; btn.textContent = '📨 Send Proposal Invoice'; }
+  }
+}
+
+async function markContractAccepted(contractId) {
+  if (!confirm('Mark this contract as accepted and activate it?')) return;
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    await fetch(`${PROXY}/Maintenance Contracts/${contractId}`,
+      { method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({fields:{ 'Status':'Active', 'Start Date': today }}) });
+    const idx = _allContracts.findIndex(c => c.id === contractId);
+    if (idx !== -1) {
+      _allContracts[idx].fields['Status']     = 'Active';
+      _allContracts[idx].fields['Start Date'] = today;
+      _selectedContract = _allContracts[idx];
+    }
+    renderContractList();
+    renderContractDetail(_selectedContract.fields, [], contractId);
+    // Reload full detail with jobs
+    selectContract(contractId);
+  } catch(err) {
+    alert('Could not update contract: ' + err.message);
+  }
+}
+
+function ctrCopyProposalUrl(url) {
+  navigator.clipboard.writeText(url).then(() => showToast('Proposal link copied!'));
 }
 
 function ctrMobileBack() {
