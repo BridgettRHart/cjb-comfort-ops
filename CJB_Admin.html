@@ -444,6 +444,39 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .est-cust-result-item:hover { background: #f9f9f9; }
 .est-cust-results-wrap { max-height: 220px; overflow-y: auto; border: 1px solid #e8e8e8; border-radius: 7px; margin-top: 6px; }
 
+/* ── CONTRACTS ─────────────────────────────────────────────────────────────── */
+.ctr-item { padding: 12px 14px; border-bottom: 1px solid #f2f2f2; cursor: pointer; transition: background 0.1s; }
+.ctr-item:hover { background: #fafafa; }
+.ctr-item.selected { background: #fff5f5; border-left: 3px solid #c81f25; padding-left: 11px; }
+.ctr-item-name { font-size: 13px; font-weight: 600; color: #111; }
+.ctr-item-prop { font-size: 11px; color: #888; margin-top: 1px; }
+.ctr-item-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+.ctr-pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+.ctr-pill-active    { background: #dcfce7; color: #166534; }
+.ctr-pill-pending   { background: #fef9c3; color: #854d0e; }
+.ctr-pill-expired   { background: #f3f4f6; color: #9ca3af; }
+.ctr-pill-cancelled { background: #fee2e2; color: #991b1b; }
+.ctr-alert-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+.ctr-detail-hd { font-size: 20px; font-weight: 800; color: #111; margin-bottom: 2px; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.2px; }
+.ctr-detail-sub { font-size: 13px; color: #555; margin-bottom: 14px; }
+.ctr-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.ctr-info-cell { background: #f9fafb; border-radius: 8px; padding: 10px 12px; }
+.ctr-info-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin-bottom: 3px; }
+.ctr-info-value { font-size: 14px; font-weight: 700; color: #111; }
+.ctr-progress-wrap { margin-bottom: 16px; background: #f9fafb; border-radius: 10px; padding: 12px 14px; }
+.ctr-progress-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin-bottom: 8px; }
+.ctr-progress-dots { display: flex; gap: 8px; align-items: center; }
+.ctr-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #e5e7eb; background: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #d1d5db; }
+.ctr-dot.used { background: #059669; border-color: #059669; color: white; }
+.ctr-dot.renewal { background: #f59e0b; border-color: #f59e0b; color: white; }
+.ctr-section-hd { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0; }
+.ctr-finding-card { border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; border-left: 4px solid; }
+.ctr-finding-unit { font-size: 12px; font-weight: 700; color: #111; margin-bottom: 3px; }
+.ctr-finding-notes { font-size: 12px; color: #555; line-height: 1.4; }
+.ctr-visit-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
+.ctr-visit-row:last-child { border-bottom: none; }
+.ctr-action-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
 /* ── EQUIPMENT ──────────────────────────────────────────────────────────────── */
 .eq-prop-group { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin: 10px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #f0f0f0; }
 .eq-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
@@ -612,6 +645,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   <button class="tab-btn active" id="tab-dash" onclick="switchTab('dash')">Dashboard</button>
   <button class="tab-btn" id="tab-customers" onclick="switchTab('customers')">Customers</button>
   <button class="tab-btn" id="tab-estimates" onclick="switchTab('estimates')">Estimates</button>
+  <button class="tab-btn" id="tab-contracts" onclick="switchTab('contracts')">Contracts</button>
 </div>
 
 <!-- Dashboard view -->
@@ -663,6 +697,25 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="empty-state">
       <span class="arrow">←</span>
       <span>Select an estimate</span>
+    </div>
+  </div>
+</div>
+
+<!-- Contracts view -->
+<div class="app" id="app-contracts" style="display:none;">
+  <div class="sidebar">
+    <div class="sidebar-hd">
+      <h2>Contracts <span id="ctr-count"></span></h2>
+      <input class="search-box" id="ctr-search" type="text" placeholder="Search customer or property…" oninput="filterContracts()">
+    </div>
+    <div class="cust-list" id="ctr-list">
+      <div class="empty-list">Loading…</div>
+    </div>
+  </div>
+  <div class="detail" id="ctr-detail">
+    <div class="empty-state">
+      <span class="arrow">←</span>
+      <span>Select a contract</span>
     </div>
   </div>
 </div>
@@ -967,6 +1020,11 @@ let liCount = 0;
 let invoiceWOId   = null;
 let invoiceCustId = null;
 
+// ── Contracts state ──────────────────────────────────────────────────────────
+let _allContracts     = [];
+let _filteredContracts = [];
+let _selectedContract = null;
+
 // ── Estimates state ──────────────────────────────────────────────────────────
 let _allEstimates  = [];
 let _estFilter     = 'active';
@@ -1032,13 +1090,15 @@ function switchTab(tab) {
   document.getElementById('tab-dash').classList.toggle('active', tab === 'dash');
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
-  document.getElementById('dash-view').style.display      = tab === 'dash'      ? '' : 'none';
-  document.getElementById('app-customers').style.display  = tab === 'customers' ? '' : 'none';
-  document.getElementById('app-estimates').style.display  = tab === 'estimates' ? '' : 'none';
+  document.getElementById('tab-contracts').classList.toggle('active', tab === 'contracts');
+  document.getElementById('dash-view').style.display       = tab === 'dash'      ? '' : 'none';
+  document.getElementById('app-customers').style.display   = tab === 'customers' ? '' : 'none';
+  document.getElementById('app-estimates').style.display   = tab === 'estimates' ? '' : 'none';
+  document.getElementById('app-contracts').style.display   = tab === 'contracts' ? '' : 'none';
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
+  if (tab === 'contracts') loadContracts();
   if (tab === 'customers' && isMobile()) {
-    // Always land on the list view when switching to customers on mobile
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
     selectedCustomer = null;
@@ -4182,6 +4242,269 @@ async function spBook() {
 }
 
 // ── ESTIMATES ────────────────────────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════
+// CONTRACTS TAB
+// ═══════════════════════════════════════════════════════════
+
+async function loadContracts() {
+  document.getElementById('ctr-list').innerHTML = '<div class="empty-list">Loading…</div>';
+  try {
+    const recs = await fetchAll('Maintenance Contracts',
+      'sort[0][field]=Next Service Due&sort[0][direction]=asc');
+    _allContracts = recs.filter(r => r.fields['Active'] !== false);
+    _filteredContracts = [..._allContracts];
+    document.getElementById('ctr-count').textContent = '(' + _allContracts.length + ')';
+    renderContractList();
+  } catch(e) {
+    document.getElementById('ctr-list').innerHTML = '<div class="empty-list">Could not load contracts.</div>';
+  }
+}
+
+function filterContracts() {
+  const q = (document.getElementById('ctr-search').value || '').toLowerCase();
+  _filteredContracts = q
+    ? _allContracts.filter(c => {
+        const f = c.fields;
+        const custName = esc(Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : f['Customer Name'] || '').toLowerCase();
+        const propName = esc(Array.isArray(f['Property Name']) ? f['Property Name'][0] : f['Property Name'] || '').toLowerCase();
+        const plan = (f['Plan Name'] || '').toLowerCase();
+        return custName.includes(q) || propName.includes(q) || plan.includes(q);
+      })
+    : [..._allContracts];
+  renderContractList();
+}
+
+function _ctrRenewalNeeded(cf) {
+  const visitsUsed = cf['Visits Used This Year'] || 0;
+  const visitsPerYear = cf['Visits Per Year'] || 2;
+  if (visitsUsed >= visitsPerYear) return true;
+  if (cf['End Date']) {
+    const daysLeft = Math.ceil((new Date(cf['End Date']) - new Date()) / 86400000);
+    if (daysLeft <= 60) return true;
+  }
+  return false;
+}
+
+function renderContractList() {
+  const el = document.getElementById('ctr-list');
+  if (!_filteredContracts.length) {
+    el.innerHTML = '<div class="empty-list">No contracts found</div>';
+    return;
+  }
+
+  // Sort: renewal-needed first, then by Next Service Due
+  const sorted = [..._filteredContracts].sort((a, b) => {
+    const aN = _ctrRenewalNeeded(a.fields) ? 0 : 1;
+    const bN = _ctrRenewalNeeded(b.fields) ? 0 : 1;
+    if (aN !== bN) return aN - bN;
+    return (a.fields['Next Service Due'] || '').localeCompare(b.fields['Next Service Due'] || '');
+  });
+
+  el.innerHTML = sorted.map(c => {
+    const f = c.fields;
+    const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '—');
+    const propName = Array.isArray(f['Property Name']) ? f['Property Name'][0] : (f['Property Name'] || '');
+    const status   = f['Status'] || 'Active';
+    const pillCls  = { Active:'ctr-pill-active', Pending:'ctr-pill-pending',
+                       Expired:'ctr-pill-expired', Cancelled:'ctr-pill-cancelled' }[status] || 'ctr-pill-pending';
+    const visitsUsed = f['Visits Used This Year'] || 0;
+    const visitsPerYear = f['Visits Per Year'] || 2;
+    const nextDue  = f['Next Service Due']
+      ? new Date(f['Next Service Due']).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : '';
+    const renewal  = _ctrRenewalNeeded(f);
+    const isSelected = _selectedContract?.id === c.id;
+
+    return `<div class="ctr-item${isSelected ? ' selected' : ''}" onclick="selectContract('${c.id}')">
+      <div class="ctr-item-name">${esc(custName)}</div>
+      ${propName ? `<div class="ctr-item-prop">${esc(propName)}</div>` : ''}
+      <div class="ctr-item-row">
+        <span class="ctr-pill ${pillCls}">${esc(status)}</span>
+        ${renewal ? `<span class="ctr-alert-chip">⚠ Renewal needed</span>` : ''}
+        <span style="font-size:11px;color:#888;margin-left:auto;">${visitsUsed}/${visitsPerYear} visits</span>
+      </div>
+      ${nextDue && !renewal ? `<div style="font-size:11px;color:#888;margin-top:4px;">Next: ${esc(nextDue)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function selectContract(contractId) {
+  _selectedContract = _allContracts.find(c => c.id === contractId) || null;
+  if (!_selectedContract) return;
+  renderContractList();
+
+  const detailEl = document.getElementById('ctr-detail');
+  detailEl.innerHTML = '<div style="padding:40px;text-align:center;"><span class="spinner"></span></div>';
+
+  if (isMobile()) {
+    document.getElementById('app-contracts').querySelector('.sidebar').classList.add('mobile-hidden');
+    detailEl.classList.add('mobile-visible');
+  }
+
+  const cf = _selectedContract.fields;
+
+  // Load jobs linked to this contract
+  let jobs = [];
+  const jobIds = cf['Jobs'] || [];
+  if (jobIds.length) {
+    try {
+      const formula = `OR(${jobIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+      const res  = await fetch(`${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}&maxRecords=200`);
+      const data = await res.json();
+      jobs = data.records || [];
+    } catch(e) { /* non-fatal */ }
+  }
+
+  renderContractDetail(cf, jobs, contractId);
+}
+
+function renderContractDetail(cf, jobs, contractId) {
+  const detailEl = document.getElementById('ctr-detail');
+
+  const custName   = Array.isArray(cf['Customer Name'])  ? cf['Customer Name'][0]  : (cf['Customer Name'] || '—');
+  const propName   = Array.isArray(cf['Property Name'])  ? cf['Property Name'][0]  : (cf['Property Name'] || '');
+  const status     = cf['Status'] || 'Active';
+  const pillCls    = { Active:'ctr-pill-active', Pending:'ctr-pill-pending',
+                       Expired:'ctr-pill-expired', Cancelled:'ctr-pill-cancelled' }[status] || 'ctr-pill-pending';
+  const annual     = cf['Annual Value'] != null ? '$' + Number(cf['Annual Value']).toLocaleString('en-US', {minimumFractionDigits:2}) : '—';
+  const startDate  = cf['Start Date']       ? new Date(cf['Start Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : '—';
+  const endDate    = cf['End Date']         ? new Date(cf['End Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : '—';
+  const nextDue    = cf['Next Service Due'] ? new Date(cf['Next Service Due']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : '—';
+  const visitsUsed = cf['Visits Used This Year'] || 0;
+  const visitsPerYear = cf['Visits Per Year'] || 2;
+  const renewal    = _ctrRenewalNeeded(cf);
+
+  // Visit progress dots
+  const dots = Array.from({length: visitsPerYear}, (_, i) => {
+    const used = i < visitsUsed;
+    const cls  = used ? (renewal && i === visitsPerYear - 1 ? 'ctr-dot used renewal' : 'ctr-dot used') : 'ctr-dot';
+    return `<div class="${cls}">${used ? '✓' : (i + 1)}</div>`;
+  }).join('');
+
+  // Repair findings — jobs with Repair Urgency set
+  const urgencyOrder = ['Safety Issue','Repair Now','Repair Soon','Monitor'];
+  const urgencyStyle = {
+    'Safety Issue': 'background:#fee2e2;border-color:#dc2626;',
+    'Repair Now':   'background:#ffedd5;border-color:#ea580c;',
+    'Repair Soon':  'background:#fef3c7;border-color:#d97706;',
+    'Monitor':      'background:#d1fae5;border-color:#059669;',
+  };
+  const urgencyEmoji = { 'Safety Issue':'🔴', 'Repair Now':'🟠', 'Repair Soon':'🟡', 'Monitor':'🟢' };
+
+  const findings = jobs
+    .filter(j => j.fields['Repair Urgency'])
+    .sort((a, b) => urgencyOrder.indexOf(a.fields['Repair Urgency']) - urgencyOrder.indexOf(b.fields['Repair Urgency']));
+
+  const findingsHtml = findings.length
+    ? findings.map(j => {
+        const jf    = j.fields;
+        const tier  = jf['Repair Urgency'];
+        const style = urgencyStyle[tier] || 'background:#f9fafb;border-color:#d1d5db;';
+        const emoji = urgencyEmoji[tier] || '';
+        const unit  = jf['Job Name'] || '(unnamed unit)';
+        const diag  = jf['Diagnosis'] || '';
+        const rec   = jf['Recommendations'] || '';
+        return `<div class="ctr-finding-card" style="${style}">
+          <div class="ctr-finding-unit">${emoji} ${esc(tier)} — ${esc(unit)}</div>
+          ${diag ? `<div class="ctr-finding-notes"><strong>Found:</strong> ${esc(diag)}</div>` : ''}
+          ${rec  ? `<div class="ctr-finding-notes"><strong>Needs:</strong> ${esc(rec)}</div>` : ''}
+        </div>`;
+      }).join('')
+    : '<div style="font-size:13px;color:#9ca3af;padding:8px 0;">No repair findings on record.</div>';
+
+  // Visit history — completed jobs grouped by date
+  const completedJobs = jobs.filter(j => j.fields['Status'] === 'Complete' || j.fields['Status'] === 'Invoiced' || j.fields['Status'] === 'Paid');
+  const visitDates = [...new Set(completedJobs.map(j => {
+    const d = j.fields['Actual End'] || j.fields['Scheduled Start'] || '';
+    return d ? d.substring(0, 10) : '';
+  }).filter(Boolean))].sort().reverse();
+
+  const visitHistoryHtml = visitDates.length
+    ? visitDates.map(dateStr => {
+        const dateLabel = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+        const dayJobs   = completedJobs.filter(j => {
+          const d = j.fields['Actual End'] || j.fields['Scheduled Start'] || '';
+          return d.startsWith(dateStr);
+        });
+        const unitCount = dayJobs.length;
+        const findings  = dayJobs.filter(j => j.fields['Repair Urgency']).length;
+        return `<div class="ctr-visit-row">
+          <div>
+            <div style="font-weight:600;">${esc(dateLabel)}</div>
+            <div style="font-size:11px;color:#888;">${unitCount} unit${unitCount !== 1 ? 's' : ''} serviced${findings ? ' · ' + findings + ' finding' + (findings !== 1 ? 's' : '') : ''}</div>
+          </div>
+          <span class="ctr-pill ctr-pill-active">Complete</span>
+        </div>`;
+      }).join('')
+    : '<div style="font-size:13px;color:#9ca3af;padding:8px 0;">No completed visits yet.</div>';
+
+  // Action buttons
+  const renewalBtn = renewal
+    ? `<button class="btn btn-red btn-sm" onclick="alert('Renewal invoice coming soon.')">⚠ Send Renewal Invoice</button>`
+    : '';
+
+  detailEl.innerHTML = `
+    ${isMobile() ? `<button class="mobile-back" onclick="ctrMobileBack()">← Contracts</button>` : ''}
+    <div style="padding:20px 24px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px;">
+        <div class="ctr-detail-hd">${esc(cf['Plan Name'] || custName)}</div>
+        <span class="ctr-pill ${pillCls}" style="flex-shrink:0;margin-top:4px;">${esc(status)}</span>
+      </div>
+      <div class="ctr-detail-sub">${esc(custName)}${propName ? ' · ' + esc(propName) : ''}</div>
+
+      ${(renewalBtn) ? `<div class="ctr-action-bar">${renewalBtn}</div>` : ''}
+
+      <div class="ctr-info-grid">
+        <div class="ctr-info-cell">
+          <div class="ctr-info-label">Annual Value</div>
+          <div class="ctr-info-value">${esc(annual)}</div>
+        </div>
+        <div class="ctr-info-cell">
+          <div class="ctr-info-label">Visit Frequency</div>
+          <div class="ctr-info-value">${esc(cf['Visit Frequency'] || '—')}</div>
+        </div>
+        <div class="ctr-info-cell">
+          <div class="ctr-info-label">Start Date</div>
+          <div class="ctr-info-value">${esc(startDate)}</div>
+        </div>
+        <div class="ctr-info-cell">
+          <div class="ctr-info-label">End Date</div>
+          <div class="ctr-info-value">${esc(endDate)}</div>
+        </div>
+        <div class="ctr-info-cell">
+          <div class="ctr-info-label">Next Service Due</div>
+          <div class="ctr-info-value">${esc(nextDue)}</div>
+        </div>
+        <div class="ctr-info-cell">
+          <div class="ctr-info-label">Billing Cycle</div>
+          <div class="ctr-info-value">${esc(cf['Billing Cycle'] || '—')}</div>
+        </div>
+      </div>
+
+      <div class="ctr-progress-wrap">
+        <div class="ctr-progress-label">Visits This Year — ${visitsUsed} of ${visitsPerYear} used</div>
+        <div class="ctr-progress-dots">${dots}</div>
+      </div>
+
+      ${cf['Included Services'] ? `
+        <div class="ctr-section-hd">Included Services</div>
+        <div style="font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap;">${esc(cf['Included Services'])}</div>
+      ` : ''}
+
+      <div class="ctr-section-hd">Repair Findings</div>
+      ${findingsHtml}
+
+      <div class="ctr-section-hd">Visit History</div>
+      ${visitHistoryHtml}
+    </div>`;
+}
+
+function ctrMobileBack() {
+  document.getElementById('app-contracts').querySelector('.sidebar').classList.remove('mobile-hidden');
+  document.getElementById('ctr-detail').classList.remove('mobile-visible');
+  _selectedContract = null;
+}
 
 async function loadEstimates() {
   document.getElementById('est-list').innerHTML = '<div class="empty-list">Loading…</div>';
