@@ -1773,6 +1773,50 @@ function renderDetail(customer, props, wos, contacts) {
       </div>
       ${renderEquipmentSection(currentEquipment, props)}
     </div>
+    ${(() => {
+      const outstandingEstimates = wos.filter(wo => {
+        const s = wo.fields['Stripe Quote ID'];
+        const st = wo.fields['Status'] || '';
+        return s && !['Estimate Declined','Estimate Expired','Estimate Approved'].includes(st);
+      });
+      if (!outstandingEstimates.length) return '';
+      const rows = outstandingEstimates.map(wo => {
+        const wf  = wo.fields;
+        const sqId = wf['Stripe Quote ID'] || '';
+        const cachedTotal = sqId && _quoteTotalCache[sqId] != null ? _quoteTotalCache[sqId] : wf['Total Amount'];
+        const totalStr = cachedTotal != null ? '$' + Number(cachedTotal).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+        const status  = wf['Status'] || '';
+        const date    = wf['Scheduled Date']
+          ? new Date(wf['Scheduled Date']).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+          : '';
+        let daysChip = '';
+        if (wf['Scheduled Date'] && !['Estimate Approved','Estimate Declined','Estimate Expired'].includes(status)) {
+          const daysLeft = Math.ceil((new Date(wf['Scheduled Date']).getTime() + 30*24*3600000 - Date.now()) / (24*3600000));
+          if (daysLeft < 0) daysChip = `<span class="est-days-chip est-days-gray" style="font-size:10px;">Expired</span>`;
+          else if (daysLeft < 7)  daysChip = `<span class="est-days-chip est-days-red" style="font-size:10px;">${daysLeft}d left</span>`;
+          else if (daysLeft <= 14) daysChip = `<span class="est-days-chip est-days-yellow" style="font-size:10px;">${daysLeft}d left</span>`;
+          else daysChip = `<span class="est-days-chip est-days-green" style="font-size:10px;">${daysLeft}d left</span>`;
+        }
+        const isClosedWO = ['Invoiced','Paid'].includes(status);
+        const viewBtn = isClosedWO
+          ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}',true)">View Quote</button>`
+          : `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">View / Edit</button>`;
+        return `<div class="wo-row">
+          <div class="wo-info">
+            <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
+            <div class="wo-meta">${esc(date)} ${daysChip}</div>
+          </div>
+          <strong style="font-size:14px;color:#111;white-space:nowrap;">${esc(totalStr)}</strong>
+          ${viewBtn}
+        </div>`;
+      }).join('');
+      return `<div class="section">
+        <div class="section-title-row">
+          <div class="section-title">Outstanding Estimates (${outstandingEstimates.length})</div>
+        </div>
+        ${rows}
+      </div>`;
+    })()}
     <div class="section">
       <div class="section-title-row">
         <div class="section-title">Work Orders (${wos.length})</div>
