@@ -1148,7 +1148,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
 
-        const existingAtInvoiceId = (woRecord?.fields?.['Invoice'] || [])[0] || null;
+        const existingAtInvoiceId =
+          (woRecord?.fields?.['Invoice']  || [])[0] ||
+          (woRecord?.fields?.['Invoices'] || [])[0] || null;
         let atInvId;
         if (existingAtInvoiceId) {
           await airtablePatch('Invoices', existingAtInvoiceId, atFields);

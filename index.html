@@ -2442,8 +2442,24 @@ async function activateJobScreen(record) {
   const activeList = document.getElementById('active-equipment-list');
 
   if (!propLinks || propLinks.length === 0) {
-    currentWorkOrderEquipment = [];
-    document.getElementById('active-unit-badge').textContent = 'Diagnostic';
+    // No property linked — fall back to equipment lookup by Customer ID
+    const custId = (f['Customer'] || [])[0];
+    if (custId) {
+      activeList.innerHTML = '<div class="loading-state"><div class="spinner"></div><div>Loading equipment...</div></div>';
+      try {
+        const data = await apiGet('Equipment', { maxRecords: '200' });
+        const all = data.records || [];
+        currentWorkOrderEquipment = all.filter(eq => {
+          const cf = eq.fields['Customer'];
+          return cf && cf.includes(custId) && eq.fields['Active'] !== false;
+        });
+      } catch(e) { currentWorkOrderEquipment = []; }
+    } else {
+      currentWorkOrderEquipment = [];
+    }
+    const count = currentWorkOrderEquipment.length;
+    document.getElementById('active-unit-badge').textContent =
+      count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
     await renderActiveEquipmentList();
     return;
   }
