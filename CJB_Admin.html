@@ -1146,6 +1146,7 @@ let _selectedContract = null;
 let _allEstimates  = [];
 let _estFilter     = 'active';
 let _selectedEst   = null;
+let _quoteTotalCache = {}; // stripeQuoteId -> amountTotal (fetched from Stripe)
 let _estWizCustId  = null;
 let _estWizCust    = null;
 
@@ -4946,6 +4947,10 @@ function renderEstimatesList() {
   if (_estFilter === 'active') {
     filtered = _allEstimates.filter(r => {
       const s = r.fields['Status'] || '';
+      // A WO with a Stripe Quote ID has an estimate in flight — show it unless
+      // the estimate itself reached a terminal state
+      if (r.fields['Stripe Quote ID'] &&
+          !['Estimate Declined','Estimate Expired','Estimate Approved'].includes(s)) return true;
       return !s || s === 'Draft' || s === 'Estimate Sent';
     });
   } else if (_estFilter === 'approved') {
@@ -4953,7 +4958,11 @@ function renderEstimatesList() {
   } else if (_estFilter === 'declined') {
     filtered = _allEstimates.filter(r => r.fields['Status'] === 'Estimate Declined' || r.fields['Status'] === 'Estimate Expired');
   } else {
-    filtered = _allEstimates.filter(r => !['Paid','Invoiced','Cancelled'].includes(r.fields['Status'] || ''));
+    // All: always show WOs that have a quote, regardless of WO invoice status
+    filtered = _allEstimates.filter(r => {
+      if (r.fields['Stripe Quote ID']) return true;
+      return !['Paid','Invoiced','Cancelled'].includes(r.fields['Status'] || '');
+    });
   }
 
   if (!filtered.length) {
@@ -4968,7 +4977,9 @@ function renderEstimatesList() {
     const f = wo.fields;
     const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '(no customer)');
     const addr     = Array.isArray(f['Service Address']) ? f['Service Address'][0] : (f['Service Address'] || '');
-    const total    = f['Total Amount'] != null ? fmt$(f['Total Amount']) : '';
+    const sqId     = f['Stripe Quote ID'] || '';
+    const totalAmt = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : f['Total Amount'];
+    const total    = totalAmt != null ? fmt$(totalAmt) : '';
     const status   = f['Status'] || 'Draft';
     const isSelected = _selectedEst && _selectedEst.id === wo.id;
 
@@ -5008,13 +5019,29 @@ function renderEstimatesList() {
   }).join('');
 }
 
-function selectEstimate(woId) {
+async function selectEstimate(woId) {
   _selectedEst = _allEstimates.find(w => w.id === woId) || null;
   renderEstimatesList();
+  // Render immediately with whatever Total Amount is on the WO
   renderEstimateDetail();
+  // If there's a Stripe Quote ID, fetch the real quote total and re-render both list + detail
+  const stripeQuoteId = _selectedEst?.fields?.['Stripe Quote ID'];
+  if (stripeQuoteId && _quoteTotalCache[stripeQuoteId] == null) {
+    try {
+      const res  = await fetch(`${PROXY}/quote/${stripeQuoteId}`);
+      const data = await res.json();
+      if (data.amountTotal != null) {
+        _quoteTotalCache[stripeQuoteId] = data.amountTotal;
+        renderEstimatesList();           // update sidebar amount
+        renderEstimateDetail(data.amountTotal);
+      }
+    } catch(e) { /* non-fatal */ }
+  } else if (stripeQuoteId && _quoteTotalCache[stripeQuoteId] != null) {
+    renderEstimateDetail(_quoteTotalCache[stripeQuoteId]);
+  }
 }
 
-function renderEstimateDetail() {
+function renderEstimateDetail(quoteTotalOverride) {
   const det = document.getElementById('est-detail');
   if (!_selectedEst) {
     det.innerHTML = '<div class="empty-state"><span class="arrow">←</span><span>Select an estimate</span></div>';
@@ -5025,7 +5052,10 @@ function renderEstimateDetail() {
   const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '(no customer)');
   const addr     = Array.isArray(f['Service Address']) ? f['Service Address'][0] : (f['Service Address'] || '');
   const status   = f['Status'] || 'Draft';
-  const total    = f['Total Amount'] != null ? '$' + Number(f['Total Amount']).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+  // Prefer the live Stripe quote total over the WO's Total Amount field,
+  // which gets overwritten by the invoice flow when both exist on the same WO.
+  const totalAmt = quoteTotalOverride ?? f['Total Amount'];
+  const total    = totalAmt != null ? '$' + Number(totalAmt).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
   const custId   = (f['Customer'] || [])[0] || null;
 
   const pillClass = status === 'Estimate Sent' ? 'est-pill-sent'
