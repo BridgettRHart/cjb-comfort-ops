@@ -2927,19 +2927,21 @@ async function saveNewEquipmentActive() {
   if (prev) { prev.style.display = 'none'; prev.src = ''; }
   const photoInp = document.getElementById('eq-photo-url-active');
   if (photoInp) photoInp.value = '';
-  await renderActiveEquipmentList(); // renders with "Saving…" card
 
   try {
+    // Render with "Saving…" card — swallow render errors so they never break the save
+    await renderActiveEquipmentList().catch(() => {});
+
     const result = await apiPost('Equipment', fields);
     // Replace optimistic record with real one from Airtable
     const idx = currentWorkOrderEquipment.findIndex(e => e.id === tempId);
     if (idx !== -1) currentWorkOrderEquipment[idx] = { id: result.id, fields: { ...fields, 'Equipment Name': eqName } };
     showToast('✓ Unit saved', 'success');
-    await renderActiveEquipmentList();
+    await renderActiveEquipmentList().catch(() => {});
   } catch(err) {
     // Roll back — remove the optimistic record and re-open the form with data intact
     currentWorkOrderEquipment = currentWorkOrderEquipment.filter(e => e.id !== tempId);
-    await renderActiveEquipmentList();
+    await renderActiveEquipmentList().catch(() => {});
     toggleAddEquipmentActive(); // re-open form
     // Restore form values so Cornell doesn't have to re-enter
     document.getElementById('eq-type-active').value = type;
