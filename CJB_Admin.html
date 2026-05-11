@@ -4420,8 +4420,12 @@ function renderContractList() {
 
   el.innerHTML = sorted.map(c => {
     const f = c.fields;
-    const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '—');
-    const propName = Array.isArray(f['Property Name']) ? f['Property Name'][0] : (f['Property Name'] || '');
+    const custId   = (f['Customer'] || [])[0];
+    const propId   = (f['Property'] || [])[0];
+    const custRec  = custId ? allCustomers.find(x => x.id === custId) : null;
+    const propRec  = propId ? allProperties.find(x => x.id === propId) : null;
+    const custName = custRec?.fields['Customer Name'] || '—';
+    const propName = propRec?.fields['Property Name'] || '';
     const status   = f['Status'] || 'Active';
     const pillCls  = { Active:'ctr-pill-active', Pending:'ctr-pill-pending',
                        Expired:'ctr-pill-expired', Cancelled:'ctr-pill-cancelled' }[status] || 'ctr-pill-pending';
@@ -4479,8 +4483,12 @@ async function selectContract(contractId) {
 function renderContractDetail(cf, jobs, contractId) {
   const detailEl = document.getElementById('ctr-detail');
 
-  const custName   = Array.isArray(cf['Customer Name'])  ? cf['Customer Name'][0]  : (cf['Customer Name'] || '—');
-  const propName   = Array.isArray(cf['Property Name'])  ? cf['Property Name'][0]  : (cf['Property Name'] || '');
+  const custId   = (cf['Customer'] || [])[0];
+  const propId   = (cf['Property'] || [])[0];
+  const custRec  = custId ? allCustomers.find(x => x.id === custId) : null;
+  const propRec  = propId ? allProperties.find(x => x.id === propId) : null;
+  const custName = custRec?.fields['Customer Name'] || '—';
+  const propName = propRec?.fields['Property Name'] || '';
   const status     = cf['Status'] || 'Active';
   const pillCls    = { Active:'ctr-pill-active', Pending:'ctr-pill-pending',
                        Expired:'ctr-pill-expired', Cancelled:'ctr-pill-cancelled' }[status] || 'ctr-pill-pending';
