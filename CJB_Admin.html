@@ -4185,7 +4185,7 @@ async function spBook() {
 
 async function loadEstimates() {
   document.getElementById('est-list').innerHTML = '<div class="empty-list">Loading…</div>';
-  const formula = encodeURIComponent(`{Work Order Type}="Estimate Only"`);
+  const formula = encodeURIComponent(`OR({Work Order Type}="Estimate Only",{Work Order Type}="Install Estimate",{Stripe Quote ID}!="")`);
   const qs = `filterByFormula=${formula}&sort[0][field]=Work Order Number&sort[0][direction]=desc&maxRecords=200`;
   try {
     const res = await fetch(`${PROXY}/Work%20Orders?${qs}`);
