@@ -2311,7 +2311,7 @@ let quoteWOId = null, quoteCustId = null, quoteStripeId = null;
 let quoteAirtableId = null, quoteStatus = 'new', qliCount = 0;
 let quoteApproveUrl = null;
 
-async function openQuoteModal(woId, custId) {
+async function openQuoteModal(woId, custId, readOnly = false) {
   quoteWOId = woId; quoteCustId = custId;
   quoteStripeId = null; quoteAirtableId = null; quoteStatus = 'new'; qliCount = 0;
   quoteApproveUrl = null;
@@ -2381,10 +2381,18 @@ async function openQuoteModal(woId, custId) {
     addQuoteLi();
   }
 
-  renderQuoteActions(quoteStatus);
+  renderQuoteActions(readOnly ? 'readonly' : quoteStatus);
 }
 
 function renderQuoteActions(status) {
+  if (status === 'readonly') {
+    document.getElementById('quote-modal-actions').innerHTML =
+      `<button class="btn btn-gray" onclick="closeQuoteModal()">Close</button>`;
+    // Disable all line item inputs so nothing can be accidentally changed
+    document.querySelectorAll('#qli-body input, #qli-body button, #quote-notes, #quote-description')
+      .forEach(el => { el.disabled = true; el.style.opacity = '0.6'; });
+    return;
+  }
   const el = document.getElementById('quote-modal-actions');
   if (status === 'loading') {
     el.innerHTML = `<button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button><span style="color:#aaa;font-size:13px;padding:8px;">Loading…</span>`;
@@ -4936,6 +4944,16 @@ async function loadEstimates() {
     _allEstimates = (data.records || []).filter(r => r.fields['Active'] !== false);
     document.getElementById('est-count').textContent = '(' + _allEstimates.length + ')';
     renderEstimatesList();
+    // Pre-fetch Stripe quote totals in the background so sidebar amounts are correct on load
+    _allEstimates.forEach(wo => {
+      const sqId = wo.fields['Stripe Quote ID'];
+      if (sqId && _quoteTotalCache[sqId] == null) {
+        fetch(`${PROXY}/quote/${sqId}`)
+          .then(r => r.json())
+          .then(d => { if (d.amountTotal != null) { _quoteTotalCache[sqId] = d.amountTotal; renderEstimatesList(); } })
+          .catch(() => {});
+      }
+    });
   } catch(e) {
     document.getElementById('est-list').innerHTML = '<div class="empty-list">Could not load estimates.</div>';
   }
@@ -4950,7 +4968,7 @@ function renderEstimatesList() {
       // A WO with a Stripe Quote ID has an estimate in flight — show it unless
       // the estimate itself reached a terminal state
       if (r.fields['Stripe Quote ID'] &&
-          !['Estimate Declined','Estimate Expired','Estimate Approved'].includes(s)) return true;
+          !['Estimate Declined','Estimate Expired','Estimate Approved','Invoiced','Paid'].includes(s)) return true;
       return !s || s === 'Draft' || s === 'Estimate Sent';
     });
   } else if (_estFilter === 'approved') {
@@ -5085,7 +5103,10 @@ function renderEstimateDetail(quoteTotalOverride) {
     ? new Date(f['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
     : '—';
 
-  const actionBtns = status === 'Estimate Approved'
+  const isClosedWO = ['Invoiced','Paid'].includes(status);
+  const actionBtns = isClosedWO && f['Stripe Quote ID']
+    ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}',true)">View Quote</button>`
+    : status === 'Estimate Approved'
     ? `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>
        <button class="btn btn-red" onclick="convertEstimateToJob('${wo.id}')">Convert to Job →</button>`
     : status === 'Estimate Sent'
