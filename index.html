@@ -644,6 +644,30 @@
   .repair-choice-btn.choice-no.active  { border-color: #059669; background: #d1fae5; color: #065f46; }
   .repair-choice-btn.choice-yes.active { border-color: #dc2626; background: #fee2e2; color: #991b1b; }
 
+  /* Contract visit badge */
+  .contract-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #1e3a5f; color: #93c5fd;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 4px;
+  }
+
+  /* Urgency selector */
+  .urgency-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+  .urgency-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 12px 8px; border: 2px solid #e5e7eb; border-radius: 12px;
+    background: white; cursor: pointer; font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px; font-weight: 700; color: var(--gray-text); line-height: 1.2;
+    touch-action: manipulation; transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .urgency-btn .urgency-emoji { font-size: 22px; margin-bottom: 4px; }
+  .urgency-btn .urgency-sub { font-size: 10px; font-weight: 400; margin-top: 2px; color: inherit; opacity: 0.8; }
+  .urgency-btn.active.u-safety  { border-color: #dc2626; background: #fee2e2; color: #991b1b; }
+  .urgency-btn.active.u-now     { border-color: #ea580c; background: #ffedd5; color: #9a3412; }
+  .urgency-btn.active.u-soon    { border-color: #d97706; background: #fef3c7; color: #92400e; }
+  .urgency-btn.active.u-monitor { border-color: #059669; background: #d1fae5; color: #065f46; }
+
   /* Photo upload */
   .photo-upload-area {
     border: 2px dashed var(--gray-border);
@@ -1382,6 +1406,7 @@
       <div>
         <div id="active-customer-name" style="font-size:15px;font-weight:700;color:var(--white);"></div>
         <div id="active-job-type" style="font-size:12px;color:rgba(255,255,255,0.75);margin-top:2px;"></div>
+        <div id="active-contract-badge" style="display:none;margin-top:5px;"><span class="contract-badge">📋 Contract Visit</span></div>
       </div>
       <div id="active-unit-badge" style="background:var(--gold);color:var(--charcoal);font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;"></div>
     </div>
@@ -1555,6 +1580,29 @@
 
     <!-- Section 3: Repair details (revealed when repairs = yes) -->
     <div id="repairs-detail-section" style="display:none;">
+
+      <!-- Urgency tier selector -->
+      <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--gray-text);margin-bottom:12px;">How Urgent Is This?</div>
+        <div class="urgency-grid">
+          <button class="urgency-btn u-safety" id="urgency-safety" onclick="selectUrgency('Safety Issue')">
+            <span class="urgency-emoji">🔴</span>Safety Issue
+            <span class="urgency-sub">Before next use</span>
+          </button>
+          <button class="urgency-btn u-now" id="urgency-now" onclick="selectUrgency('Repair Now')">
+            <span class="urgency-emoji">🟠</span>Repair Now
+            <span class="urgency-sub">Within 90 days</span>
+          </button>
+          <button class="urgency-btn u-soon" id="urgency-soon" onclick="selectUrgency('Repair Soon')">
+            <span class="urgency-emoji">🟡</span>Repair Soon
+            <span class="urgency-sub">Next scheduled visit</span>
+          </button>
+          <button class="urgency-btn u-monitor" id="urgency-monitor" onclick="selectUrgency('Monitor')">
+            <span class="urgency-emoji">🟢</span>Monitor
+            <span class="urgency-sub">Note &amp; watch</span>
+          </button>
+        </div>
+      </div>
 
       <!-- What you found + what it needs -->
       <div class="detail-section" style="padding:16px;margin-bottom:12px;">
@@ -2139,6 +2187,8 @@ function buildJobCard(record) {
       ${unitCount} UNIT${unitCount !== 1 ? 'S' : ''}
     </span>`;
   }
+  const contractBadge = (f['Maintenance Contract'] || []).length > 0
+    ? `<span class="contract-badge" style="margin-left:6px;">📋 Contract</span>` : '';
 
   return `
   <article class="job-card ${statusClass}"
@@ -2160,6 +2210,7 @@ function buildJobCard(record) {
       <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
         <span class="job-type-tag" style="margin-bottom:0;">${jobType}</span>
         ${unitBadge}
+        ${contractBadge}
       </div>
 
       ${addressFull ? `
@@ -2425,6 +2476,9 @@ let currentJobsByEquipment = {};    // equipmentId -> job record, kept in sync w
 let summaryReadyToInvoice = false;
 let pendingSkipEqId = null;
 let pendingSkipEqName = null;
+let isContractVisit = false;
+let currentContractId = null;
+let selectedUrgency = '';
 
 // ═══════════════════════
 // ACTIVATE JOB SCREEN
@@ -2436,6 +2490,9 @@ async function activateJobScreen(record) {
 
   document.getElementById('active-customer-name').textContent = customer;
   document.getElementById('active-job-type').textContent = jobType;
+  isContractVisit = (f['Maintenance Contract'] || []).length > 0;
+  currentContractId = isContractVisit ? f['Maintenance Contract'][0] : null;
+  document.getElementById('active-contract-badge').style.display = isContractVisit ? 'block' : 'none';
   showScreen('active');
 
   const propLinks = f['Property'];
@@ -2998,15 +3055,31 @@ async function submitWorkOrderComplete() {
 
   try {
     const woUpdate = {
-      'Status': summaryReadyToInvoice ? 'Complete' : 'Complete',
+      'Status': 'Complete',
       'Actual End': new Date().toISOString(),
     };
     await apiPatch('Work Orders', currentJob.id, woUpdate);
+
+    // If contract visit, update contract record (non-fatal)
+    if (isContractVisit && currentContractId) {
+      try {
+        await fetch(`${PROXY}/contract/visit-complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contractId: currentContractId }),
+        });
+      } catch(contractErr) {
+        console.warn('Contract update failed (non-fatal):', contractErr);
+      }
+    }
+
     showToast('✓ Visit complete!', 'success');
     setTimeout(() => {
       currentWorkOrderEquipment = [];
       selectedEquipmentId = null;
       selectedEquipmentName = '';
+      isContractVisit = false;
+      currentContractId = null;
       showScreen('home');
       loadTodaysJobs();
     }, 1400);
@@ -3057,9 +3130,16 @@ function openCompleteForm() {
   readyToInvoice = false;
   selectCondition('Excellent');
   selectFollowup('no');
+  // Reset urgency
+  selectedUrgency = '';
+  ['urgency-safety','urgency-now','urgency-soon','urgency-monitor']
+    .forEach(id => document.getElementById(id)?.classList.remove('active'));
   // Reset repairs toggle to No
   repairsNeeded = false;
   stopApprovalPolling();
+  // Show/hide estimate panel based on contract visit status
+  const estimateSec = document.getElementById('estimate-unit-section');
+  if (estimateSec) estimateSec.style.display = isContractVisit ? 'none' : '';
   unitEstimateUrl = '';
   document.getElementById('repairs-no-btn').classList.add('active');
   document.getElementById('repairs-yes-btn').classList.remove('active');
@@ -3089,6 +3169,7 @@ function openCompleteForm() {
     if (jf['Recommendations']) document.getElementById('field-recommendations').value = jf['Recommendations'];
     if (jf['Follow Up Required']) selectFollowup('yes');
     if (jf['Follow Up Notes']) document.getElementById('field-followup-notes').value = jf['Follow Up Notes'];
+    if (jf['Repair Urgency']) selectUrgency(jf['Repair Urgency']);
     // Pre-fill condition from the equipment record's current value
     const eq = currentWorkOrderEquipment.find(e => e.id === selectedEquipmentId);
     if (eq?.fields['Condition']) selectCondition(eq.fields['Condition']);
@@ -3448,8 +3529,9 @@ async function submitComplete() {
       jobFields['Follow Up Required'] = true;
       jobFields['Follow Up Notes']    = officeNotes;
     }
-    // Record whether this visit resulted in a repair estimate
     if (repairsNeeded) jobFields['Repairs Estimated'] = true;
+    if (repairsNeeded && selectedUrgency) jobFields['Repair Urgency'] = selectedUrgency;
+    if (isContractVisit && currentContractId) jobFields['Maintenance Contract'] = [currentContractId];
 
     // Save job record — patch if a draft (In Progress) or completed record already exists
     const existingJob = currentJobsByEquipment[selectedEquipmentId];
@@ -3733,16 +3815,33 @@ let repairsNeeded       = false;
 let approvalPollInterval = null;
 let unitEstimateUrl     = '';  // hosted quote URL for copy/share
 
+function selectUrgency(tier) {
+  selectedUrgency = tier;
+  const map = {
+    'Safety Issue': 'urgency-safety',
+    'Repair Now':   'urgency-now',
+    'Repair Soon':  'urgency-soon',
+    'Monitor':      'urgency-monitor',
+  };
+  Object.values(map).forEach(id => document.getElementById(id)?.classList.remove('active'));
+  if (map[tier]) document.getElementById(map[tier])?.classList.add('active');
+}
+
 function setRepairsNeeded(yes) {
   repairsNeeded = yes;
   document.getElementById('repairs-no-btn').classList.toggle('active', !yes);
   document.getElementById('repairs-yes-btn').classList.toggle('active', yes);
   document.getElementById('repairs-detail-section').style.display = yes ? 'block' : 'none';
-  if (!yes) {
+  if (yes) {
+    // Hide estimate send panel for contract visits
+    const estimateSec = document.getElementById('estimate-unit-section');
+    if (estimateSec) estimateSec.style.display = isContractVisit ? 'none' : '';
+  } else {
     stopApprovalPolling();
-    // Clear estimate sub-states when toggling back to No
     showEstimateState('initial');
-    // Clear parts selection
+    selectedUrgency = '';
+    ['urgency-safety','urgency-now','urgency-soon','urgency-monitor']
+      .forEach(id => document.getElementById(id)?.classList.remove('active'));
     selectedParts = [];
     renderSelectedParts();
   }

@@ -827,6 +827,70 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     }
 
     // ── Stripe publishable key (safe to expose — for client-side Elements) ──
+    // ── Maintenance contract visit completion ─────────────────────────────────
+    if (path === '/api/contract/visit-complete' && request.method === 'POST') {
+      try {
+        const { contractId } = await request.json();
+        if (!contractId) return new Response(JSON.stringify({ error: 'Missing contractId' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const contract = await airtableGetById('Maintenance Contracts', contractId);
+        const cf = contract.fields;
+
+        const visitsUsed    = (cf['Visits Used This Year'] || 0) + 1;
+        const visitsPerYear = cf['Visits Per Year'] || 2;
+
+        // Calculate next service due from today based on visit frequency
+        const freqMonths = {
+          'Monthly': 1, 'Bi-Monthly': 2, 'Quarterly': 3,
+          'Semi-Annual': 6, 'Annual': 12, 'As Needed': 6,
+        }[cf['Visit Frequency'] || 'Semi-Annual'] || 6;
+
+        const nextDue = new Date();
+        nextDue.setMonth(nextDue.getMonth() + freqMonths);
+        const nextDueStr = nextDue.toISOString().split('T')[0];
+
+        const contractUpdate = {
+          'Visits Used This Year': visitsUsed,
+          'Next Service Due': nextDueStr,
+        };
+
+        // If all visits for the year are used, flag for renewal
+        const renewalNeeded = visitsUsed >= visitsPerYear;
+
+        await airtablePatch('Maintenance Contracts', contractId, contractUpdate);
+
+        // Auto-create next WO only if visits remain and contract runs through next due date
+        let nextWorkOrderId = null;
+        if (!renewalNeeded) {
+          const endDate = cf['End Date'] ? new Date(cf['End Date']) : null;
+          const nextDueDate = new Date(nextDueStr);
+          if (!endDate || nextDueDate <= endDate) {
+            const woFields = {
+              'Work Order Name': (cf['Plan Name'] || 'Maintenance') + ' — ' + nextDueStr,
+              'Work Order Type': 'Maintenance',
+              'Status': 'Scheduled',
+              'Scheduled Date': new Date(nextDueStr + 'T08:00:00').toISOString(),
+              'Maintenance Contract': [contractId],
+            };
+            if (cf['Customer']?.length)        woFields['Customer']        = cf['Customer'];
+            if (cf['Property']?.length)         woFields['Property']        = cf['Property'];
+            if (cf['Primary Contact']?.length)  woFields['Primary Contact'] = cf['Primary Contact'];
+            const nextWo = await airtablePost('Work Orders', woFields);
+            nextWorkOrderId = nextWo.id;
+          }
+        }
+
+        return new Response(JSON.stringify({
+          ok: true, visitsUsed, nextServiceDue: nextDueStr,
+          renewalNeeded, nextWorkOrderId,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     if (path === '/api/config/stripe-pk' && request.method === 'GET') {
       const pk = env.STRIPE_PUBLISHABLE_KEY || '';
       return new Response(JSON.stringify({ publishableKey: pk }),
