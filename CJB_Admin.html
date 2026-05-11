@@ -4211,7 +4211,7 @@ function renderEstimatesList() {
   } else if (_estFilter === 'declined') {
     filtered = _allEstimates.filter(r => r.fields['Status'] === 'Estimate Declined' || r.fields['Status'] === 'Estimate Expired');
   } else {
-    filtered = _allEstimates;
+    filtered = _allEstimates.filter(r => !['Paid','Invoiced','Cancelled'].includes(r.fields['Status'] || ''));
   }
 
   if (!filtered.length) {
