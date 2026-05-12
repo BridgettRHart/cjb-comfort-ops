@@ -199,6 +199,9 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .stat-sub { font-size: 12px; color: #999; margin-top: 5px; }
 .stat-card.alert .stat-value { color: #c81f25; }
 .stat-card.good .stat-value { color: #1a6b35; }
+.stat-card.clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
+.stat-card.clickable:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.11); transform: translateY(-1px); }
+.dash-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #ccc; margin: 8px 0 6px; }
 
 .dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
 
@@ -1227,6 +1230,7 @@ function switchTab(tab) {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 let _dashWOs = null;
 let _dashFlaggedJobs = null;
+let _dashContracts = null;
 let _dashLoadedAt = 0;
 let _weekOffset   = 0;      // 0 = current week, -1 = last week, +1 = next week
 let _selectedDay  = null;   // YYYY-MM-DD of clicked day, null = auto (today or week's first job day)
@@ -1252,7 +1256,7 @@ const _azTime = iso => {
 
 async function loadDashboard(force) {
   if (!force && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderDashboard(_dashWOs, _dashFlaggedJobs);
+    renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
     return;
   }
   document.getElementById('dash-content').innerHTML =
@@ -1260,23 +1264,25 @@ async function loadDashboard(force) {
   try {
     const woFormula  = encodeURIComponent(`NOT({Status}="Cancelled")`);
     const jobFormula = encodeURIComponent(`{Follow Up Required}=TRUE()`);
-    [_dashWOs, _dashFlaggedJobs] = await Promise.all([
+    [_dashWOs, _dashFlaggedJobs, _dashContracts] = await Promise.all([
       fetchAll('Work Orders',
         `filterByFormula=${woFormula}&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
       fetchAll('Jobs',
-        `filterByFormula=${jobFormula}&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status`)
+        `filterByFormula=${jobFormula}&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status`),
+      fetchAll('Maintenance Contracts',
+        `filterByFormula=${encodeURIComponent('NOT({Status}="Cancelled")')}`)
     ]);
     _dashLoadedAt = Date.now();
     _weekOffset  = 0;
     _selectedDay = null;
-    renderDashboard(_dashWOs, _dashFlaggedJobs);
+    renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
       `<div style="color:#c81f25;padding:20px;">${esc(err.message)}</div>`;
   }
 }
 
-function renderDashboard(wos, flaggedJobs) {
+function renderDashboard(wos, flaggedJobs, contracts) {
   const now      = new Date();
   const todayStr = _azDate(now.toISOString());
   const monthStr = todayStr.substring(0, 7);
@@ -1318,12 +1324,59 @@ function renderDashboard(wos, flaggedJobs) {
   });
 
   // Stats
+  const yearStr        = todayStr.substring(0, 4);
   const completedCount = thisMonthWOs.filter(w => ['Complete','Invoiced','Paid'].includes(w.fields['Status'])).length;
   const invoicedAmt    = thisMonthWOs.filter(w => ['Invoiced','Paid'].includes(w.fields['Status']))
                            .reduce((s, w) => s + (Number(w.fields['Total Amount']) || 0), 0);
   const collectedAmt   = thisMonthWOs.filter(w => w.fields['Status'] === 'Paid')
                            .reduce((s, w) => s + (Number(w.fields['Total Amount']) || 0), 0);
   const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()];
+
+  // Row 1 — Outstanding AR
+  const arWOs    = wos.filter(w => w.fields['Status'] === 'Invoiced');
+  const arTotal  = arWOs.reduce((s,w) => s + (Number(w.fields['Total Amount'])||0), 0);
+
+  // Row 2 — Revenue
+  const paidMTD    = thisMonthWOs.filter(w => w.fields['Status'] === 'Paid');
+  const avgJobMTD  = paidMTD.length ? collectedAmt / paidMTD.length : null;
+  const revenueYTD = wos.filter(w => w.fields['Status'] === 'Paid' && (_azDate(w.fields['Scheduled Date']||'')).startsWith(yearStr))
+                        .reduce((s,w) => s + (Number(w.fields['Total Amount'])||0), 0);
+
+  // Row 3 — Estimates
+  const d30ago         = new Date(now); d30ago.setDate(now.getDate() - 30);
+  const d14ago         = new Date(now); d14ago.setDate(now.getDate() - 14);
+  const d30agoStr      = _azDate(d30ago.toISOString());
+  const d14agoStr      = _azDate(d14ago.toISOString());
+  const openEstimates  = wos.filter(w => w.fields['Status'] === 'Estimate Sent');
+  const pipelineAmt    = openEstimates.reduce((s,w) => {
+    const sqId = w.fields['Stripe Quote ID'];
+    const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
+    return s + Number(amt);
+  }, 0);
+  const followupNeeded = openEstimates.filter(w => {
+    const d = _azDate(w.fields['Scheduled Date']||'');
+    return d && d <= d14agoStr;
+  });
+  const approvedEst    = wos.filter(w => w.fields['Status'] === 'Estimate Approved' && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr);
+  const declinedEst    = wos.filter(w => w.fields['Status'] === 'Estimate Declined' && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr);
+  const convDenom      = approvedEst.length + declinedEst.length;
+  const convRate       = convDenom > 0 ? Math.round((approvedEst.length / convDenom) * 100) : null;
+
+  // Row 4 — Contracts
+  const d60fwd         = new Date(now); d60fwd.setDate(now.getDate() + 60);
+  const d60fwdStr      = _azDate(d60fwd.toISOString());
+  const activeContracts = (contracts||[]).filter(c => c.fields['Status'] === 'Active');
+  const contractARR    = activeContracts.reduce((s,c) => s + (Number(c.fields['Annual Value'])||0), 0);
+  const upForRenewal   = activeContracts.filter(c => {
+    const endDate    = c.fields['End Date'] || '';
+    const used       = c.fields['Visits Used This Year'] || 0;
+    const perYear    = c.fields['Visits Per Year'] || 2;
+    return (endDate && endDate <= d60fwdStr) || used >= perYear;
+  });
+  const visitsDueMonth = activeContracts.filter(c => {
+    const nsd = c.fields['Next Service Due'] || '';
+    return nsd && nsd.startsWith(monthStr);
+  });
   const dayAbbr   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const fmt$      = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0});
   const fmtDate   = iso => iso ? new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
@@ -1333,23 +1386,82 @@ function renderDashboard(wos, flaggedJobs) {
     'Estimate Sent':'b-estimate-sent','Estimate Approved':'b-estimate-approved','Estimate Declined':'b-estimate-declined' };
 
   // ── Stat cards ──
-  const statsHtml = `<div class="dash-grid-3">
-    <div class="stat-card">
-      <div class="stat-label">Today's Jobs</div>
-      <div class="stat-value">${todayWOs.length}</div>
-      <div class="stat-sub">${todayWOs.filter(w => w.fields['Status'] === 'Complete').length} completed today</div>
+  const statsHtml = `
+    <div class="dash-section-label">Today</div>
+    <div class="dash-grid-3">
+      <div class="stat-card">
+        <div class="stat-label">Today's Jobs</div>
+        <div class="stat-value">${todayWOs.length}</div>
+        <div class="stat-sub">${todayWOs.filter(w => w.fields['Status'] === 'Complete').length} completed today</div>
+      </div>
+      <div class="stat-card clickable ${arTotal > 0 ? 'alert' : ''}" onclick="document.getElementById('ar-widget').scrollIntoView({behavior:'smooth'})">
+        <div class="stat-label">Outstanding AR</div>
+        <div class="stat-value">${fmt$(arTotal)}</div>
+        <div class="stat-sub">${arWOs.length} invoice${arWOs.length !== 1 ? 's' : ''} unpaid</div>
+      </div>
+      <div class="stat-card good">
+        <div class="stat-label">Collected — ${monthName}</div>
+        <div class="stat-value">${fmt$(collectedAmt)}</div>
+        <div class="stat-sub">${fmt$(invoicedAmt)} invoiced · ${completedCount} jobs done</div>
+      </div>
     </div>
-    <div class="stat-card ${needsInvoice.length ? 'alert' : ''}">
-      <div class="stat-label">Needs Invoice</div>
-      <div class="stat-value">${needsInvoice.length}</div>
-      <div class="stat-sub">Complete, unbilled</div>
+
+    <div class="dash-section-label">Revenue</div>
+    <div class="dash-grid-3">
+      <div class="stat-card good">
+        <div class="stat-label">Revenue YTD</div>
+        <div class="stat-value">${fmt$(revenueYTD)}</div>
+        <div class="stat-sub">Collected ${yearStr}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Job Value — ${monthName}</div>
+        <div class="stat-value">${avgJobMTD != null ? fmt$(avgJobMTD) : '—'}</div>
+        <div class="stat-sub">${paidMTD.length} paid job${paidMTD.length !== 1 ? 's' : ''} this month</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Jobs Completed — ${monthName}</div>
+        <div class="stat-value">${completedCount}</div>
+        <div class="stat-sub">Complete, invoiced, or paid</div>
+      </div>
     </div>
-    <div class="stat-card good">
-      <div class="stat-label">Collected — ${monthName}</div>
-      <div class="stat-value">${fmt$(collectedAmt)}</div>
-      <div class="stat-sub">${fmt$(invoicedAmt)} invoiced · ${completedCount} jobs done</div>
+
+    <div class="dash-section-label">Estimates</div>
+    <div class="dash-grid-3">
+      <div class="stat-card clickable" onclick="switchTab('estimates')">
+        <div class="stat-label">Pipeline</div>
+        <div class="stat-value">${openEstimates.length}</div>
+        <div class="stat-sub">${pipelineAmt > 0 ? '~' + fmt$(pipelineAmt) + ' in open estimates' : 'open estimates'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Conversion Rate — 30d</div>
+        <div class="stat-value">${convRate != null ? convRate + '%' : '—'}</div>
+        <div class="stat-sub">${approvedEst.length} approved · ${declinedEst.length} declined</div>
+      </div>
+      <div class="stat-card clickable ${followupNeeded.length ? 'alert' : ''}" onclick="switchTab('estimates')">
+        <div class="stat-label">Needs Follow-up</div>
+        <div class="stat-value">${followupNeeded.length}</div>
+        <div class="stat-sub">Estimates sent 14+ days ago</div>
+      </div>
     </div>
-  </div>`;
+
+    <div class="dash-section-label">Contracts</div>
+    <div class="dash-grid-3">
+      <div class="stat-card good clickable" onclick="switchTab('contracts')">
+        <div class="stat-label">Contract ARR</div>
+        <div class="stat-value">${fmt$(contractARR)}</div>
+        <div class="stat-sub">${activeContracts.length} active contract${activeContracts.length !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="stat-card clickable ${upForRenewal.length ? 'alert' : ''}" onclick="switchTab('contracts')">
+        <div class="stat-label">Up for Renewal</div>
+        <div class="stat-value">${upForRenewal.length}</div>
+        <div class="stat-sub">Within 60 days or visits used</div>
+      </div>
+      <div class="stat-card clickable ${visitsDueMonth.length ? '' : ''}" onclick="switchTab('contracts')">
+        <div class="stat-label">Visits Due — ${monthName}</div>
+        <div class="stat-value">${visitsDueMonth.length}</div>
+        <div class="stat-sub">Scheduled this month</div>
+      </div>
+    </div>`;
 
   // ── Week strip ──
   const weekStart = mon;
@@ -1444,6 +1556,27 @@ function renderDashboard(wos, flaggedJobs) {
         }).join('')}
   </div>`;
 
+  // ── Outstanding invoices (AR) ──
+  const arHtml = `<div class="widget" id="ar-widget">
+    <div class="widget-hd">
+      <div class="widget-title">Outstanding Invoices</div>
+      <span class="widget-count${arWOs.length ? ' gold' : ''}">${arWOs.length}</span>
+    </div>
+    ${!arWOs.length
+      ? '<div class="widget-empty">No outstanding invoices</div>'
+      : arWOs.map(w => {
+          const f = w.fields;
+          const amt = f['Total Amount'] != null ? ' · $' + Number(f['Total Amount']).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+          return `<div class="inv-row">
+            <div class="inv-info dash-link" onclick="dashGoCustomer('${w.id}')">
+              <div class="inv-name">${esc(f['Customer Name'] || f['Work Order Name'] || '(unnamed)')}</div>
+              <div class="inv-meta">${esc(fmtDate(f['Scheduled Date']))}${f['Work Order Type'] ? ' · ' + f['Work Order Type'] : ''}${amt}</div>
+            </div>
+            <button class="btn btn-gray btn-sm" onclick="dashGoCustomer('${w.id}')">View</button>
+          </div>`;
+        }).join('')}
+  </div>`;
+
   // ── Flagged for office ──
   const flaggedHtml = `<div class="widget">
     <div class="widget-hd">
@@ -1476,7 +1609,7 @@ function renderDashboard(wos, flaggedJobs) {
   document.getElementById('dash-content').innerHTML =
     statsHtml + weekHtml +
     `<div class="dash-row">${schedHtml}${invHtml}</div>` +
-    flaggedHtml;
+    `<div class="dash-row">${arHtml}${flaggedHtml}</div>`;
 }
 
 // Launch invoice modal from dashboard (doesn't require customer to be pre-selected)
@@ -1488,12 +1621,12 @@ function dashNavWeek(dir) {
     _weekOffset = Math.max(-2, Math.min(2, _weekOffset + dir));
     _selectedDay = null; // will auto-set to first job day or Monday
   }
-  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs);
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
 }
 
 function dashSelectDay(ds) {
   _selectedDay = ds;
-  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs);
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
 }
 
 async function dashInvoice(woId) {
