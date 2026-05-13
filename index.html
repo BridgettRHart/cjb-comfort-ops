@@ -1498,7 +1498,7 @@
 <div id="screen-complete" class="screen" role="main">
 
   <header class="header">
-    <button class="back-btn" onclick="showScreen('active')" aria-label="Back to units">
+    <button class="back-btn" onclick="backToActive()" aria-label="Back to units">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M5 12l7 7M5 12l7-7"/></svg>
       Units
     </button>
@@ -1721,7 +1721,7 @@
 <div id="screen-summary" class="screen" role="main">
 
   <header class="header">
-    <button class="back-btn" onclick="showScreen('active')" aria-label="Back to active job">
+    <button class="back-btn" onclick="backToActive()" aria-label="Back to active job">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M5 12l7 7M5 12l7-7"/></svg>
       Units
     </button>
@@ -2057,7 +2057,10 @@ async function apiPost(table, fields) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields }),
   });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`API error ${res.status} — ${body}`);
+  }
   return res.json();
 }
 
@@ -2700,6 +2703,18 @@ async function renderActiveEquipmentList() {
 // ═══════════════════════
 // UNIT ACTIONS
 // ═══════════════════════
+function backToActive() {
+  showScreen('active');
+  renderActiveEquipmentList().catch(() => {});
+}
+
+// WO Type options include values not valid for Jobs.Job Type (e.g. "Estimate Only", "Install Estimate").
+// Map those to the closest valid Jobs.Job Type option.
+function resolveJobType(woType) {
+  const map = { 'Estimate Only': 'Diagnostic', 'Install Estimate': 'Inspection' };
+  return map[woType] || woType || 'Maintenance';
+}
+
 function startUnitComplete(eqId, eqName) {
   selectedEquipmentId = eqId;
   selectedEquipmentName = eqName;
@@ -2772,7 +2787,7 @@ async function executeSkip(eqId, eqName, reason) {
     const jobFields = {
       'Job Name': jobName,
       'Work Order': [woId],
-      'Job Type': woFields['Work Order Type'] || 'Maintenance',
+      'Job Type': resolveJobType(woFields['Work Order Type']),
       'Status': 'Cancelled',
       'Actual Start': now.toISOString(),
       'Actual End': now.toISOString(),
@@ -3523,7 +3538,7 @@ async function submitComplete() {
     const jobFields = {
       'Job Name':      autoJobName,
       'Work Order':    [woId],
-      'Job Type':      woFields['Work Order Type'] || 'Maintenance',
+      'Job Type':      resolveJobType(woFields['Work Order Type']),
       'Status':        'Complete',
       'Work Performed': workPerformed,
       'Actual Start':  woFields['Actual Start'] || now.toISOString(),
@@ -4317,16 +4332,17 @@ async function submitFieldEstimate() {
       const now = new Date();
       const dateStr       = now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
       const customerName  = woFields['Customer Name'] || 'Customer';
-      const jobTypeName   = woFields['Work Order Type'] || 'Service';
+      const woType        = woFields['Work Order Type'] || 'Maintenance';
+      const jobTypeName   = resolveJobType(woType);
       const unitLabel     = selectedEquipmentName ? ' — ' + selectedEquipmentName : '';
-      const autoJobName   = customerName + unitLabel + ' — ' + jobTypeName + ' — ' + dateStr;
+      const autoJobName   = customerName + unitLabel + ' — ' + woType + ' — ' + dateStr;
 
       const draftFields = {
-        'Job Name':      autoJobName,
-        'Work Order':    [currentJob.id],
-        'Job Type':      jobTypeName,
-        'Status':        'In Progress',
-        'Actual Start':  woFields['Actual Start'] || now.toISOString(),
+        'Job Name':         autoJobName,
+        'Work Order':       [currentJob.id],
+        'Job Type':         jobTypeName,
+        'Status':           'In Progress',
+        'Actual Start':     woFields['Actual Start'] || now.toISOString(),
         'Repairs Estimated': true,
       };
       if (workPerformed)                  draftFields['Work Performed']    = workPerformed;
@@ -4346,7 +4362,7 @@ async function submitFieldEstimate() {
       const draftJob = await apiPost('Jobs', draftFields);
       // Store so openCompleteForm can restore values if Cornell navigates back
       currentJobsByEquipment[selectedEquipmentId] = draftJob;
-    } catch(e) { /* non-fatal — estimate is sent regardless */ }
+    } catch(e) { console.error('Draft job save failed:', e.message); }
 
     // Show success panel
     document.getElementById('fq-build-state').style.display = 'none';
