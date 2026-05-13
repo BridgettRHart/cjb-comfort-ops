@@ -2549,13 +2549,24 @@ async function activateJobScreen(record) {
       return pf && pf.includes(propId);
     });
 
+    // Also catch equipment saved to this customer with no property (can happen if scanner
+    // runs while currentJob.Property was not yet populated — saves Customer but not Property)
+    const custId = (f['Customer'] || [])[0];
+    const custNoProperty = custId ? all.filter(eq => {
+      const pf = eq.fields['Property'];
+      const cf = eq.fields['Customer'];
+      return cf && cf.includes(custId) && (!pf || pf.length === 0);
+    }) : [];
+    const seen = new Set(allPropertyEquipment.map(e => e.id));
+    const merged = [...allPropertyEquipment, ...custNoProperty.filter(e => !seen.has(e.id))];
+
     // Specific Unit mode: show only the linked unit if one is set
     const serviceMode = (f['Service Mode'] || '').toLowerCase().trim();
     const specificEqLinks = f['Specific Equipment'];
     if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
-      currentWorkOrderEquipment = allPropertyEquipment.filter(eq => specificEqLinks.includes(eq.id));
+      currentWorkOrderEquipment = merged.filter(eq => specificEqLinks.includes(eq.id));
     } else {
-      currentWorkOrderEquipment = allPropertyEquipment;
+      currentWorkOrderEquipment = merged;
     }
 
     const count = currentWorkOrderEquipment.length;
