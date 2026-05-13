@@ -2515,15 +2515,11 @@ async function activateJobScreen(record) {
   const propLinks = f['Property'];
   const activeList = document.getElementById('active-equipment-list');
 
-  // ── Fetch all equipment for this customer (paginated, filtered server-side) ──
-  // Uses customer name in filterByFormula so Airtable returns only relevant records.
-  // Client-side we then split by property link. This avoids the 100-record page
-  // limit that would silently drop recently-created equipment.
-  const custName = (f['Customer Name'] || '').replace(/"/g, '\\"');
-  const eqFormula = custName
-    ? `{Customer}="${custName}"`
-    : '';   // no customer name → fetch all (fallback, shouldn't happen)
-
+  // ── Fetch ALL equipment, paginated ───────────────────────────────────────────
+  // Airtable returns max 100 records per page. Without pagination, equipment
+  // created after the first ~100 in the base would silently disappear.
+  // We fetch all pages here, then filter client-side by property record ID
+  // (exact JS array match — more reliable than Airtable formula on linked fields).
   activeList.innerHTML = '<div class="loading-state"><div class="spinner"></div><div>Loading equipment...</div></div>';
 
   let allCustEquipment = [];
@@ -2531,7 +2527,6 @@ async function activateJobScreen(record) {
     let offset = null;
     do {
       let url = `${PROXY}/Equipment?pageSize=100`;
-      if (eqFormula) url += `&filterByFormula=${encodeURIComponent(eqFormula)}`;
       if (offset) url += `&offset=${encodeURIComponent(offset)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Equipment fetch ${res.status}`);
