@@ -2976,6 +2976,11 @@ async function saveNewEquipmentActive() {
     // Replace optimistic record with real one from Airtable
     const idx = currentWorkOrderEquipment.findIndex(e => e.id === tempId);
     if (idx !== -1) currentWorkOrderEquipment[idx] = { id: result.id, fields: { ...fields, 'Equipment Name': eqName } };
+    // Re-enable save button and clear form fields so it's ready for the next unit
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & Add to Visit'; }
+    ['eq-type-active','eq-brand-active','eq-model-active','eq-serial-active',
+     'eq-tons-active','eq-refrigerant-active','eq-location-active','eq-related-active']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     showToast('✓ Unit saved', 'success');
     await renderActiveEquipmentList().catch(() => {});
   } catch(err) {
