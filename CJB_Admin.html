@@ -394,14 +394,19 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .sp-tslot.sp-sel .sp-tslot-lbl { color: #fff; font-weight: 600; }
 .sp-tslot.sp-blocked .sp-tslot-lbl { color: #1a4f8a; font-weight: 600; }
 .sp-ah-warn { background: #fff8e0; border: 1px solid #f5d088; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #7a5500; margin: 12px 0; display: none; }
-.sp-end-row { display: none; align-items: center; gap: 10px; background: #f7f7f7; border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+.sp-end-row { display: none; align-items: center; gap: 10px; background: #fff; border-radius: 8px; padding: 8px 0 10px; margin: 0 0 10px; }
 .sp-end-row.visible { display: flex; }
 .sp-end-lbl { font-size: 12px; color: #555; flex-shrink: 0; }
 .sp-end-sel { flex: 1; border: 1px solid #ddd; border-radius: 6px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
 .sp-end-sel:focus { outline: none; border-color: #c81f25; }
+/* Sticky week header inside sp-body */
+.sp-sticky-hd { position: sticky; top: 0; background: #fff; z-index: 10; padding-bottom: 4px; margin: -4px -20px 0; padding: 4px 20px 6px; border-bottom: 1px solid #f0f0f0; margin-bottom: 10px; }
+/* sp-controls: fixed slot between body and footer */
+#sp-controls { display: none; border-top: 1px solid #eee; background: #f9f9f9; padding: 12px 20px 4px; flex-shrink: 0; }
 @media (max-width: 768px) {
   .sched-panel { width: 100%; }
   .sp-body { padding: 14px 16px; }
+  .sp-sticky-hd { margin: -4px -16px 0; padding: 4px 16px 6px; }
 
   /* Fix iOS auto-zoom: inputs must be 16px on mobile */
   .form-inp, select.form-inp, .sp-end-sel, .apm-check-input { font-size: 16px !important; padding: 13px 14px; }
@@ -1119,6 +1124,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   </div>
   <div class="sp-steps" id="sp-steps"></div>
   <div class="sp-body" id="sp-body"></div>
+  <div id="sp-controls" style="display:none;border-top:1px solid #eee;background:#f9f9f9;padding:12px 20px;"></div>
   <div class="sp-foot" id="sp-foot"></div>
 </div>
 
@@ -1207,7 +1213,7 @@ async function init() {
 }
 
 // ── Tab switching ────────────────────────────────────────────────────────────
-function switchTab(tab) {
+function switchTab(tab, skipMobileReset = false) {
   document.getElementById('tab-dash').classList.toggle('active', tab === 'dash');
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
@@ -1219,7 +1225,7 @@ function switchTab(tab) {
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
   if (tab === 'contracts') loadContracts();
-  if (tab === 'customers' && isMobile()) {
+  if (tab === 'customers' && isMobile() && !skipMobileReset) {
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
     selectedCustomer = null;
@@ -1652,7 +1658,10 @@ function dashGoCustomer(woId) {
     ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
   const cust = allCustomers.find(c => c.fields['Customer Name'] === custName);
   if (!cust) { alert('Customer not found.'); return; }
-  switchTab('customers');
+  // Skip mobile reset — selectCustomer handles panel manipulation directly.
+  // Without this, the customer list renders mid-tap and a ghost-tap re-selects
+  // the previously viewed customer.
+  switchTab('customers', true);
   selectCustomer(cust.id);
 }
 
@@ -3846,6 +3855,10 @@ function spRender() {
       <button class="btn btn-green" id="sp-book-btn" onclick="spBook()">Book Appointment</button>`;
   }
 
+  // Hide sp-controls unless on the When step
+  const ctrl = document.getElementById('sp-controls');
+  if (ctrl && _sp.step !== 4) { ctrl.style.display = 'none'; ctrl.innerHTML = ''; }
+
   // Render body
   if (_sp.step === 1) spRenderStep1();
   else if (_sp.step === 2) spRenderStepWhere();
@@ -4166,24 +4179,33 @@ function spRenderStep3() {
   ).join('');
 
   document.getElementById('sp-body').innerHTML = `
-    <div class="sp-week-nav">
-      <button class="sp-week-arr" onclick="spNavWeek(-1)">‹</button>
-      <span class="sp-week-lbl" id="sp-wlbl"></span>
-      <button class="sp-week-arr" onclick="spNavWeek(1)">›</button>
+    <div class="sp-sticky-hd">
+      <div class="sp-week-nav">
+        <button class="sp-week-arr" onclick="spNavWeek(-1)">‹</button>
+        <span class="sp-week-lbl" id="sp-wlbl"></span>
+        <button class="sp-week-arr" onclick="spNavWeek(1)">›</button>
+      </div>
+      <div class="sp-days" id="sp-days"></div>
     </div>
-    <div class="sp-days" id="sp-days"></div>
     <div id="sp-tarea"><div style="text-align:center;padding:30px 0;color:#bbb;font-size:13px;">Select a day above to see available times</div></div>
-    <div class="sp-ah-warn" id="sp-ah">⚠️ <strong>After-hours or weekend.</strong> Emergency pricing will be suggested on the invoice.</div>
-    <div class="sp-end-row" id="sp-endrow">
-      <span class="sp-end-lbl">End time:</span>
-      <select class="sp-end-sel" id="sp-endsel"></select>
-    </div>
-    <div class="form-group" style="margin-top:14px;">
-      <label class="form-label">Technician</label>
-      <select class="form-inp" id="sp-tech">
-        <option value="">— Select —</option>${techOpts}
-      </select>
-    </div>`;
+    <div class="sp-ah-warn" id="sp-ah">⚠️ <strong>After-hours or weekend.</strong> Emergency pricing will be suggested on the invoice.</div>`;
+
+  // Populate sp-controls with end-time + tech (always visible when on this step)
+  const ctrl = document.getElementById('sp-controls');
+  if (ctrl) {
+    ctrl.style.display = 'block';
+    ctrl.innerHTML = `
+      <div class="sp-end-row" id="sp-endrow">
+        <span class="sp-end-lbl">End time:</span>
+        <select class="sp-end-sel" id="sp-endsel"></select>
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">Technician</label>
+        <select class="form-inp" id="sp-tech">
+          <option value="">— Select —</option>${techOpts}
+        </select>
+      </div>`;
+  }
 
   if (_technicianOptions?.length === 1)
     setTimeout(() => { const s = document.getElementById('sp-tech'); if (s) s.value = _technicianOptions[0].id; }, 0);
