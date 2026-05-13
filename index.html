@@ -2515,22 +2515,38 @@ async function activateJobScreen(record) {
   const propLinks = f['Property'];
   const activeList = document.getElementById('active-equipment-list');
 
+  // ── Fetch all equipment for this customer (paginated, filtered server-side) ──
+  // Uses customer name in filterByFormula so Airtable returns only relevant records.
+  // Client-side we then split by property link. This avoids the 100-record page
+  // limit that would silently drop recently-created equipment.
+  const custName = (f['Customer Name'] || '').replace(/"/g, '\\"');
+  const eqFormula = custName
+    ? `{Customer}="${custName}"`
+    : '';   // no customer name → fetch all (fallback, shouldn't happen)
+
+  activeList.innerHTML = '<div class="loading-state"><div class="spinner"></div><div>Loading equipment...</div></div>';
+
+  let allCustEquipment = [];
+  try {
+    let offset = null;
+    do {
+      let url = `${PROXY}/Equipment?pageSize=100`;
+      if (eqFormula) url += `&filterByFormula=${encodeURIComponent(eqFormula)}`;
+      if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Equipment fetch ${res.status}`);
+      const json = await res.json();
+      allCustEquipment = allCustEquipment.concat(json.records || []);
+      offset = json.offset || null;
+    } while (offset);
+  } catch(err) {
+    activeList.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px;">Could not load equipment.</div>';
+    return;
+  }
+
   if (!propLinks || propLinks.length === 0) {
-    // No property linked — fall back to equipment lookup by Customer ID
-    const custId = (f['Customer'] || [])[0];
-    if (custId) {
-      activeList.innerHTML = '<div class="loading-state"><div class="spinner"></div><div>Loading equipment...</div></div>';
-      try {
-        const data = await apiGet('Equipment', { maxRecords: '200' });
-        const all = data.records || [];
-        currentWorkOrderEquipment = all.filter(eq => {
-          const cf = eq.fields['Customer'];
-          return cf && cf.includes(custId) && eq.fields['Active'] !== false;
-        });
-      } catch(e) { currentWorkOrderEquipment = []; }
-    } else {
-      currentWorkOrderEquipment = [];
-    }
+    // No property on WO — show all customer equipment (active only)
+    currentWorkOrderEquipment = allCustEquipment.filter(eq => eq.fields['Active'] !== false);
     const count = currentWorkOrderEquipment.length;
     document.getElementById('active-unit-badge').textContent =
       count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
@@ -2539,44 +2555,34 @@ async function activateJobScreen(record) {
   }
 
   const propId = propLinks[0];
-  activeList.innerHTML = '<div class="loading-state"><div class="spinner"></div><div>Loading equipment...</div></div>';
 
-  try {
-    const data = await apiGet('Equipment', { maxRecords: '200' });
-    const all = data.records || [];
-    const allPropertyEquipment = all.filter(eq => {
-      const pf = eq.fields['Property'];
-      return pf && pf.includes(propId);
-    });
+  // Split into: equipment linked to this property, and equipment for this customer
+  // but saved without a property link (edge case from scanner or bad session state).
+  const allPropertyEquipment = allCustEquipment.filter(eq => {
+    const pf = eq.fields['Property'];
+    return pf && pf.includes(propId);
+  });
+  const custNoProperty = allCustEquipment.filter(eq => {
+    const pf = eq.fields['Property'];
+    return !pf || pf.length === 0;
+  });
+  const seen = new Set(allPropertyEquipment.map(e => e.id));
+  const merged = [...allPropertyEquipment, ...custNoProperty.filter(e => !seen.has(e.id))];
 
-    // Also catch equipment saved to this customer with no property (can happen if scanner
-    // runs while currentJob.Property was not yet populated — saves Customer but not Property)
-    const custId = (f['Customer'] || [])[0];
-    const custNoProperty = custId ? all.filter(eq => {
-      const pf = eq.fields['Property'];
-      const cf = eq.fields['Customer'];
-      return cf && cf.includes(custId) && (!pf || pf.length === 0);
-    }) : [];
-    const seen = new Set(allPropertyEquipment.map(e => e.id));
-    const merged = [...allPropertyEquipment, ...custNoProperty.filter(e => !seen.has(e.id))];
-
-    // Specific Unit mode: show only the linked unit if one is set
-    const serviceMode = (f['Service Mode'] || '').toLowerCase().trim();
-    const specificEqLinks = f['Specific Equipment'];
-    if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
-      currentWorkOrderEquipment = merged.filter(eq => specificEqLinks.includes(eq.id));
-    } else {
-      currentWorkOrderEquipment = merged;
-    }
-
-    const count = currentWorkOrderEquipment.length;
-    const badgeText = count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
-    document.getElementById('active-unit-badge').textContent = badgeText;
-
-    await renderActiveEquipmentList();
-  } catch(err) {
-    activeList.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px;">Could not load equipment.</div>';
+  // Specific Unit mode: show only the linked unit if one is set
+  const serviceMode = (f['Service Mode'] || '').toLowerCase().trim();
+  const specificEqLinks = f['Specific Equipment'];
+  if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
+    currentWorkOrderEquipment = merged.filter(eq => specificEqLinks.includes(eq.id));
+  } else {
+    currentWorkOrderEquipment = merged;
   }
+
+  const count = currentWorkOrderEquipment.length;
+  const badgeText = count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
+  document.getElementById('active-unit-badge').textContent = badgeText;
+
+  await renderActiveEquipmentList();
 }
 
 async function resumeActiveJob() {
