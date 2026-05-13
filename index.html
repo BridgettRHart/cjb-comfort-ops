@@ -2092,13 +2092,27 @@ async function loadTodaysJobs() {
     // (avoids DATETIME_FORMAT timezone complexity; date filtering done client-side below)
     const formula = `AND(NOT({Status}="Cancelled"),NOT({Status}="Paid"),NOT({Status}="Invoiced"),NOT({Status}="Estimate Sent"),NOT({Status}="Estimate Approved"),NOT({Status}="Estimate Declined"),NOT({Work Order Type}="Estimate Only"))`;
     const qs = `filterByFormula=${encodeURIComponent(formula)}&maxRecords=500&sort[0][field]=Scheduled%20Date&sort[0][direction]=asc`;
+    // Second fetch: Invoiced WOs from the past 2 days forward so tech can collect payment on-site.
+    // Uses DATEADD(TODAY(),-2,'days') as a UTC-safe lower bound; client-side filter narrows to today/week.
+    const invFormula = `AND({Status}="Invoiced",IS_AFTER({Scheduled Date},DATEADD(TODAY(),-2,'days')))`;
+    const invQs = `filterByFormula=${encodeURIComponent(invFormula)}&maxRecords=100`;
 
-    const res = await fetch(`${PROXY}/Work%20Orders?${qs}`);
+    const [res, invRes] = await Promise.all([
+      fetch(`${PROXY}/Work%20Orders?${qs}`),
+      fetch(`${PROXY}/Work%20Orders?${invQs}`)
+    ]);
     if (!res.ok) throw new Error(`API error ${res.status}`);
-    const data = await res.json();
+    const data    = await res.json();
+    const invData = invRes.ok ? await invRes.json() : { records: [] };
+    // Merge and deduplicate (invoiced fetch may overlap main fetch edge cases)
+    const seen = new Set();
+    const merged = [...(data.records || []), ...(invData.records || [])].filter(r => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id); return true;
+    });
 
     // Client-side date filter using AZ-corrected dates
-    const records = (data.records || []).filter(r => {
+    const records = merged.filter(r => {
       const d = r.fields['Scheduled Date'];
       if (!d) return false;
       const ds = azDateStr(d);
