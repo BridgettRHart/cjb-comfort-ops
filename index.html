@@ -2449,8 +2449,16 @@ async function loadPropertyEquipmentPreview(record) {
   listEl.innerHTML = '<div style="color:var(--gray-text);font-size:12px;">Loading...</div>';
 
   try {
-    const data = await apiGet('Equipment', { maxRecords: '200' });
-    const all = data.records || [];
+    let all = [], offset = null;
+    do {
+      let url = `${PROXY}/Equipment?pageSize=100`;
+      if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Equipment fetch ${res.status}`);
+      const json = await res.json();
+      all = all.concat(json.records || []);
+      offset = json.offset || null;
+    } while (offset);
     const equipment = all.filter(eq => {
       const pf = eq.fields['Property'];
       return pf && pf.includes(propId);
