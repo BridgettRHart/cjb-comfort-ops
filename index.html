@@ -2512,11 +2512,13 @@ let pendingSkipEqName = null;
 let isContractVisit = false;
 let currentContractId = null;
 let selectedUrgency = '';
+let _sessionJobIds = new Set(); // job IDs created/touched in this session (not yet on currentJob.fields['Jobs'])
 
 // ═══════════════════════
 // ACTIVATE JOB SCREEN
 // ═══════════════════════
 async function activateJobScreen(record) {
+  _sessionJobIds = new Set(); // reset for new job context
   const f = record.fields;
   const customer = f['Customer Name'] || 'Customer';
   const jobType = f['Work Order Type'] || 'Service';
@@ -2614,16 +2616,25 @@ async function renderActiveEquipmentList() {
   const totalUnits = currentWorkOrderEquipment.length;
 
   // Load existing Jobs for this Work Order from Airtable.
-  // Filter by Work Order Name (linked field formulas match by primary field value).
-  // This is targeted (only this WO's jobs) and catches jobs created mid-session
-  // without needing to re-fetch currentJob after each completion.
+  // Combines two sources of job IDs:
+  //   1. currentJob.fields['Jobs'] — linked job IDs as of when the WO was last fetched
+  //      (covers all jobs created in previous sessions, e.g. yesterday's completions)
+  //   2. _sessionJobIds — IDs of jobs created/patched in THIS session before currentJob
+  //      was refreshed (ensures just-completed units immediately show their checkmark)
+  // Fetches by RECORD_ID() so there's no dependency on field name matching.
   let jobsByEquipment = {}; // equipmentId -> job record
   if (woId && currentJob) {
     try {
-      const woName = (currentJob.fields['Work Order Name'] || '').replace(/"/g, '\\"');
+      const knownIds = new Set([
+        ...(currentJob.fields['Jobs'] || []),
+        ..._sessionJobIds,
+      ]);
       let woJobs = [];
-      if (woName) {
-        const formula = `{Work Order}="${woName}"`;
+      if (knownIds.size > 0) {
+        const ids = [...knownIds];
+        const formula = ids.length === 1
+          ? `RECORD_ID()="${ids[0]}"`
+          : `OR(${ids.map(id => `RECORD_ID()="${id}"`).join(',')})`;
         let all = [], offset = null;
         do {
           let url = `${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}&pageSize=100`;
@@ -2837,7 +2848,8 @@ async function executeSkip(eqId, eqName, reason) {
     if (woFields['Customer'] && woFields['Customer'].length > 0) jobFields['Customer'] = woFields['Customer'];
     if (woFields['Property'] && woFields['Property'].length > 0) jobFields['Property'] = woFields['Property'];
     if (woFields['Technician'] && woFields['Technician'].length > 0) jobFields['Technician'] = woFields['Technician'];
-    await apiPost('Jobs', jobFields);
+    const skippedJob = await apiPost('Jobs', jobFields);
+    if (skippedJob && skippedJob.id) _sessionJobIds.add(skippedJob.id);
     showToast('Unit skipped', 'success');
     await renderActiveEquipmentList();
   } catch(err) {
@@ -3613,8 +3625,10 @@ async function submitComplete() {
     const existingJob = currentJobsByEquipment[selectedEquipmentId];
     if (existingJob && (existingJob.fields['Status'] === 'Complete' || existingJob.fields['Status'] === 'In Progress')) {
       await apiPatch('Jobs', existingJob.id, jobFields);
+      _sessionJobIds.add(existingJob.id);
     } else {
-      await apiPost('Jobs', jobFields);
+      const newJob = await apiPost('Jobs', jobFields);
+      if (newJob && newJob.id) _sessionJobIds.add(newJob.id);
     }
 
     // Update Equipment: Last Service Date + Condition + photos (non-fatal)
