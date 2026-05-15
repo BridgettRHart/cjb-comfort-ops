@@ -2613,17 +2613,29 @@ async function renderActiveEquipmentList() {
   const woId = currentJob ? currentJob.id : null;
   const totalUnits = currentWorkOrderEquipment.length;
 
-  // Load existing Jobs for this Work Order from Airtable
+  // Load existing Jobs for this Work Order from Airtable.
+  // Filter by Work Order Name (linked field formulas match by primary field value).
+  // This is targeted (only this WO's jobs) and catches jobs created mid-session
+  // without needing to re-fetch currentJob after each completion.
   let jobsByEquipment = {}; // equipmentId -> job record
-  if (woId) {
+  if (woId && currentJob) {
     try {
-      const jobData = await apiGet('Jobs', { maxRecords: '500' });
-      const allJobs = jobData.records || [];
-      // Filter to jobs for this Work Order
-      const woJobs = allJobs.filter(j => {
-        const woLinks = j.fields['Work Order'];
-        return woLinks && woLinks.includes(woId) && j.fields['Active'] !== false;
-      });
+      const woName = (currentJob.fields['Work Order Name'] || '').replace(/"/g, '\\"');
+      let woJobs = [];
+      if (woName) {
+        const formula = `{Work Order}="${woName}"`;
+        let all = [], offset = null;
+        do {
+          let url = `${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}&pageSize=100`;
+          if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`Jobs fetch ${res.status}`);
+          const json = await res.json();
+          all = all.concat(json.records || []);
+          offset = json.offset || null;
+        } while (offset);
+        woJobs = all.filter(j => j.fields['Active'] !== false);
+      }
       // Map by equipment ID
       woJobs.forEach(j => {
         const eqLinks = j.fields['Equipment'];
