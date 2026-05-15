@@ -1762,11 +1762,8 @@ async function selectCustomer(id) {
       const formula = woIds.length === 1
         ? `RECORD_ID()="${woIds[0]}"`
         : `OR(${woIds.map(wid => `RECORD_ID()="${wid}"`).join(',')})`;
-      const woUrl = `${PROXY}/Work%20Orders` +
-        `?filterByFormula=${encodeURIComponent(formula)}` +
-        '&sort[0][field]=Scheduled Date&sort[0][direction]=desc';
-      const woData = await fetch(woUrl).then(r => r.json());
-      currentWorkOrders = woData.records || [];
+      currentWorkOrders = await fetchAll('Work Orders',
+        `filterByFormula=${encodeURIComponent(formula)}&sort[0][field]=Scheduled Date&sort[0][direction]=desc`);
     }
 
     // Query Equipment directly by customer name — Airtable linked field formulas match
@@ -1774,9 +1771,8 @@ async function selectCustomer(id) {
     currentEquipment = [];
     const custName = (selectedCustomer.fields['Customer Name'] || '').replace(/"/g, '\\"');
     if (custName) {
-      const eqUrl = `${PROXY}/Equipment?filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`;
-      const eqData = await fetch(eqUrl).then(r => r.json());
-      currentEquipment = (eqData.records || []).filter(e => e.fields['Active'] !== false);
+      const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`);
+      currentEquipment = eqRecs.filter(e => e.fields['Active'] !== false);
     }
 
     renderDetail(selectedCustomer, props, currentWorkOrders, contacts);
@@ -3982,8 +3978,8 @@ async function spPickCust(id) {
   const custName = (_sp.cust.fields['Customer Name'] || '').replace(/"/g, '\\"');
   if (custName) {
     try {
-      const eq = await fetch(`${PROXY}/Equipment?filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`).then(r => r.json());
-      _sp.custEquipment = (eq.records || []).filter(e => e.fields['Active'] !== false);
+      const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`);
+      _sp.custEquipment = eqRecs.filter(e => e.fields['Active'] !== false);
     } catch(e) { /* non-fatal */ }
   }
   document.getElementById('sp-drop').classList.remove('open');
