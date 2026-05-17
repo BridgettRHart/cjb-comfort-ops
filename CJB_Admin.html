@@ -1148,6 +1148,7 @@ let invoiceCustId = null;
 
 // ── Contracts state ──────────────────────────────────────────────────────────
 let _allContracts     = [];
+let _selectedContractJobs = []; // jobs loaded for the currently-open contract detail
 let _filteredContracts = [];
 let _selectedContract = null;
 
@@ -2561,6 +2562,31 @@ async function openQuoteModal(woId, custId, readOnly = false) {
     } catch (e) { addQuoteLi(); }
   } else {
     addQuoteLi();
+    // Auto-fill Findings & Recommendation from repair jobs linked to this WO
+    const jobIds = wo?.fields['Jobs'] || [];
+    if (jobIds.length) {
+      try {
+        const formula = jobIds.length === 1
+          ? `RECORD_ID()="${jobIds[0]}"`
+          : `OR(${jobIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+        const jobRes  = await fetch(`${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}&pageSize=100`);
+        const jobData = await jobRes.json();
+        const urgencyOrder = ['Safety Issue','Repair Now','Repair Soon','Monitor'];
+        const repairJobs = (jobData.records || [])
+          .filter(j => j.fields['Repair Urgency'])
+          .sort((a,b) => urgencyOrder.indexOf(a.fields['Repair Urgency']) - urgencyOrder.indexOf(b.fields['Repair Urgency']));
+        if (repairJobs.length) {
+          document.getElementById('quote-description').value = repairJobs.map(j => {
+            const jf = j.fields;
+            return [
+              `${jf['Repair Urgency']} — ${jf['Job Name'] || ''}`,
+              jf['Diagnosis']       ? `Found: ${jf['Diagnosis']}`       : '',
+              jf['Recommendations'] ? `Needs: ${jf['Recommendations']}` : '',
+            ].filter(Boolean).join('\n');
+          }).join('\n\n');
+        }
+      } catch(e) { /* non-fatal — auto-fill is best-effort */ }
+    }
   }
 
   renderQuoteActions(readOnly ? 'readonly' : quoteStatus);
@@ -4681,6 +4707,7 @@ async function selectContract(contractId) {
     } catch(e) { /* non-fatal */ }
   }
 
+  _selectedContractJobs = jobs;
   renderContractDetail(cf, jobs, contractId);
 }
 
@@ -4773,6 +4800,10 @@ function renderContractDetail(cf, jobs, contractId) {
   const stripeInvUrl = cf['Stripe Invoice URL'] || '';
   const proposalUrl  = `${PROXY}/contract/proposal?id=${contractId}`;
 
+  const repairBtn = findings.length > 0
+    ? `<button class="btn btn-red btn-sm" onclick="openRepairEstimateFromContract('${contractId}')">🔧 Send Repair Estimate</button>`
+    : '';
+
   let actionBar = '';
   if (status === 'Pending') {
     if (stripeInvId) {
@@ -4786,18 +4817,23 @@ function renderContractDetail(cf, jobs, contractId) {
           </div>
         </div>
         <div class="ctr-action-bar">
+          ${repairBtn}
           <button class="btn btn-gray btn-sm" onclick="markContractAccepted('${contractId}')">✓ Mark Accepted</button>
         </div>`;
     } else {
       actionBar = `<div class="ctr-action-bar">
+        ${repairBtn}
         <button class="btn btn-red btn-sm" onclick="sendContractProposal('${contractId}')">📨 Send Proposal Invoice</button>
         <button class="btn btn-gray btn-sm" onclick="markContractAccepted('${contractId}')">✓ Mark Accepted (manual)</button>
       </div>`;
     }
   } else if (renewal) {
     actionBar = `<div class="ctr-action-bar">
+      ${repairBtn}
       <button class="btn btn-red btn-sm" onclick="openNewContractModal('${contractId}')">↻ Renew Contract</button>
     </div>`;
+  } else if (repairBtn) {
+    actionBar = `<div class="ctr-action-bar">${repairBtn}</div>`;
   }
 
   detailEl.innerHTML = `
@@ -5074,6 +5110,68 @@ async function saveNewContract() {
     btn.disabled = false;
     btn.textContent = 'Save Contract';
   }
+}
+
+async function openRepairEstimateFromContract(contractId) {
+  const contract = _allContracts.find(c => c.id === contractId);
+  if (!contract) { alert('Contract not found.'); return; }
+  const cf = contract.fields;
+  const custId  = (cf['Customer'] || [])[0];
+  const propId  = (cf['Property'] || [])[0];
+  const custName = esc(cf['Customer Name'] || cf['Contract Name'] || 'Customer');
+
+  const urgencyOrder = ['Safety Issue','Repair Now','Repair Soon','Monitor'];
+  const repairJobs = (_selectedContractJobs || [])
+    .filter(j => j.fields['Repair Urgency'])
+    .sort((a,b) => urgencyOrder.indexOf(a.fields['Repair Urgency']) - urgencyOrder.indexOf(b.fields['Repair Urgency']));
+
+  const description = repairJobs.map(j => {
+    const jf = j.fields;
+    return [
+      `${jf['Repair Urgency']} — ${jf['Job Name'] || ''}`,
+      jf['Diagnosis']       ? `Found: ${jf['Diagnosis']}`       : '',
+      jf['Recommendations'] ? `Needs: ${jf['Recommendations']}` : '',
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
+
+  // Create a new Estimate Only WO for the repair
+  let newWo;
+  try {
+    const woFields = {
+      'Work Order Name': `${custName} — Repair Estimate`,
+      'Work Order Type': 'Estimate Only',
+      'Status': 'Scheduled',
+      'Problem Description': description,
+    };
+    if (custId) woFields['Customer'] = [custId];
+    if (propId) woFields['Property'] = [propId];
+    const res = await fetch(`${PROXY}/Work%20Orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: woFields }),
+    });
+    if (!res.ok) throw new Error(`WO create failed: ${res.status}`);
+    newWo = await res.json();
+  } catch(err) {
+    alert('Could not create estimate work order: ' + err.message);
+    return;
+  }
+
+  // Push the new WO into currentWorkOrders so openQuoteModal can find it
+  currentWorkOrders = currentWorkOrders || [];
+  currentWorkOrders.unshift(newWo);
+
+  // Open the estimate modal, then override the description with repair findings
+  await openQuoteModal(newWo.id, custId);
+
+  // openQuoteModal auto-fill won't find jobs on a brand-new WO — set manually
+  if (description) {
+    const descEl = document.getElementById('quote-description');
+    if (descEl) descEl.value = description;
+  }
+  // Update subtitle to reflect the new WO name
+  const subEl = document.getElementById('quote-modal-sub');
+  if (subEl) subEl.textContent = newWo.fields['Work Order Name'] || '';
 }
 
 async function sendContractProposal(contractId) {
