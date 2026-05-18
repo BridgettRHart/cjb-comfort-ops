@@ -1662,9 +1662,7 @@ function renderDashboard(wos, flaggedJobs, contracts) {
           const date     = fmtDate(wf['Scheduled Date']);
           const woType   = wf['Work Order Type'] || '';
           const note     = jf['Follow Up Notes'] || '';
-          const viewBtn  = woId
-            ? `<button class="btn btn-gray btn-sm" onclick="dashGoCustomer('${woId}')">View</button>`
-            : '';
+          const viewBtn  = `<button class="btn btn-gray btn-sm" onclick="dashGoFollowUp('${job.id}')">View</button>`;
           return `<div class="inv-row">
             <div class="inv-info">
               <div class="inv-name">${esc(custName)}</div>
@@ -1727,6 +1725,21 @@ function dashGoCustomer(woId) {
   // the previously viewed customer.
   switchTab('customers', true);
   selectCustomer(cust.id);
+}
+
+// "View" button on the dashboard Flagged widget → go to queue and highlight that card
+function dashGoFollowUp(jobId) {
+  switchTab('followup');
+  // After the queue renders, scroll the specific card into view and briefly highlight it
+  requestAnimationFrame(() => {
+    const card = document.getElementById('fu-card-' + jobId);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.style.transition = 'box-shadow 0.2s';
+      card.style.boxShadow = '0 0 0 3px #c81f25';
+      setTimeout(() => { card.style.boxShadow = ''; }, 1800);
+    }
+  });
 }
 
 // ── Follow-Up Queue ──────────────────────────────────────────────────────────
