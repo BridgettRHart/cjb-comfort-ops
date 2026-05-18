@@ -1848,8 +1848,13 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
       const woType     = wf['Work Order Type'] || '';
       const woStatus   = wf['Status'] || '';
       const note       = jf['Follow Up Notes'] || '';
-      const canInvoice = woStatus === 'Complete' && woId;
-      const hasQuote   = !!(wf['Stripe Quote ID']);
+      // Estimate-type WOs (Install Estimate, Repair Estimate, Estimate Only) are
+      // never invoiced directly — they go through the quote/estimate flow instead.
+      const isEstimateType = /estimate/i.test(woType);
+      const canInvoice     = woStatus === 'Complete' && woId && !isEstimateType;
+      const hasQuote       = !!(wf['Stripe Quote ID']);
+      // Show "Create Estimate" when it's an estimate-type WO with no draft quote yet
+      const needsEstimate  = isEstimateType && !hasQuote && woId;
 
       const daysLbl = days === null ? '' : days === 0 ? 'Today' : days === 1 ? '1 day ago' : `${days} days ago`;
       // Meta: just date + WO type — job name is auto-generated noise, already shown via custName + type
@@ -1866,8 +1871,9 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
         ${note ? `<div class="fu-notes">⚑ ${esc(note)}</div>` : ''}
         <div class="fu-actions">
           <button class="fu-btn fu-btn-schedule" onclick="fuSchedule('${woId || ''}')">📅 Schedule</button>
+          ${needsEstimate ? `<button class="fu-btn" style="background:#1e40af;color:#fff;" onclick="fuCreateEstimate('${woId}')">📄 Create Estimate</button>` : ''}
           ${hasQuote && woId ? `<button class="fu-btn" style="background:#1e40af;color:#fff;" onclick="fuSendEstimate('${woId}')">📄 Send Estimate</button>` : ''}
-          ${canInvoice && !hasQuote ? `<button class="fu-btn fu-btn-invoice" onclick="fuInvoice('${woId}')">💰 Invoice</button>` : ''}
+          ${canInvoice ? `<button class="fu-btn fu-btn-invoice" onclick="fuInvoice('${woId}')">💰 Invoice</button>` : ''}
           ${woId ? `<button class="fu-btn fu-btn-view" onclick="fuViewCustomer('${woId}')">View →</button>` : ''}
           <button class="fu-btn fu-btn-dismiss" id="fu-dismiss-${job.id}" onclick="fuDismissConfirm('${job.id}')">✓ Done</button>
         </div>
@@ -1940,6 +1946,18 @@ function fuSchedule(woId) {
       if (cust) setTimeout(() => spPickCust(cust.id), 50);
     }
   }
+}
+
+async function fuCreateEstimate(woId) {
+  const wo = (_dashWOs || []).find(w => w.id === woId);
+  if (!wo) return;
+  const custName = Array.isArray(wo.fields['Customer Name'])
+    ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
+  const cust = allCustomers.find(c => c.fields['Customer Name'] === custName);
+  if (!cust) { alert('Customer not found. Open from the Customers tab instead.'); return; }
+  selectedCustomer  = cust;
+  currentWorkOrders = [wo];
+  openQuoteModal(woId, cust.id);   // no existing quote ID → opens blank draft
 }
 
 async function fuSendEstimate(woId) {
