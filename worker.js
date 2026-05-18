@@ -756,11 +756,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const wo     = (woData.records || [])[0];
           if (wo) {
             await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
-            // Mirror Paid to linked Jobs
-            const jobIds = wo.fields['Jobs'] || [];
-            if (jobIds.length) {
-              await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': 'Paid' })));
-            }
+            // Mirror Paid to linked Jobs (skips Cancelled / skipped-unit jobs)
+            await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
             // Get linked Airtable Invoice record from Work Order
             const atInvId = (wo.fields['Invoice'] || [])[0];
             if (atInvId) {
@@ -1167,10 +1164,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (stripeInv.status === 'paid') {
           // Already paid (auto-paid $0 or previously collected) — just sync Airtable
           await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
-          const jobIds = wo.fields['Jobs'] || [];
-          if (jobIds.length) {
-            await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': 'Paid' })));
-          }
+          // Mirror Paid to linked Jobs (skips Cancelled / skipped-unit jobs)
+          await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
           const atInvId = (wo.fields['Invoice'] || [])[0] || (wo.fields['Invoices'] || [])[0];
           if (atInvId) {
             await airtablePatch('Invoices', atInvId, {
@@ -1462,12 +1457,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
           if (sendNow) {
             woUpdate['Status'] = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
-            // Mirror status to linked Jobs
-            const jobIds = woRecord?.fields?.['Jobs'] || [];
-            if (jobIds.length) {
-              const jobStatus = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
-              await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': jobStatus })));
-            }
+            // Mirror status to linked Jobs (skips Cancelled / skipped-unit jobs)
+            const jobStatus = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
+            await patchBillableJobs(woRecord?.fields?.['Jobs'] || [], jobStatus);
           }
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
@@ -1985,6 +1977,29 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 };
 
 // ── Airtable helpers ──────────────────────────────────────────────────────
+// Patch a set of Job records to a new status, skipping any that are Cancelled.
+// Fetches current status in one batch query before patching.
+async function patchBillableJobs(jobIds, status) {
+  if (!jobIds || !jobIds.length) return;
+  const formula = jobIds.length === 1
+    ? `RECORD_ID()="${jobIds[0]}"`
+    : `OR(${jobIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent('Jobs')}` +
+    `?filterByFormula=${encodeURIComponent(formula)}&pageSize=100`;
+  try {
+    const res  = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
+    const data = await res.json();
+    const billable = (data.records || [])
+      .filter(j => j.fields['Status'] !== 'Cancelled')
+      .map(j => j.id);
+    if (billable.length) {
+      await Promise.all(billable.map(jid => airtablePatch('Jobs', jid, { 'Status': status })));
+    }
+  } catch(e) {
+    console.error('patchBillableJobs failed (non-fatal):', e.message);
+  }
+}
+
 async function airtableGet(table, formula) {
   const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}` +
               `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=5`;
