@@ -63,6 +63,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .wo-info { flex: 1; min-width: 0; }
 .wo-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wo-meta { font-size: 11px; color: #888; margin-top: 3px; }
+.wo-eq-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.wo-eq-chip { background: #f0f4ff; border: 1px solid #c5d3f5; border-radius: 4px; padding: 1px 6px; font-size: 10px; color: #3a5aa0; white-space: nowrap; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .b-scheduled        { background: #e3f0ff; color: #1a4f8a; }
 .b-in-progress      { background: #fff3cd; color: #7a5500; }
@@ -1142,6 +1144,7 @@ let currentWorkOrders = [];
 let currentProperties = [];
 let currentContacts   = [];
 let currentEquipment  = [];
+let currentJobs       = [];
 let liCount = 0;
 let invoiceWOId   = null;
 let invoiceCustId = null;
@@ -1776,6 +1779,17 @@ async function selectCustomer(id) {
       currentEquipment = eqRecs.filter(e => e.fields['Active'] !== false);
     }
 
+    // Fetch jobs for this customer so we can show equipment linkage in WO rows + equipment cards
+    currentJobs = [];
+    const jobIds = custDetail.fields?.['Jobs'] || [];
+    if (jobIds.length > 0) {
+      const jobFormula = jobIds.length === 1
+        ? `RECORD_ID()="${jobIds[0]}"`
+        : `OR(${jobIds.map(jid => `RECORD_ID()="${jid}"`).join(',')})`;
+      currentJobs = await fetchAll('Jobs',
+        `filterByFormula=${encodeURIComponent(jobFormula)}&sort[0][field]=Scheduled Start&sort[0][direction]=desc`);
+    }
+
     renderDetail(selectedCustomer, props, currentWorkOrders, contacts);
   } catch (err) {
     det.innerHTML = `<div class="empty-state" style="color:#c81f25;">Error: ${esc(err.message)}</div>`;
@@ -1784,6 +1798,33 @@ async function selectCustomer(id) {
 
 function renderDetail(customer, props, wos, contacts) {
   const f = customer.fields;
+
+  // ── Build job-linkage maps from currentJobs ──────────────────────────────
+  // woEquipment: WO id → [{id, name}] of equipment serviced in that WO's jobs
+  const woEquipment = {};
+  // eqLastJob: equipment id → most-recent job record
+  const eqLastJob = {};
+  currentJobs.forEach(j => {
+    const jf = j.fields;
+    const woId = (jf['Work Order'] || [])[0];
+    const eqId = (jf['Equipment'] || [])[0];
+    // WO → equipment chips
+    if (woId && eqId) {
+      const eqRec = currentEquipment.find(e => e.id === eqId);
+      const eqName = eqRec ? esc(eqRec.fields['Equipment Name'] || 'Unit') : null;
+      if (eqName) {
+        if (!woEquipment[woId]) woEquipment[woId] = [];
+        if (!woEquipment[woId].find(x => x.id === eqId)) woEquipment[woId].push({ id: eqId, name: eqName });
+      }
+    }
+    // Equipment → last job (prefer most-recent Scheduled Start)
+    if (eqId) {
+      const prev = eqLastJob[eqId];
+      const thisDate = jf['Scheduled Start'] || jf['Actual Start'] || '';
+      const prevDate = prev ? (prev.fields['Scheduled Start'] || prev.fields['Actual Start'] || '') : '';
+      if (!prev || thisDate > prevDate) eqLastJob[eqId] = j;
+    }
+  });
 
   const contactsHtml = (contacts && contacts.length)
     ? contacts.map(c => {
@@ -1858,10 +1899,15 @@ function renderDetail(customer, props, wos, contacts) {
           if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;
         }
 
+        const eqChips = (woEquipment[wo.id] || []);
+        const eqChipsHtml = eqChips.length
+          ? `<div class="wo-eq-chips">${eqChips.slice(0,4).map(e => `<span class="wo-eq-chip">${e.name}</span>`).join('')}${eqChips.length > 4 ? `<span class="wo-eq-chip">+${eqChips.length - 4}</span>` : ''}</div>`
+          : '';
         return `<div class="wo-row">
           <div class="wo-info">
             <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
+            ${eqChipsHtml}
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
           <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
@@ -2010,12 +2056,23 @@ function renderEquipmentSection(equipment, props) {
       const condCls  = COND_CLS[cond] || '';
       const relIds   = f['Related Equipment'] || [];
       const relNames = relIds.map(rid => { const r = currentEquipment.find(x => x.id === rid); return r ? esc(r.fields['Equipment Name'] || 'Unit') : null; }).filter(Boolean);
+      // Last service line from currentJobs
+      const lastJob = currentJobs.find(j => (j.fields['Equipment'] || [])[0] === e.id && j.fields['Status'] === 'Complete');
+      let lastServiceHtml = '';
+      if (lastJob) {
+        const lf = lastJob.fields;
+        const lDate = lf['Actual End'] || lf['Scheduled Start'];
+        const lDateStr = lDate ? new Date(lDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+        const lWoName = esc(lf['Work Order Name'] || '');
+        lastServiceHtml = lDateStr ? `<div class="eq-meta" style="color:#888;">Last: ${lDateStr}${lWoName ? ' · ' + lWoName : ''}</div>` : '';
+      }
       return `<div class="eq-card">
         <div class="eq-type-badge">${esc(badge)}</div>
         <div class="eq-info">
           <div class="eq-name">${esc(f['Equipment Name'] || '(unnamed)')}</div>
           ${meta  ? `<div class="eq-meta">${esc(meta)}</div>` : ''}
           ${specs ? `<div class="eq-meta">${esc(specs)}${cond ? ` · <span class="${condCls}">${esc(cond)}</span>` : ''}</div>` : ''}
+          ${lastServiceHtml}
           ${relNames.map(n => `<div class="eq-related-tag">${n}</div>`).join('')}
         </div>
         <button class="btn-edit" onclick="openEquipmentForm('${e.id}', null)">Edit</button>

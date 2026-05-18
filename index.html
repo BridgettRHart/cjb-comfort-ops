@@ -1841,6 +1841,18 @@
 </div>
 
 
+<!-- Rename unit overlay -->
+<div id="rename-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;align-items:flex-end;justify-content:center;" role="dialog" aria-modal="true" aria-label="Rename unit" onclick="closeRenameOverlay(event)">
+  <div style="background:white;border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:12px;">Rename Unit</div>
+    <input type="text" id="rename-input" class="form-input" style="margin-bottom:14px;" placeholder="e.g. 3 Ton WSHP — Unit 4" aria-label="Unit name">
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-dark" style="flex:1;font-size:15px;" onclick="saveRename()">Save</button>
+      <button class="btn btn-outline" style="flex:1;font-size:15px;" onclick="cancelRename()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- estimate overlay removed — estimate now lives inline in screen-complete -->
 
 
@@ -2513,6 +2525,7 @@ let isContractVisit = false;
 let currentContractId = null;
 let selectedUrgency = '';
 let _sessionJobIds = new Set(); // job IDs created/touched in this session (not yet on currentJob.fields['Jobs'])
+let _renameEqId    = null;      // equipment ID being renamed in the rename overlay
 
 // ═══════════════════════
 // ACTIVATE JOB SCREEN
@@ -2575,9 +2588,13 @@ async function activateJobScreen(record) {
     const pf = eq.fields['Property'];
     return pf && pf.includes(propId);
   });
+  const custId = (f['Customer'] || [])[0];
   const custNoProperty = allCustEquipment.filter(eq => {
     const pf = eq.fields['Property'];
-    return !pf || pf.length === 0;
+    if (pf && pf.length > 0) return false; // has a property — already covered above
+    if (!custId) return false;
+    const cf = eq.fields['Customer'];
+    return cf && cf.includes(custId); // only this customer's orphaned equipment
   });
   const seen = new Set(allPropertyEquipment.map(e => e.id));
   const merged = [...allPropertyEquipment, ...custNoProperty.filter(e => !seen.has(e.id))];
@@ -2736,7 +2753,8 @@ async function renderActiveEquipmentList() {
           + '</div>';
       }
 
-      return '<div class="' + cardClass + '"><div class="unit-card-header">' + dot + '<div class="unit-card-name">' + escHtml(name) + '</div></div>' + (meta ? '<div class="unit-card-meta">' + escHtml(meta) + '</div>' : '') + actions + summary + '</div>';
+      const renameBtn = '<button class="btn-small btn-small-outline" style="flex:none;font-size:11px;padding:3px 8px;margin-left:6px;" onclick="openRenameOverlay(\'' + eq.id + '\', \'' + escAttr(name) + '\')">✏</button>';
+      return '<div class="' + cardClass + '"><div class="unit-card-header">' + dot + '<div class="unit-card-name">' + escHtml(name) + '</div>' + renameBtn + '</div>' + (meta ? '<div class="unit-card-meta">' + escHtml(meta) + '</div>' : '') + actions + summary + '</div>';
     }).join('');
   }
 
@@ -2811,6 +2829,49 @@ function cancelSkipReason() {
   pendingSkipEqId = null;
   pendingSkipEqName = null;
   document.getElementById('skip-reason-overlay').style.display = 'none';
+}
+
+// ── Rename unit ──────────────────────────────────────────────────────────────
+function openRenameOverlay(eqId, currentName) {
+  _renameEqId = eqId;
+  const inp = document.getElementById('rename-input');
+  inp.value = currentName;
+  const overlay = document.getElementById('rename-overlay');
+  overlay.style.display = 'flex';
+  setTimeout(() => inp.focus(), 80);
+}
+
+function closeRenameOverlay(e) {
+  if (e && e.target.id !== 'rename-overlay') return;
+  document.getElementById('rename-overlay').style.display = 'none';
+  _renameEqId = null;
+}
+
+function cancelRename() {
+  document.getElementById('rename-overlay').style.display = 'none';
+  _renameEqId = null;
+}
+
+async function saveRename() {
+  if (!_renameEqId) return;
+  const newName = document.getElementById('rename-input').value.trim();
+  if (!newName) { showToast('⚠ Enter a name', 'error'); return; }
+  const saveBtn = document.querySelector('#rename-overlay .btn.btn-dark');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  try {
+    await apiPatch('Equipment', _renameEqId, { 'Equipment Name': newName });
+    // Update local state so the list re-renders with the new name immediately
+    const idx = currentWorkOrderEquipment.findIndex(e => e.id === _renameEqId);
+    if (idx !== -1) currentWorkOrderEquipment[idx].fields['Equipment Name'] = newName;
+    if (selectedEquipmentId === _renameEqId) selectedEquipmentName = newName;
+    document.getElementById('rename-overlay').style.display = 'none';
+    _renameEqId = null;
+    await renderActiveEquipmentList().catch(() => {});
+    showToast('✓ Renamed', 'success');
+  } catch(err) {
+    showToast('⚠ Could not rename. Try again.', 'error');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+  }
 }
 
 async function submitSkipWithReason() {
@@ -2971,7 +3032,9 @@ async function saveNewEquipmentActive() {
   const propLinks = f['Property'];
   const tons = document.getElementById('eq-tons-active').value;
   const tonsStr = tons ? tons + ' Ton ' : '';
-  const sameType = currentWorkOrderEquipment.filter(e => !e.id.startsWith('_temp_') && e.fields['Equipment Type'] === type).length;
+  // Count ALL units of the same type (including optimistic temp records) so rapid additions
+  // don't produce duplicate "Unit 1" names while a previous save is still in flight.
+  const sameType = currentWorkOrderEquipment.filter(e => e.fields['Equipment Type'] === type).length;
   const eqName = `${tonsStr}${type} — Unit ${sameType + 1}`;
 
   const serial   = (document.getElementById('eq-serial-active')?.value   || '').trim();
