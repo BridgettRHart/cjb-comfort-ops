@@ -641,6 +641,49 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   font-family: inherit; width: 100%;
 }
 .apm-card-focused { border-color: #c81f25 !important; }
+
+/* ── FOLLOW-UP QUEUE ─────────────────────────────────────────────────────────── */
+.fu-badge-count { display: inline-block; background: #c81f25; color: #fff; border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: 700; margin-left: 4px; vertical-align: middle; line-height: 1.4; }
+.fu-queue { max-width: 760px; margin: 0 auto; padding: 20px 24px; }
+.fu-summary-bar { display: flex; gap: 12px; margin-bottom: 20px; }
+.fu-summary-stat { background: #fff; border-radius: 8px; padding: 12px 18px; box-shadow: 0 1px 5px rgba(0,0,0,0.07); flex: 1; text-align: center; }
+.fu-stat-val { font-size: 26px; font-weight: 700; color: #2e2e2e; line-height: 1; }
+.fu-stat-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #aaa; margin-top: 4px; }
+.fu-urgency-hd { display: flex; align-items: center; gap: 10px; margin: 20px 0 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #777; }
+.fu-urgency-hd::after { content: ''; flex: 1; height: 1px; background: #e8e8e8; }
+.fu-card { background: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); border-left: 4px solid #ddd; transition: opacity 0.25s; }
+.fu-card.fu-red    { border-left-color: #c81f25; }
+.fu-card.fu-orange { border-left-color: #e07800; }
+.fu-card.fu-yellow { border-left-color: #d4a017; }
+.fu-card.fu-green  { border-left-color: #1a6b35; }
+.fu-card-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.fu-card-main { flex: 1; min-width: 0; }
+.fu-cust-name { font-size: 16px; font-weight: 700; color: #111; }
+.fu-meta { font-size: 12px; color: #888; margin-top: 3px; }
+.fu-age-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 3px 9px; white-space: nowrap; }
+.fu-age-red    { background: #ffeaea; color: #c81f25; }
+.fu-age-orange { background: #fff3e0; color: #b06000; }
+.fu-age-yellow { background: #fffde7; color: #8a6500; }
+.fu-age-green  { background: #e8f5e9; color: #1a6b35; }
+.fu-notes { font-size: 13px; color: #444; background: #fafafa; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; line-height: 1.5; border-left: 3px solid #e0e0e0; }
+.fu-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.fu-btn { border: none; border-radius: 7px; padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; transition: opacity 0.1s; }
+.fu-btn:hover { opacity: 0.82; }
+.fu-btn-schedule { background: #1e40af; color: #fff; }
+.fu-btn-invoice  { background: #1a6b35; color: #fff; }
+.fu-btn-view     { background: #f4f4f4; color: #444; border: 1px solid #e0e0e0; }
+.fu-btn-dismiss  { background: none; color: #aaa; border: 1px solid #e0e0e0; margin-left: auto; }
+.fu-empty { text-align: center; padding: 80px 24px; color: #bbb; font-size: 16px; }
+.fu-refresh-btn { background: none; border: none; font-size: 11px; color: #bbb; cursor: pointer; padding: 2px 6px; border-radius: 4px; margin-left: auto; }
+.fu-refresh-btn:hover { color: #c81f25; background: #fafafa; }
+.fu-hd-row { display: flex; align-items: center; margin-bottom: 4px; }
+@media (max-width: 768px) {
+  .fu-queue { padding: 12px; }
+  .fu-summary-bar { gap: 8px; }
+  .fu-summary-stat { padding: 10px 12px; }
+  .fu-stat-val { font-size: 22px; }
+  .fu-btn-dismiss { margin-left: 0; }
+}
 </style>
 </head>
 <body>
@@ -656,6 +699,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   <button class="tab-btn" id="tab-customers" onclick="switchTab('customers')">Customers</button>
   <button class="tab-btn" id="tab-estimates" onclick="switchTab('estimates')">Estimates</button>
   <button class="tab-btn" id="tab-contracts" onclick="switchTab('contracts')">Contracts</button>
+  <button class="tab-btn" id="tab-followup" onclick="switchTab('followup')">Follow-Up <span id="fu-badge" class="fu-badge-count" style="display:none">0</span></button>
 </div>
 
 <!-- Dashboard view -->
@@ -728,6 +772,17 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <span class="arrow">←</span>
       <span>Select a contract</span>
     </div>
+  </div>
+</div>
+
+<!-- Follow-Up Queue view -->
+<div class="dash" id="app-followup" style="display:none;">
+  <div class="fu-queue">
+    <div class="fu-hd-row">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#ccc;margin-bottom:2px;">Follow-Up Queue</div>
+      <button class="fu-refresh-btn" onclick="loadFollowUpQueue(true)">↻ Refresh</button>
+    </div>
+    <div id="fu-content" style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>
   </div>
 </div>
 
@@ -1222,13 +1277,16 @@ function switchTab(tab, skipMobileReset = false) {
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
   document.getElementById('tab-contracts').classList.toggle('active', tab === 'contracts');
+  document.getElementById('tab-followup').classList.toggle('active', tab === 'followup');
   document.getElementById('dash-view').style.display       = tab === 'dash'      ? '' : 'none';
   document.getElementById('app-customers').style.display   = tab === 'customers' ? '' : 'none';
   document.getElementById('app-estimates').style.display   = tab === 'estimates' ? '' : 'none';
   document.getElementById('app-contracts').style.display   = tab === 'contracts' ? '' : 'none';
+  document.getElementById('app-followup').style.display    = tab === 'followup'  ? '' : 'none';
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
   if (tab === 'contracts') loadContracts();
+  if (tab === 'followup') loadFollowUpQueue();
   if (tab === 'customers' && isMobile() && !skipMobileReset) {
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
@@ -1286,6 +1344,8 @@ async function loadDashboard(force) {
     _weekOffset  = 0;
     _selectedDay = null;
     renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
+    // Keep the Follow-Up badge in sync whenever the dashboard refreshes
+    updateFollowUpBadge((_dashFlaggedJobs || []).length);
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
       `<div style="color:#c81f25;padding:20px;">${esc(err.message)}</div>`;
@@ -1590,8 +1650,8 @@ function renderDashboard(wos, flaggedJobs, contracts) {
   // ── Flagged for office ──
   const flaggedHtml = `<div class="widget">
     <div class="widget-hd">
-      <div class="widget-title">Flagged for Office</div>
-      <span class="widget-count${flagged.length ? ' gold' : ''}">${flagged.length}</span>
+      <div class="widget-title" style="cursor:pointer;" onclick="switchTab('followup')">Flagged for Office ↗</div>
+      <span class="widget-count${flagged.length ? ' gold' : ''}" style="cursor:pointer;" onclick="switchTab('followup')">${flagged.length}</span>
     </div>
     ${!flagged.length
       ? '<div class="widget-empty">Nothing flagged</div>'
@@ -1667,6 +1727,231 @@ function dashGoCustomer(woId) {
   // the previously viewed customer.
   switchTab('customers', true);
   selectCustomer(cust.id);
+}
+
+// ── Follow-Up Queue ──────────────────────────────────────────────────────────
+let _fuJobs     = null;
+let _fuWOs      = null;
+let _fuLoadedAt = 0;
+
+async function loadFollowUpQueue(force) {
+  if (!force && _fuJobs && Date.now() - _fuLoadedAt < 60000) {
+    renderFollowUpQueue();
+    return;
+  }
+  document.getElementById('fu-content').innerHTML =
+    '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
+  try {
+    const formula = encodeURIComponent(`{Follow Up Required}=TRUE()`);
+    _fuJobs = await fetchAll('Jobs',
+      `filterByFormula=${formula}` +
+      `&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order` +
+      `&fields[]=Status&fields[]=Equipment&fields[]=Scheduled Start`);
+
+    // Fetch linked WO records to get customer name, date, type, status
+    const woIds = [...new Set(_fuJobs.flatMap(j => j.fields['Work Order'] || []))];
+    if (woIds.length) {
+      const woFormula = woIds.length === 1
+        ? `RECORD_ID()="${woIds[0]}"`
+        : `OR(${woIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+      _fuWOs = await fetchAll('Work Orders',
+        `filterByFormula=${encodeURIComponent(woFormula)}` +
+        `&fields[]=Customer Name&fields[]=Scheduled Date` +
+        `&fields[]=Work Order Type&fields[]=Status&fields[]=Total Amount`);
+    } else {
+      _fuWOs = [];
+    }
+
+    _fuLoadedAt = Date.now();
+    renderFollowUpQueue();
+    updateFollowUpBadge(_fuJobs.length);
+  } catch (err) {
+    document.getElementById('fu-content').innerHTML =
+      `<div style="color:#c81f25;padding:24px;">${esc(err.message)}</div>`;
+  }
+}
+
+function _fuUrgency(woDateStr) {
+  if (!woDateStr) return 'green';
+  const today = new Date();
+  const d = new Date(woDateStr + 'T12:00:00');
+  const days = Math.floor((today - d) / 86400000);
+  if (days >= 14) return 'red';
+  if (days >= 7)  return 'orange';
+  if (days >= 3)  return 'yellow';
+  return 'green';
+}
+
+function renderFollowUpQueue() {
+  const woById = {};
+  (_fuWOs || []).forEach(w => { woById[w.id] = w; });
+
+  const now    = new Date();
+  const fmtD   = iso => iso
+    ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '';
+
+  const items = (_fuJobs || []).map(job => {
+    const jf     = job.fields;
+    const woId   = (jf['Work Order'] || [])[0] || null;
+    const wo     = woId ? woById[woId] : null;
+    const wf     = wo?.fields || {};
+    const woDate = wf['Scheduled Date'] || '';
+    const urgency = _fuUrgency(woDate);
+    const days    = woDate ? Math.floor((now - new Date(woDate + 'T12:00:00')) / 86400000) : null;
+    return { job, wo, woId, urgency, days, wf, jf };
+  });
+
+  // Sort: most urgent first, then oldest within group
+  const uOrder = { red: 0, orange: 1, yellow: 2, green: 3 };
+  items.sort((a, b) => {
+    const ud = uOrder[a.urgency] - uOrder[b.urgency];
+    return ud !== 0 ? ud : (b.days || 0) - (a.days || 0);
+  });
+
+  updateFollowUpBadge(items.length);
+
+  if (!items.length) {
+    document.getElementById('fu-content').innerHTML =
+      `<div class="fu-empty">🎉 Queue is clear — nothing flagged for follow-up</div>`;
+    return;
+  }
+
+  const redCnt    = items.filter(i => i.urgency === 'red').length;
+  const orangeCnt = items.filter(i => i.urgency === 'orange').length;
+
+  let html = `<div class="fu-summary-bar">
+    <div class="fu-summary-stat">
+      <div class="fu-stat-val" style="color:${redCnt ? '#c81f25' : '#2e2e2e'}">${items.length}</div>
+      <div class="fu-stat-lbl">Total Flagged</div>
+    </div>
+    <div class="fu-summary-stat">
+      <div class="fu-stat-val" style="color:${redCnt ? '#c81f25' : '#aaa'}">${redCnt}</div>
+      <div class="fu-stat-lbl">Critical (14+ days)</div>
+    </div>
+    <div class="fu-summary-stat">
+      <div class="fu-stat-val" style="color:${orangeCnt ? '#e07800' : '#aaa'}">${orangeCnt}</div>
+      <div class="fu-stat-lbl">High Priority</div>
+    </div>
+  </div>`;
+
+  const groups = [
+    { key: 'red',    label: '🔴 Critical — 14+ days ago' },
+    { key: 'orange', label: '🟠 High — 7–13 days ago'    },
+    { key: 'yellow', label: '🟡 Recent — 3–6 days ago'   },
+    { key: 'green',  label: '🟢 New — Under 3 days'      },
+  ];
+
+  groups.forEach(({ key, label }) => {
+    const group = items.filter(i => i.urgency === key);
+    if (!group.length) return;
+
+    html += `<div class="fu-urgency-hd">${label} <span style="color:#bbb;font-weight:600;">(${group.length})</span></div>`;
+
+    group.forEach(({ job, woId, urgency, days, wf, jf }) => {
+      const custName  = Array.isArray(wf['Customer Name'])
+        ? wf['Customer Name'][0] : (wf['Customer Name'] || '(Unknown)');
+      const woType    = wf['Work Order Type'] || '';
+      const woStatus  = wf['Status'] || '';
+      const woDate    = wf['Scheduled Date'] || '';
+      const note      = jf['Follow Up Notes'] || '';
+      const jobName   = jf['Job Name'] || '';
+      const canInvoice = woStatus === 'Complete' && woId;
+
+      const daysLbl = days === null ? '' : days === 0 ? 'Today' : days === 1 ? '1 day ago' : `${days} days ago`;
+      const meta = [woDate ? fmtD(woDate) : '', woType, jobName].filter(Boolean).join(' · ');
+
+      html += `<div class="fu-card fu-${urgency}" id="fu-card-${job.id}">
+        <div class="fu-card-top">
+          <div class="fu-card-main">
+            <div class="fu-cust-name">${esc(custName)}</div>
+            ${meta ? `<div class="fu-meta">${esc(meta)}</div>` : ''}
+          </div>
+          ${daysLbl ? `<span class="fu-age-badge fu-age-${urgency}">${esc(daysLbl)}</span>` : ''}
+        </div>
+        ${note ? `<div class="fu-notes">⚑ ${esc(note)}</div>` : ''}
+        <div class="fu-actions">
+          <button class="fu-btn fu-btn-schedule" onclick="fuSchedule('${woId || ''}', ${JSON.stringify(custName)})">📅 Schedule</button>
+          ${canInvoice ? `<button class="fu-btn fu-btn-invoice" onclick="fuInvoice('${woId}')">💰 Invoice</button>` : ''}
+          ${woId ? `<button class="fu-btn fu-btn-view" onclick="fuViewCustomer('${woId}')">View →</button>` : ''}
+          <button class="fu-btn fu-btn-dismiss" onclick="fuDismiss('${job.id}')">✓ Done</button>
+        </div>
+      </div>`;
+    });
+  });
+
+  document.getElementById('fu-content').innerHTML = html;
+}
+
+function updateFollowUpBadge(count) {
+  const badge = document.getElementById('fu-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function fuViewCustomer(woId) {
+  const wo = (_fuWOs || []).find(w => w.id === woId) || (_dashWOs || []).find(w => w.id === woId);
+  if (!wo) return;
+  const custName = Array.isArray(wo.fields['Customer Name'])
+    ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
+  const cust = allCustomers.find(c => c.fields['Customer Name'] === custName);
+  if (!cust) { alert('Customer record not found.'); return; }
+  switchTab('customers', true);
+  selectCustomer(cust.id);
+}
+
+async function fuInvoice(woId) {
+  const wo = (_fuWOs || []).find(w => w.id === woId);
+  if (!wo) return;
+  const custName = Array.isArray(wo.fields['Customer Name'])
+    ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
+  const cust = allCustomers.find(c => c.fields['Customer Name'] === custName);
+  if (!cust) {
+    alert('Customer record not found. Open from the Customers tab instead.');
+    return;
+  }
+  selectedCustomer   = cust;
+  currentWorkOrders  = [wo];
+  openInvoiceModal(woId, cust.id);
+}
+
+function fuSchedule(woId, custName) {
+  openSchedPanel();
+  if (custName) {
+    const cust = allCustomers.find(c => c.fields['Customer Name'] === custName);
+    if (cust) {
+      // spPickCust is async but fires its own render — call after openSchedPanel sets up _sp
+      setTimeout(() => spPickCust(cust.id), 50);
+    }
+  }
+}
+
+async function fuDismiss(jobId) {
+  const card = document.getElementById('fu-card-' + jobId);
+  if (card) { card.style.opacity = '0.35'; card.style.pointerEvents = 'none'; }
+  try {
+    await fetch(`${PROXY}/Jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Follow Up Required': false } })
+    });
+    if (card) card.remove();
+    if (_fuJobs) _fuJobs = _fuJobs.filter(j => j.id !== jobId);
+    if (_dashFlaggedJobs) _dashFlaggedJobs = _dashFlaggedJobs.filter(j => j.id !== jobId);
+    updateFollowUpBadge(_fuJobs?.length || 0);
+    if (!_fuJobs?.length) {
+      document.getElementById('fu-content').innerHTML =
+        `<div class="fu-empty">🎉 Queue is clear — nothing flagged for follow-up</div>`;
+    }
+  } catch (err) {
+    if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
+    alert('Could not clear flag: ' + err.message);
+  }
 }
 
 async function fetchAll(table, qs) {
