@@ -1159,6 +1159,31 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           ? `Check${checkNumber ? ' #' + checkNumber : ''}`
           : 'Cash';
 
+        // Check current Stripe invoice status — $0 warranty invoices are auto-paid
+        // by Stripe immediately on send, so calling /pay again would throw an error.
+        const stripeInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`);
+        const paidDate  = new Date().toISOString().split('T')[0];
+
+        if (stripeInv.status === 'paid') {
+          // Already paid (auto-paid $0 or previously collected) — just sync Airtable
+          await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
+          const jobIds = wo.fields['Jobs'] || [];
+          if (jobIds.length) {
+            await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': 'Paid' })));
+          }
+          const atInvId = (wo.fields['Invoice'] || [])[0] || (wo.fields['Invoices'] || [])[0];
+          if (atInvId) {
+            await airtablePatch('Invoices', atInvId, {
+              'Status':         'Paid in Full',
+              'Paid Date':      paidDate,
+              'Amount Paid':    (stripeInv.amount_paid || 0) / 100,
+              'Payment Method': paymentNote,
+            });
+          }
+          return new Response(JSON.stringify({ ok: true }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
         // Update invoice metadata before marking paid
         await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
           'metadata[payment_method]': paymentNote,
@@ -1425,6 +1450,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // 11. Store Stripe ID + Airtable Invoice ID in Work Order Internal Notes
+        // For $0 invoices Stripe auto-pays immediately on send (status='paid').
+        // The invoice.paid webhook fires before Airtable has been updated with the
+        // Stripe Invoice ID, so it finds nothing. Detect this here and mark Paid inline.
+        const zeroDollarAutoPaid = sendNow && finalInv.status === 'paid';
         if (workOrderId) {
           const woUpdate = {
             'Stripe Invoice ID': finalInv.id,
@@ -1432,14 +1461,25 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           };
           if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
           if (sendNow) {
-            woUpdate['Status'] = 'Invoiced';
+            woUpdate['Status'] = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
             // Mirror status to linked Jobs
             const jobIds = woRecord?.fields?.['Jobs'] || [];
             if (jobIds.length) {
-              await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': 'Invoiced' })));
+              const jobStatus = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
+              await Promise.all(jobIds.map(jid => airtablePatch('Jobs', jid, { 'Status': jobStatus })));
             }
           }
           await airtablePatch('Work Orders', workOrderId, woUpdate);
+        }
+
+        // For $0 auto-paid: also flip Airtable Invoice record to Paid in Full now
+        if (zeroDollarAutoPaid && atInvId) {
+          const paidDate = new Date().toISOString().split('T')[0];
+          await airtablePatch('Invoices', atInvId, {
+            'Status':      'Paid in Full',
+            'Paid Date':   paidDate,
+            'Amount Paid': (finalInv.amount_paid || 0) / 100,
+          });
         }
 
         return new Response(JSON.stringify({
