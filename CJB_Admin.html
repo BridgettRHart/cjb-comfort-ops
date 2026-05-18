@@ -1730,41 +1730,19 @@ function dashGoCustomer(woId) {
 }
 
 // ── Follow-Up Queue ──────────────────────────────────────────────────────────
-let _fuJobs     = null;
-let _fuWOs      = null;
-let _fuLoadedAt = 0;
-
 async function loadFollowUpQueue(force) {
-  if (!force && _fuJobs && Date.now() - _fuLoadedAt < 60000) {
-    renderFollowUpQueue();
+  // If the dashboard data is already loaded (and not a forced refresh), reuse it —
+  // the queue and "Flagged for Office" widget are the same data set.
+  if (!force && _dashFlaggedJobs && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
+    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs);
     return;
   }
+  // Otherwise kick off a full dashboard refresh so both views stay in sync.
   document.getElementById('fu-content').innerHTML =
     '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
   try {
-    const formula = encodeURIComponent(`{Follow Up Required}=TRUE()`);
-    _fuJobs = await fetchAll('Jobs',
-      `filterByFormula=${formula}` +
-      `&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order` +
-      `&fields[]=Status&fields[]=Equipment&fields[]=Scheduled Start`);
-
-    // Fetch linked WO records to get customer name, date, type, status
-    const woIds = [...new Set(_fuJobs.flatMap(j => j.fields['Work Order'] || []))];
-    if (woIds.length) {
-      const woFormula = woIds.length === 1
-        ? `RECORD_ID()="${woIds[0]}"`
-        : `OR(${woIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
-      _fuWOs = await fetchAll('Work Orders',
-        `filterByFormula=${encodeURIComponent(woFormula)}` +
-        `&fields[]=Customer Name&fields[]=Scheduled Date` +
-        `&fields[]=Work Order Type&fields[]=Status&fields[]=Total Amount`);
-    } else {
-      _fuWOs = [];
-    }
-
-    _fuLoadedAt = Date.now();
-    renderFollowUpQueue();
-    updateFollowUpBadge(_fuJobs.length);
+    await loadDashboard(true);         // refreshes _dashFlaggedJobs + _dashWOs
+    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs);
   } catch (err) {
     document.getElementById('fu-content').innerHTML =
       `<div style="color:#c81f25;padding:24px;">${esc(err.message)}</div>`;
@@ -1782,16 +1760,21 @@ function _fuUrgency(woDateStr) {
   return 'green';
 }
 
-function renderFollowUpQueue() {
+function renderFollowUpQueue(flaggedJobs, wos) {
+  // Fall back to dashboard data if called without args
+  flaggedJobs = flaggedJobs || _dashFlaggedJobs || [];
+  wos         = wos         || _dashWOs         || [];
+
+  // Build WO lookup — dashboard WOs have full field set
   const woById = {};
-  (_fuWOs || []).forEach(w => { woById[w.id] = w; });
+  wos.forEach(w => { woById[w.id] = w; });
 
   const now    = new Date();
   const fmtD   = iso => iso
     ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : '';
 
-  const items = (_fuJobs || []).map(job => {
+  const items = flaggedJobs.map(job => {
     const jf     = job.fields;
     const woId   = (jf['Work Order'] || [])[0] || null;
     const wo     = woId ? woById[woId] : null;
@@ -1895,7 +1878,8 @@ function updateFollowUpBadge(count) {
 }
 
 function fuViewCustomer(woId) {
-  const wo = (_fuWOs || []).find(w => w.id === woId) || (_dashWOs || []).find(w => w.id === woId);
+  // Both the queue and the dashboard use _dashWOs as the shared WO source
+  const wo = (_dashWOs || []).find(w => w.id === woId);
   if (!wo) return;
   const custName = Array.isArray(wo.fields['Customer Name'])
     ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
@@ -1906,7 +1890,7 @@ function fuViewCustomer(woId) {
 }
 
 async function fuInvoice(woId) {
-  const wo = (_fuWOs || []).find(w => w.id === woId);
+  const wo = (_dashWOs || []).find(w => w.id === woId);
   if (!wo) return;
   const custName = Array.isArray(wo.fields['Customer Name'])
     ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
@@ -1941,12 +1925,17 @@ async function fuDismiss(jobId) {
       body: JSON.stringify({ fields: { 'Follow Up Required': false } })
     });
     if (card) card.remove();
-    if (_fuJobs) _fuJobs = _fuJobs.filter(j => j.id !== jobId);
+    // Remove from the shared dashboard data so both widgets stay in sync
     if (_dashFlaggedJobs) _dashFlaggedJobs = _dashFlaggedJobs.filter(j => j.id !== jobId);
-    updateFollowUpBadge(_fuJobs?.length || 0);
-    if (!_fuJobs?.length) {
+    updateFollowUpBadge(_dashFlaggedJobs?.length || 0);
+    // Re-render queue empty state if nothing left
+    if (!_dashFlaggedJobs?.length) {
       document.getElementById('fu-content').innerHTML =
         `<div class="fu-empty">🎉 Queue is clear — nothing flagged for follow-up</div>`;
+    }
+    // Keep the "Flagged for Office" dashboard widget in sync too
+    if (_dashWOs && document.getElementById('dash-view').style.display !== 'none') {
+      renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
     }
   } catch (err) {
     if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
