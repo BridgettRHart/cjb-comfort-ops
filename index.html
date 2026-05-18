@@ -2555,10 +2555,8 @@ function renderJobDetail(record) {
   const notes = f['Notes'] || f['Problem Description'] || '';
   const contact = f['Contact Name'] || f['Primary Contact Name'] || '';
   const contactPhone = f['Contact Phone'] || '';
-  // Customer phone — stored as "Phone: XXX" in Notes by both the Calendly webhook
-  // and the admin scheduling panel. Shown as a tap-to-call link for Cornell.
-  const phoneMatch  = (f['Notes'] || '').match(/Phone:\s*([^|]+?)(?:\s*\||$)/i);
-  const customerPhone = phoneMatch ? phoneMatch[1].trim() : '';
+  // Customer phone — populated via the Customer Phone lookup field on Work Orders.
+  const customerPhone = f['Customer Phone'] || '';
   const woId = f['Work Order ID'] || record.id;
   const priority = f['Priority'] || '';
 
@@ -3975,13 +3973,33 @@ async function submitComplete() {
     if (isContractVisit && currentContractId) jobFields['Maintenance Contract'] = [currentContractId];
 
     // Save job record — patch if a draft (In Progress) or completed record already exists
+    let savedJobId = null;
     const existingJob = currentJobsByEquipment[selectedEquipmentId];
     if (existingJob && (existingJob.fields['Status'] === 'Complete' || existingJob.fields['Status'] === 'In Progress')) {
       await apiPatch('Jobs', existingJob.id, jobFields);
       _sessionJobIds.add(existingJob.id);
+      savedJobId = existingJob.id;
     } else {
       const newJob = await apiPost('Jobs', jobFields);
-      if (newJob && newJob.id) _sessionJobIds.add(newJob.id);
+      if (newJob && newJob.id) {
+        _sessionJobIds.add(newJob.id);
+        savedJobId = newJob.id;
+      }
+    }
+
+    // If Cornell flagged this for office follow-up, create a Follow-Up record so it
+    // appears in the admin queue (Follow-Ups table, Status = Open).
+    if (officeNotes && savedJobId) {
+      try {
+        const fuFields = { 'Status': 'Open', 'Job': [savedJobId] };
+        if (woId)                        fuFields['Work Order'] = [woId];
+        if (woFields['Customer']?.length) fuFields['Customer']  = woFields['Customer'];
+        if (woFields['Property']?.length) fuFields['Property']  = woFields['Property'];
+        fuFields['Notes'] = officeNotes;   // requires Notes field on Follow-Ups table
+        await apiPost('Follow-Ups', fuFields);
+      } catch (fuErr) {
+        console.warn('Follow-Up record creation failed (non-fatal):', fuErr);
+      }
     }
 
     // Update Equipment: Last Service Date + Condition + photos (non-fatal)
@@ -4774,6 +4792,20 @@ async function submitFieldEstimate() {
       const draftJob = await apiPost('Jobs', draftFields);
       // Store so openCompleteForm can restore values if Cornell navigates back
       currentJobsByEquipment[selectedEquipmentId] = draftJob;
+
+      // Create a Follow-Up record if Cornell flagged this job for office follow-up
+      if (officeNotes && draftJob?.id) {
+        try {
+          const fuFields = { 'Status': 'Open', 'Job': [draftJob.id] };
+          if (currentJob.id)               fuFields['Work Order'] = [currentJob.id];
+          if (woFields['Customer']?.length) fuFields['Customer']  = woFields['Customer'];
+          if (woFields['Property']?.length) fuFields['Property']  = woFields['Property'];
+          fuFields['Notes'] = officeNotes;  // requires Notes field on Follow-Ups table
+          await apiPost('Follow-Ups', fuFields);
+        } catch (fuErr) {
+          console.warn('Follow-Up record creation failed (non-fatal):', fuErr);
+        }
+      }
     } catch(e) { console.error('Draft job save failed:', e.message); }
 
     // Show success panel

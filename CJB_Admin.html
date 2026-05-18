@@ -1274,7 +1274,7 @@ async function init() {
 }
 
 // ── Tab switching ────────────────────────────────────────────────────────────
-function switchTab(tab, skipMobileReset = false, scrollJobId = null) {
+function switchTab(tab, skipMobileReset = false, scrollFuId = null) {
   document.getElementById('tab-dash').classList.toggle('active', tab === 'dash');
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
@@ -1288,7 +1288,7 @@ function switchTab(tab, skipMobileReset = false, scrollJobId = null) {
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
   if (tab === 'contracts') loadContracts();
-  if (tab === 'followup') loadFollowUpQueue(false, scrollJobId);
+  if (tab === 'followup') loadFollowUpQueue(false, scrollFuId);
   if (tab === 'customers' && isMobile() && !skipMobileReset) {
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
@@ -1298,8 +1298,9 @@ function switchTab(tab, skipMobileReset = false, scrollJobId = null) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-let _dashWOs = null;
-let _dashFlaggedJobs = null;
+let _dashWOs       = null;
+let _dashFuRecords = null;   // Follow-Up records (Status="Open") — replaces _dashFuRecords
+let _fuLinkedJobs  = {};     // jobId → Job record map for notes + dates
 let _dashContracts = null;
 let _dashLoadedAt = 0;
 let _weekOffset   = 0;      // 0 = current week, -1 = last week, +1 = next week
@@ -1324,37 +1325,56 @@ const _azTime = iso => {
   return `${h}:${_pad(m)} ${ap}`;
 };
 
+// Batch-fetch the Jobs linked from Follow-Up records so we can show Cornell's
+// original follow-up note and the actual service date without extra calls per card.
+async function _loadFuLinkedJobs(fuRecords) {
+  const ids = [...new Set(
+    fuRecords.flatMap(fu => fu.fields['Job'] || []).filter(Boolean)
+  )];
+  if (!ids.length) return {};
+  const formula = ids.length === 1
+    ? `RECORD_ID()='${ids[0]}'`
+    : `OR(${ids.map(id => `RECORD_ID()='${id}'`).join(',')})`;
+  const jobs = await fetchAll('Jobs',
+    `filterByFormula=${encodeURIComponent(formula)}&fields[]=Follow Up Notes&fields[]=Scheduled Start&fields[]=Status`);
+  const map = {};
+  jobs.forEach(j => { map[j.id] = j; });
+  return map;
+}
+
 async function loadDashboard(force) {
   if (!force && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
+    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
     return;
   }
   document.getElementById('dash-content').innerHTML =
     '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
   try {
     const woFormula  = encodeURIComponent(`NOT({Status}="Cancelled")`);
-    const jobFormula = encodeURIComponent(`{Follow Up Required}=TRUE()`);
-    [_dashWOs, _dashFlaggedJobs, _dashContracts] = await Promise.all([
+    const fuFormula  = encodeURIComponent(`{Status}="Open"`);
+    [_dashWOs, _dashFuRecords, _dashContracts] = await Promise.all([
       fetchAll('Work Orders',
         `filterByFormula=${woFormula}&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
-      fetchAll('Jobs',
-        `filterByFormula=${jobFormula}&fields[]=Job Name&fields[]=Follow Up Notes&fields[]=Work Order&fields[]=Status&fields[]=Scheduled Start`),
+      fetchAll('Follow-Ups',
+        `filterByFormula=${fuFormula}&fields[]=Title&fields[]=Status&fields[]=Customer&fields[]=Work Order&fields[]=Job&fields[]=Notes&fields[]=Due Date`),
       fetchAll('Maintenance Contracts',
         `filterByFormula=${encodeURIComponent('NOT({Status}="Cancelled")')}`)
     ]);
+    // Batch-fetch the Jobs linked from each Follow-Up for notes + service dates
+    _fuLinkedJobs = await _loadFuLinkedJobs(_dashFuRecords);
     _dashLoadedAt = Date.now();
     _weekOffset  = 0;
     _selectedDay = null;
-    renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
+    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
     // Keep the Follow-Up badge in sync whenever the dashboard refreshes
-    updateFollowUpBadge((_dashFlaggedJobs || []).length);
+    updateFollowUpBadge((_dashFuRecords || []).length);
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
       `<div style="color:#c81f25;padding:20px;">${esc(err.message)}</div>`;
   }
 }
 
-function renderDashboard(wos, flaggedJobs, contracts) {
+function renderDashboard(wos, fuRecords, contracts) {
   const now      = new Date();
   const todayStr = _azDate(now.toISOString());
   const monthStr = todayStr.substring(0, 7);
@@ -1386,13 +1406,13 @@ function renderDashboard(wos, flaggedJobs, contracts) {
   const needsInvoice = wos.filter(w => w.fields['Status'] === 'Complete');
   const hasDraftId   = w => !!(w.fields['Stripe Invoice ID']);
 
-  // Build WO lookup map for joining flagged jobs to customer/date info
+  // Build WO lookup map for joining Follow-Up records to WO/customer/date info
   const woById = {};
   wos.forEach(w => { woById[w.id] = w; });
-  const flagged = (flaggedJobs || []).map(job => {
-    const woId = (job.fields['Work Order'] || [])[0] || null;
+  const flagged = (fuRecords || []).map(fu => {
+    const woId = (fu.fields['Work Order'] || [])[0] || null;
     const wo   = woId ? (woById[woId] || null) : null;
-    return { job, wo, woId };
+    return { fu, wo, woId };
   });
 
   // Stats
@@ -1657,14 +1677,21 @@ function renderDashboard(wos, flaggedJobs, contracts) {
     </div>
     ${!flagged.length
       ? '<div class="widget-empty">Nothing flagged</div>'
-      : flagged.map(({job, wo, woId}) => {
-          const jf       = job.fields;
+      : flagged.map(({fu, wo, woId}) => {
+          const ff       = fu.fields;
           const wf       = wo?.fields || {};
-          const custName = Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : (wf['Customer Name'] || '(unknown)');
-          const date     = fmtDate(wf['Scheduled Date']);
+          const jobId    = (ff['Job'] || [])[0] || null;
+          const job      = jobId ? _fuLinkedJobs[jobId] : null;
+          // Resolve customer name — try WO lookup first, fall back to Customers list by ID
+          const custId   = (ff['Customer'] || [])[0] || null;
+          const cust     = custId ? allCustomers.find(c => c.id === custId) : null;
+          const custName = cust?.fields['Customer Name']
+            || (Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : (wf['Customer Name'] || '(unknown)'));
+          const rawDate  = wf['Scheduled Date'] || job?.fields['Scheduled Start'] || '';
+          const date     = rawDate ? fmtDate(rawDate) : '';
           const woType   = wf['Work Order Type'] || '';
-          const note     = jf['Follow Up Notes'] || '';
-          const viewBtn  = `<button class="btn btn-gray btn-sm" onclick="dashGoFollowUp('${job.id}')">View</button>`;
+          const note     = ff['Notes'] || job?.fields['Follow Up Notes'] || '';
+          const viewBtn  = `<button class="btn btn-gray btn-sm" onclick="dashGoFollowUp('${fu.id}')">View</button>`;
           return `<div class="inv-row">
             <div class="inv-info">
               <div class="inv-name">${esc(custName)}</div>
@@ -1691,12 +1718,12 @@ function dashNavWeek(dir) {
     _weekOffset = Math.max(-2, Math.min(2, _weekOffset + dir));
     _selectedDay = null; // will auto-set to first job day or Monday
   }
-  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
 }
 
 function dashSelectDay(ds) {
   _selectedDay = ds;
-  if (_dashWOs) renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
 }
 
 async function dashInvoice(woId) {
@@ -1735,19 +1762,19 @@ function dashGoFollowUp(jobId) {
 }
 
 // ── Follow-Up Queue ──────────────────────────────────────────────────────────
-async function loadFollowUpQueue(force, scrollJobId = null) {
+async function loadFollowUpQueue(force, scrollFuId = null) {
   // If the dashboard data is already loaded (and not a forced refresh), reuse it —
   // the queue and "Flagged for Office" widget are the same data set.
-  if (!force && _dashFlaggedJobs && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs, scrollJobId);
+  if (!force && _dashFuRecords && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
+    renderFollowUpQueue(_dashFuRecords, _dashWOs, scrollFuId);
     return;
   }
   // Otherwise kick off a full dashboard refresh so both views stay in sync.
   document.getElementById('fu-content').innerHTML =
     '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
   try {
-    await loadDashboard(true);         // refreshes _dashFlaggedJobs + _dashWOs
-    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs, scrollJobId);
+    await loadDashboard(true);         // refreshes _dashFuRecords + _dashWOs + _fuLinkedJobs
+    renderFollowUpQueue(_dashFuRecords, _dashWOs, scrollFuId);
   } catch (err) {
     document.getElementById('fu-content').innerHTML =
       `<div style="color:#c81f25;padding:24px;">${esc(err.message)}</div>`;
@@ -1765,16 +1792,16 @@ function _fuUrgency(woDateStr) {
   return 'green';
 }
 
-function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
+function renderFollowUpQueue(fuRecords, wos, scrollFuId = null) {
   // Fall back to dashboard data if called without args
-  flaggedJobs = flaggedJobs || _dashFlaggedJobs || [];
-  wos         = wos         || _dashWOs         || [];
+  fuRecords = fuRecords || _dashFuRecords || [];
+  wos       = wos       || _dashWOs       || [];
 
   // Build WO lookup — dashboard WOs have full field set
   const woById = {};
   wos.forEach(w => { woById[w.id] = w; });
 
-  const now    = new Date();
+  const now = new Date();
   // fmtD: normalize through _azDate first so ISO timestamps ("2026-05-14T07:00:00.000Z")
   // don't corrupt when we try to parse them as date-only strings.
   const fmtD = iso => {
@@ -1784,18 +1811,20 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
     return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const items = flaggedJobs.map(job => {
-    const jf    = job.fields;
-    const woId  = (jf['Work Order'] || [])[0] || null;
+  const items = fuRecords.map(fu => {
+    const ff    = fu.fields;
+    const woId  = (ff['Work Order'] || [])[0] || null;
+    const jobId = (ff['Job'] || [])[0] || null;
     const wo    = woId ? woById[woId] : null;
     const wf    = wo?.fields || {};
-    // Prefer the job's own Scheduled Start (when Cornell actually did it).
-    // Fall back to the WO's Scheduled Date if job date isn't available.
-    const rawDate = jf['Scheduled Start'] || wf['Scheduled Date'] || '';
-    const jobDate = _azDate(rawDate); // normalize to YYYY-MM-DD
-    const urgency = _fuUrgency(jobDate);
-    const days    = jobDate ? Math.floor((now - new Date(jobDate + 'T12:00:00')) / 86400000) : null;
-    return { job, wo, woId, urgency, days, jobDate, wf, jf };
+    const job   = jobId ? _fuLinkedJobs[jobId] : null;
+    // Prefer the linked Job's actual Scheduled Start, fall back to WO Scheduled Date,
+    // then Due Date on the Follow-Up itself.
+    const rawDate = job?.fields['Scheduled Start'] || wf['Scheduled Date'] || ff['Due Date'] || '';
+    const fuDate  = _azDate(rawDate);
+    const urgency = _fuUrgency(fuDate);
+    const days    = fuDate ? Math.floor((now - new Date(fuDate + 'T12:00:00')) / 86400000) : null;
+    return { fu, wo, woId, jobId, job, urgency, days, fuDate, wf, ff };
   });
 
   // Sort: most urgent first, then oldest within group
@@ -1844,14 +1873,17 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
 
     html += `<div class="fu-urgency-hd">${label} <span style="color:#bbb;font-weight:600;">(${group.length})</span></div>`;
 
-    group.forEach(({ job, woId, urgency, days, jobDate, wf, jf }) => {
-      const custName   = Array.isArray(wf['Customer Name'])
-        ? wf['Customer Name'][0] : (wf['Customer Name'] || '(Unknown)');
-      const custRecord = allCustomers.find(c => c.fields['Customer Name'] === custName);
-      const custPhone  = custRecord?.fields['Phone'] || '';
-      const woType     = wf['Work Order Type'] || '';
-      const woStatus   = wf['Status'] || '';
-      const note       = jf['Follow Up Notes'] || '';
+    group.forEach(({ fu, woId, urgency, days, fuDate, wf, ff, job }) => {
+      // Resolve customer by linked ID — more reliable than name matching
+      const custId    = (ff['Customer'] || [])[0] || null;
+      const cust      = custId ? allCustomers.find(c => c.id === custId) : null;
+      const custName  = cust?.fields['Customer Name']
+        || (Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : (wf['Customer Name'] || '(Unknown)'));
+      const custPhone = cust?.fields['Phone'] || wf['Customer Phone'] || '';
+      const woType    = wf['Work Order Type'] || '';
+      const woStatus  = wf['Status'] || '';
+      // Notes: admin note on FU record first, then Cornell's original job note
+      const note      = ff['Notes'] || job?.fields['Follow Up Notes'] || '';
       // Estimate-type WOs (Install Estimate, Repair Estimate, Estimate Only) are
       // never invoiced directly — they go through the quote/estimate flow instead.
       const isEstimateType = /estimate/i.test(woType);
@@ -1861,10 +1893,9 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
       const needsEstimate  = isEstimateType && !hasQuote && woId;
 
       const daysLbl = days === null ? '' : days === 0 ? 'Today' : days === 1 ? '1 day ago' : `${days} days ago`;
-      // Meta: just date + WO type — job name is auto-generated noise, already shown via custName + type
-      const meta = [jobDate ? fmtD(jobDate) : '', woType].filter(Boolean).join(' · ');
+      const meta    = [fuDate ? fmtD(fuDate) : '', woType].filter(Boolean).join(' · ');
 
-      html += `<div class="fu-card fu-${urgency}" id="fu-card-${job.id}">
+      html += `<div class="fu-card fu-${urgency}" id="fu-card-${fu.id}">
         <div class="fu-card-top">
           <div class="fu-card-main">
             <div class="fu-cust-name">${esc(custName)}</div>
@@ -1880,7 +1911,7 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
           ${hasQuote && woId ? `<button class="fu-btn" style="background:#1e40af;color:#fff;" onclick="fuSendEstimate('${woId}')">📄 Send Estimate</button>` : ''}
           ${canInvoice ? `<button class="fu-btn fu-btn-invoice" onclick="fuInvoice('${woId}')">💰 Invoice</button>` : ''}
           ${woId ? `<button class="fu-btn fu-btn-view" onclick="fuViewCustomer('${woId}')">View →</button>` : ''}
-          <button class="fu-btn fu-btn-dismiss" id="fu-dismiss-${job.id}" onclick="fuDismissConfirm('${job.id}')">✓ Done</button>
+          <button class="fu-btn fu-btn-dismiss" id="fu-dismiss-${fu.id}" onclick="fuDismissConfirm('${fu.id}')">✓ Done</button>
         </div>
       </div>`;
     });
@@ -1890,8 +1921,8 @@ function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
 
   // Scroll to and highlight a specific card — done here, after cards are in the DOM,
   // so it works reliably on both desktop and mobile regardless of async timing.
-  if (scrollJobId) {
-    const card = document.getElementById('fu-card-' + scrollJobId);
+  if (scrollFuId) {
+    const card = document.getElementById('fu-card-' + scrollFuId);
     if (card) {
       card.scrollIntoView({ block: 'center' }); // no 'smooth' — max mobile compatibility
       card.style.transition = 'box-shadow 0.2s';
@@ -1978,11 +2009,11 @@ async function fuSendEstimate(woId) {
   openQuoteModal(woId, cust.id);
 }
 
-function fuDismissConfirm(jobId) {
-  const btn = document.getElementById('fu-dismiss-' + jobId);
+function fuDismissConfirm(fuId) {
+  const btn = document.getElementById('fu-dismiss-' + fuId);
   if (!btn) return;
   if (btn.dataset.confirming === '1') {
-    fuDismiss(jobId);
+    fuDismiss(fuId);
     return;
   }
   // First tap: change button to confirm state
@@ -2003,27 +2034,38 @@ function fuDismissConfirm(jobId) {
   }, 3000);
 }
 
-async function fuDismiss(jobId) {
-  const card = document.getElementById('fu-card-' + jobId);
+async function fuDismiss(fuId) {
+  const card = document.getElementById('fu-card-' + fuId);
   if (card) { card.style.opacity = '0.35'; card.style.pointerEvents = 'none'; }
   try {
-    await fetch(`${PROXY}/Jobs/${jobId}`, {
+    // Mark the Follow-Up record as Done in Airtable
+    await fetch(`${PROXY}/Follow-Ups/${fuId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: { 'Follow Up Required': false } })
+      body: JSON.stringify({ fields: { 'Status': 'Done' } })
     });
+    // Also clear the Follow Up Required flag on the linked Job (best-effort, non-blocking)
+    const fu    = _dashFuRecords?.find(r => r.id === fuId);
+    const jobId = (fu?.fields['Job'] || [])[0] || null;
+    if (jobId) {
+      fetch(`${PROXY}/Jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { 'Follow Up Required': false } })
+      }).catch(() => {});
+    }
     if (card) card.remove();
     // Remove from the shared dashboard data so both widgets stay in sync
-    if (_dashFlaggedJobs) _dashFlaggedJobs = _dashFlaggedJobs.filter(j => j.id !== jobId);
-    updateFollowUpBadge(_dashFlaggedJobs?.length || 0);
+    if (_dashFuRecords) _dashFuRecords = _dashFuRecords.filter(r => r.id !== fuId);
+    updateFollowUpBadge(_dashFuRecords?.length || 0);
     // Re-render queue empty state if nothing left
-    if (!_dashFlaggedJobs?.length) {
+    if (!_dashFuRecords?.length) {
       document.getElementById('fu-content').innerHTML =
         `<div class="fu-empty">🎉 Queue is clear — nothing flagged for follow-up</div>`;
     }
     // Keep the "Flagged for Office" dashboard widget in sync too
     if (_dashWOs && document.getElementById('dash-view').style.display !== 'none') {
-      renderDashboard(_dashWOs, _dashFlaggedJobs, _dashContracts);
+      renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
     }
   } catch (err) {
     if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
@@ -4986,15 +5028,7 @@ async function spBook() {
     if (contId)              woFields['Primary Contact']     = [contId];
     if (techId)              woFields['Technician']          = [techId];
     if (_sp.prob)            woFields['Problem Description'] = _sp.prob;
-    // Prepend customer phone to Notes in the same format the Calendly webhook uses,
-    // so the field app can always find it in one place regardless of booking source.
-    const custPhone = _sp.cust?.fields['Phone'] || _sp.newPhone || '';
-    const noteBody  = _sp.notes || '';
-    if (custPhone || noteBody) {
-      woFields['Notes'] = custPhone
-        ? (noteBody ? `Phone: ${custPhone} | ${noteBody}` : `Phone: ${custPhone}`)
-        : noteBody;
-    }
+    if (_sp.notes) woFields['Notes'] = _sp.notes;
     if (_sp.specificEq?.length) woFields['Specific Equipment'] = _sp.specificEq.map(r => r.id);
 
     const res  = await fetch(`${PROXY}/Work%20Orders`, {
