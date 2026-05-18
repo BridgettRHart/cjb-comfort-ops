@@ -2555,6 +2555,10 @@ function renderJobDetail(record) {
   const notes = f['Notes'] || f['Problem Description'] || '';
   const contact = f['Contact Name'] || f['Primary Contact Name'] || '';
   const contactPhone = f['Contact Phone'] || '';
+  // Customer phone — stored as "Phone: XXX" in Notes by both the Calendly webhook
+  // and the admin scheduling panel. Shown as a tap-to-call link for Cornell.
+  const phoneMatch  = (f['Notes'] || '').match(/Phone:\s*([^|]+?)(?:\s*\||$)/i);
+  const customerPhone = phoneMatch ? phoneMatch[1].trim() : '';
   const woId = f['Work Order ID'] || record.id;
   const priority = f['Priority'] || '';
 
@@ -2609,6 +2613,15 @@ function renderJobDetail(record) {
         <span class="detail-label">Name</span>
         <span class="detail-value big">${escHtml(customer)}</span>
       </div>
+      ${customerPhone ? `
+      <div class="detail-row">
+        <span class="detail-label">Phone</span>
+        <span class="detail-value">
+          <a href="tel:${escAttr(customerPhone)}" style="color:var(--red);font-weight:700;font-size:16px;text-decoration:none;" aria-label="Call ${escHtml(customer)}">
+            📞 ${escHtml(customerPhone)}
+          </a>
+        </span>
+      </div>` : ''}
       ${addressFull ? `
       <div class="detail-row">
         <span class="detail-label">Address</span>
