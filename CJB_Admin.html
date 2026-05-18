@@ -1272,7 +1272,7 @@ async function init() {
 }
 
 // ── Tab switching ────────────────────────────────────────────────────────────
-function switchTab(tab, skipMobileReset = false) {
+function switchTab(tab, skipMobileReset = false, scrollJobId = null) {
   document.getElementById('tab-dash').classList.toggle('active', tab === 'dash');
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
@@ -1286,7 +1286,7 @@ function switchTab(tab, skipMobileReset = false) {
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
   if (tab === 'contracts') loadContracts();
-  if (tab === 'followup') loadFollowUpQueue();
+  if (tab === 'followup') loadFollowUpQueue(false, scrollJobId);
   if (tab === 'customers' && isMobile() && !skipMobileReset) {
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
@@ -1729,25 +1729,15 @@ function dashGoCustomer(woId) {
 
 // "View" button on the dashboard Flagged widget → go to queue and highlight that card
 function dashGoFollowUp(jobId) {
-  switchTab('followup');
-  // After the queue renders, scroll the specific card into view and briefly highlight it
-  requestAnimationFrame(() => {
-    const card = document.getElementById('fu-card-' + jobId);
-    if (card) {
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      card.style.transition = 'box-shadow 0.2s';
-      card.style.boxShadow = '0 0 0 3px #c81f25';
-      setTimeout(() => { card.style.boxShadow = ''; }, 1800);
-    }
-  });
+  switchTab('followup', false, jobId);
 }
 
 // ── Follow-Up Queue ──────────────────────────────────────────────────────────
-async function loadFollowUpQueue(force) {
+async function loadFollowUpQueue(force, scrollJobId = null) {
   // If the dashboard data is already loaded (and not a forced refresh), reuse it —
   // the queue and "Flagged for Office" widget are the same data set.
   if (!force && _dashFlaggedJobs && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs);
+    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs, scrollJobId);
     return;
   }
   // Otherwise kick off a full dashboard refresh so both views stay in sync.
@@ -1755,7 +1745,7 @@ async function loadFollowUpQueue(force) {
     '<div style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>';
   try {
     await loadDashboard(true);         // refreshes _dashFlaggedJobs + _dashWOs
-    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs);
+    renderFollowUpQueue(_dashFlaggedJobs, _dashWOs, scrollJobId);
   } catch (err) {
     document.getElementById('fu-content').innerHTML =
       `<div style="color:#c81f25;padding:24px;">${esc(err.message)}</div>`;
@@ -1773,7 +1763,7 @@ function _fuUrgency(woDateStr) {
   return 'green';
 }
 
-function renderFollowUpQueue(flaggedJobs, wos) {
+function renderFollowUpQueue(flaggedJobs, wos, scrollJobId = null) {
   // Fall back to dashboard data if called without args
   flaggedJobs = flaggedJobs || _dashFlaggedJobs || [];
   wos         = wos         || _dashWOs         || [];
@@ -1877,6 +1867,18 @@ function renderFollowUpQueue(flaggedJobs, wos) {
   });
 
   document.getElementById('fu-content').innerHTML = html;
+
+  // Scroll to and highlight a specific card — done here, after cards are in the DOM,
+  // so it works reliably on both desktop and mobile regardless of async timing.
+  if (scrollJobId) {
+    const card = document.getElementById('fu-card-' + scrollJobId);
+    if (card) {
+      card.scrollIntoView({ block: 'center' }); // no 'smooth' — max mobile compatibility
+      card.style.transition = 'box-shadow 0.2s';
+      card.style.boxShadow  = '0 0 0 3px #c81f25';
+      setTimeout(() => { card.style.boxShadow = ''; }, 1800);
+    }
+  }
 }
 
 function updateFollowUpBadge(count) {
