@@ -1318,6 +1318,71 @@
     font-size: 17px; font-weight: 600;
     cursor: pointer;
   }
+
+  /* ── Install Estimate Screen ── */
+  .iest-section {
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .iest-section-title {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--charcoal);
+    margin-bottom: 10px;
+  }
+  .iest-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .iest-photo-thumb {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 6px;
+  }
+  .iest-li-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .iest-li-name {
+    font-size: 13px;
+    flex: 1;
+  }
+  .iest-li-qty-price {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 13px;
+  }
+  .iest-li-qty-price input {
+    width: 52px;
+    text-align: center;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 4px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+  }
+  .iest-product-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+  }
+  .iest-product-item:active {
+    background: #f5f5f5;
+  }
 </style>
 </head>
 <body>
@@ -1827,6 +1892,160 @@
   </div>
 </div>
 
+<!-- INSTALL ESTIMATE SCREEN -->
+<div id="screen-install-estimate" class="screen" style="background:#f2f2f2;">
+  <!-- Header -->
+  <div style="background:var(--charcoal);padding:12px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+    <button onclick="showScreen('detail')" style="background:none;border:none;color:white;font-size:22px;cursor:pointer;padding:0;line-height:1;">←</button>
+    <img src="https://i.imgur.com/your-logo.png" alt="CJB" style="height:28px;" onerror="this.style.display='none'">
+    <span style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:white;letter-spacing:0.5px;">Install Estimate</span>
+  </div>
+
+  <!-- Scrollable content -->
+  <div style="flex:1;overflow-y:auto;padding:12px 14px 40px;">
+
+    <!-- Banner -->
+    <div style="background:var(--red);padding:12px 16px;border-radius:var(--radius);margin-bottom:12px;">
+      <div id="iest-customer-name" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:white;"></div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.85);letter-spacing:0.5px;text-transform:uppercase;margin-top:2px;">Install Estimate</div>
+    </div>
+
+    <!-- Site Notes -->
+    <div class="iest-section">
+      <div class="iest-section-title">Site Notes</div>
+      <textarea id="iest-notes" class="form-textarea" rows="3" placeholder="Overall findings, scope of work, special conditions…" style="width:100%;box-sizing:border-box;"></textarea>
+    </div>
+
+    <!-- Measurements -->
+    <div class="iest-section">
+      <div class="iest-section-title">Measurements</div>
+      <div class="iest-grid-2">
+        <div>
+          <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Sq Footage</label>
+          <input type="number" id="iest-sqft" class="form-input" placeholder="e.g. 1400">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Rooms / Zones</label>
+          <input type="number" id="iest-zones" class="form-input" placeholder="e.g. 4">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Ceiling Height (ft)</label>
+          <input type="number" id="iest-ceiling" class="form-input" placeholder="e.g. 8">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Access Notes</label>
+          <input type="text" id="iest-access" class="form-input" placeholder="e.g. Attic hatch tight">
+        </div>
+      </div>
+    </div>
+
+    <!-- Existing System -->
+    <div class="iest-section">
+      <div class="iest-section-title">Existing System</div>
+      <div class="iest-grid-2" style="margin-bottom:10px;">
+        <div>
+          <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Equipment Type</label>
+          <select id="iest-eq-type" class="form-input" style="width:100%;">
+            <option value="">Select…</option>
+            <option>WSHP</option>
+            <option>Split System</option>
+            <option>Package Unit</option>
+            <option>Mini Split</option>
+            <option>RTU</option>
+            <option>Air Handler</option>
+            <option>Condenser</option>
+            <option>Furnace</option>
+            <option>Heat Pump</option>
+            <option>Boiler</option>
+            <option>Chiller</option>
+            <option>Evaporative Cooler</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Age (years)</label>
+          <input type="number" id="iest-eq-age" class="form-input" placeholder="e.g. 12">
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:12px;color:var(--gray-text);margin-bottom:6px;">Condition</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="radio" name="iest-condition" value="Excellent"> Excellent</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="radio" name="iest-condition" value="Good"> Good</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="radio" name="iest-condition" value="Fair"> Fair</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="radio" name="iest-condition" value="Poor"> Poor</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="radio" name="iest-condition" value="End of Life"> End of Life</label>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--gray-text);display:block;margin-bottom:4px;">Issues / Observations</label>
+        <textarea id="iest-issues" class="form-textarea" rows="2" placeholder="Describe current issues…" style="width:100%;box-sizing:border-box;"></textarea>
+      </div>
+    </div>
+
+    <!-- Photos -->
+    <div class="iest-section">
+      <div class="iest-section-title">Photos</div>
+      <div id="iest-photos-row" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;"></div>
+      <input type="file" id="iest-camera-input" accept="image/*" capture="environment" multiple style="display:none;" onchange="iestHandlePhotos(event)">
+      <button class="btn btn-outline" style="width:100%;font-size:15px;" onclick="document.getElementById('iest-camera-input').click()">📷 Take / Upload Photo</button>
+    </div>
+
+    <!-- Urgency -->
+    <div class="iest-section">
+      <div class="iest-section-title">Urgency</div>
+      <div id="iest-urgency-selector" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button class="urgency-btn u-safety" onclick="selectIestUrgency(this)" data-value="Safety Issue">
+          <div class="urgency-emoji">🔴</div>
+          <div>Safety Issue</div>
+          <div class="urgency-sub">Immediate</div>
+        </button>
+        <button class="urgency-btn u-now" onclick="selectIestUrgency(this)" data-value="Repair Now">
+          <div class="urgency-emoji">🟠</div>
+          <div>Repair Now</div>
+          <div class="urgency-sub">This week</div>
+        </button>
+        <button class="urgency-btn u-soon" onclick="selectIestUrgency(this)" data-value="Repair Soon">
+          <div class="urgency-emoji">🟡</div>
+          <div>Repair Soon</div>
+          <div class="urgency-sub">This month</div>
+        </button>
+        <button class="urgency-btn u-monitor" onclick="selectIestUrgency(this)" data-value="Monitor">
+          <div class="urgency-emoji">🟢</div>
+          <div>Monitor</div>
+          <div class="urgency-sub">Watch it</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Line Items -->
+    <div class="iest-section">
+      <div class="iest-section-title">Line Items</div>
+      <div id="iest-line-items"></div>
+      <button class="btn btn-outline" style="width:100%;margin-top:8px;font-size:15px;" onclick="openIestProductPicker()">+ Add Line Item</button>
+      <div id="iest-total-row" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--charcoal);margin-top:10px;">Estimated Total: $0.00</div>
+    </div>
+
+    <!-- Submit -->
+    <button id="iest-submit-btn" class="btn btn-red" style="width:100%;font-size:17px;padding:14px;" onclick="submitInstallEstimate()">💾 Save Draft</button>
+    <div style="text-align:center;font-size:12px;color:var(--gray-text);margin-top:8px;">Saves as Stripe Quote draft — Bridgett reviews and sends from admin.</div>
+  </div>
+</div>
+
+<!-- INSTALL ESTIMATE PRODUCT PICKER -->
+<div id="iest-picker-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:600;align-items:flex-end;justify-content:center;">
+  <div style="background:white;border-radius:16px 16px 0 0;width:100%;max-width:480px;margin:0 auto;max-height:80vh;display:flex;flex-direction:column;">
+    <div style="padding:16px 16px 8px;">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:10px;">Select Product</div>
+      <input type="text" id="iest-product-search" class="form-input" placeholder="Search products…" oninput="iestFilterProducts(this.value)" style="width:100%;box-sizing:border-box;">
+    </div>
+    <div id="iest-product-list" style="overflow-y:auto;flex:1;padding-bottom:16px;"></div>
+    <div style="padding:12px 16px 24px;border-top:1px solid #f0f0f0;">
+      <button class="btn btn-outline" style="width:100%;font-size:15px;" onclick="closeIestPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- SKIP REASON SHEET -->
 <div id="skip-reason-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;align-items:flex-end;justify-content:center;" role="dialog" aria-modal="true" aria-label="Skip reason required">
   <div style="background:white;border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;">
@@ -1871,6 +2090,12 @@ let selectedParts = [];
 let productListCache = null;
 // Photos uploaded during estimate send — reused by submitComplete to avoid double-upload
 let uploadedPhotoUrls = [];
+
+// Install Estimate state
+let iestLineItems = [];      // [{productName, qty, unitPrice, productId}]
+let iestPhotoFiles = [];     // File objects pending upload
+let iestPhotoUrls = [];      // Already-uploaded R2 URLs
+let iestUrgency = '';
 
 // ═══════════════════════
 // STATE
@@ -2532,6 +2757,11 @@ let _renameEqId    = null;      // equipment ID being renamed in the rename over
 // ═══════════════════════
 async function activateJobScreen(record) {
   _sessionJobIds = new Set(); // reset for new job context
+  const woType = record.fields['Work Order Type'] || '';
+  if (woType === 'Install Estimate') {
+    await showInstallEstimateScreen(record);
+    return;
+  }
   const f = record.fields;
   const customer = f['Customer Name'] || 'Customer';
   const jobType = f['Work Order Type'] || 'Service';
@@ -4556,6 +4786,268 @@ async function recordEstimateDecline(evt) {
 // This stub exists so callers (showWorkOrderSummary, submitFieldEstimate,
 // recordEstimateDecline) don't throw a silent JS error and block navigation.
 function renderSummaryEstimate() {}
+
+// ═══════════════════════════════════════════
+// INSTALL ESTIMATE SCREEN
+// ═══════════════════════════════════════════
+
+async function showInstallEstimateScreen(record) {
+  currentJob = record;
+  const f = record.fields;
+  const customer = f['Customer Name'] || 'Customer';
+
+  document.getElementById('iest-customer-name').textContent = customer;
+
+  // Clear form fields
+  document.getElementById('iest-notes').value = '';
+  document.getElementById('iest-sqft').value = '';
+  document.getElementById('iest-zones').value = '';
+  document.getElementById('iest-ceiling').value = '';
+  document.getElementById('iest-access').value = '';
+  document.getElementById('iest-eq-type').value = '';
+  document.getElementById('iest-eq-age').value = '';
+  document.getElementById('iest-issues').value = '';
+  document.querySelectorAll('input[name="iest-condition"]').forEach(r => r.checked = false);
+  document.getElementById('iest-photos-row').innerHTML = '';
+  document.getElementById('iest-camera-input').value = '';
+  document.getElementById('iest-line-items').innerHTML = '';
+  document.getElementById('iest-total-row').textContent = 'Estimated Total: $0.00';
+  document.querySelectorAll('#iest-urgency-selector .urgency-btn').forEach(b => b.classList.remove('active'));
+  const submitBtn = document.getElementById('iest-submit-btn');
+  submitBtn.textContent = '💾 Save Draft';
+  submitBtn.disabled = false;
+
+  // Reset state
+  iestLineItems = [];
+  iestPhotoFiles = [];
+  iestPhotoUrls = [];
+  iestUrgency = '';
+
+  showScreen('install-estimate');
+}
+
+function selectIestUrgency(btn) {
+  document.querySelectorAll('#iest-urgency-selector .urgency-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  iestUrgency = btn.dataset.value || btn.textContent.trim().split('\n')[0].replace(/[🔴🟠🟡🟢]/u, '').trim();
+}
+
+function iestHandlePhotos(event) {
+  const files = Array.from(event.target.files);
+  if (!files.length) return;
+  iestPhotoFiles.push(...files);
+  const row = document.getElementById('iest-photos-row');
+  files.forEach(file => {
+    const img = document.createElement('img');
+    img.className = 'iest-photo-thumb';
+    img.src = URL.createObjectURL(file);
+    row.appendChild(img);
+  });
+}
+
+async function openIestProductPicker() {
+  // Load product list cache if not yet loaded
+  if (!productListCache) {
+    showToast('Loading products…', 'info');
+    productListCache = [];
+    let offset = null;
+    do {
+      let url = `${PROXY}/Product%20List?pageSize=100&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+      if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.records) productListCache.push(...data.records);
+      offset = data.offset || null;
+    } while (offset);
+  }
+
+  const installCategories = ['Installation Services', 'Parts & Materials', 'Labor', 'Diagnostic & Service Calls'];
+  const filtered = productListCache.filter(r => {
+    if (r.fields['Active'] === false) return false;
+    const cat = r.fields['Category'] || '';
+    return installCategories.includes(cat) || true; // show all active if no category filter matches
+  }).filter(r => r.fields['Active'] !== false);
+
+  document.getElementById('iest-product-search').value = '';
+  renderIestProductList(filtered);
+  const overlay = document.getElementById('iest-picker-overlay');
+  overlay.style.display = 'flex';
+}
+
+function iestFilterProducts(query) {
+  if (!productListCache) return;
+  const q = query.toLowerCase();
+  const installCategories = ['Installation Services', 'Parts & Materials', 'Labor', 'Diagnostic & Service Calls'];
+  const base = productListCache.filter(r => r.fields['Active'] !== false);
+  const results = q
+    ? base.filter(r => (r.fields['Product Name'] || '').toLowerCase().includes(q))
+    : base;
+  renderIestProductList(results);
+}
+
+function renderIestProductList(products) {
+  const container = document.getElementById('iest-product-list');
+  if (!products.length) {
+    container.innerHTML = '<div style="padding:16px;color:var(--gray-text);font-size:14px;text-align:center;">No products found</div>';
+    return;
+  }
+  container.innerHTML = products.map(r => {
+    const name = escHtml(r.fields['Product Name'] || '');
+    const price = parseFloat(r.fields['Unit Price'] || r.fields['Price'] || 0);
+    const priceStr = '$' + price.toFixed(2);
+    const id = r.id;
+    return `<div class="iest-product-item" onclick="addIestLineItem('${escHtml(id)}','${name.replace(/'/g,"\\'")}',${price});closeIestPicker()">
+      <span style="font-size:14px;">${name}</span>
+      <span style="font-size:13px;color:var(--gray-text);white-space:nowrap;">${priceStr} /unit</span>
+    </div>`;
+  }).join('');
+}
+
+function addIestLineItem(productId, productName, unitPrice) {
+  iestLineItems.push({ productId, productName, qty: 1, unitPrice: parseFloat(unitPrice) || 0 });
+  renderIestLineItems();
+}
+
+function removeIestLineItem(idx) {
+  iestLineItems.splice(idx, 1);
+  renderIestLineItems();
+}
+
+function renderIestLineItems() {
+  const container = document.getElementById('iest-line-items');
+  if (!iestLineItems.length) {
+    container.innerHTML = '';
+    updateIestTotal();
+    return;
+  }
+  container.innerHTML = iestLineItems.map((item, i) => {
+    const name = escHtml(item.productName.length > 28 ? item.productName.substring(0, 26) + '…' : item.productName);
+    return `<div class="iest-li-row">
+      <span class="iest-li-name">${name}</span>
+      <div class="iest-li-qty-price">
+        <input type="number" min="1" value="${item.qty}" onchange="iestLineItems[${i}].qty=parseFloat(this.value)||1;updateIestTotal()">
+        <input type="number" min="0" step="0.01" value="${item.unitPrice.toFixed(2)}" onchange="iestLineItems[${i}].unitPrice=parseFloat(this.value)||0;updateIestTotal()">
+        <button onclick="removeIestLineItem(${i})" style="background:none;border:none;color:#dc2626;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;">×</button>
+      </div>
+    </div>`;
+  }).join('');
+  updateIestTotal();
+}
+
+function updateIestTotal() {
+  const total = iestLineItems.reduce((sum, li) => sum + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0);
+  document.getElementById('iest-total-row').textContent = 'Estimated Total: $' + total.toFixed(2);
+}
+
+function closeIestPicker() {
+  document.getElementById('iest-picker-overlay').style.display = 'none';
+}
+
+async function submitInstallEstimate() {
+  const btn = document.getElementById('iest-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  try {
+    // Gather field values
+    const notes = document.getElementById('iest-notes').value.trim();
+    const sqft = document.getElementById('iest-sqft').value.trim();
+    const zones = document.getElementById('iest-zones').value.trim();
+    const ceiling = document.getElementById('iest-ceiling').value.trim();
+    const access = document.getElementById('iest-access').value.trim();
+    const eqType = document.getElementById('iest-eq-type').value.trim();
+    const eqAge = document.getElementById('iest-eq-age').value.trim();
+    const conditionRadio = document.querySelector('input[name="iest-condition"]:checked');
+    const condition = conditionRadio ? conditionRadio.value : '';
+    const issues = document.getElementById('iest-issues').value.trim();
+
+    // Build description
+    let desc = '';
+    if (iestUrgency) desc += `Urgency: ${iestUrgency}\n\n`;
+    if (notes) desc += `Site Notes: ${notes}\n\n`;
+    const measParts = [];
+    if (sqft) measParts.push(`${sqft} sq ft`);
+    if (zones) measParts.push(`${zones} zones`);
+    if (ceiling) measParts.push(`${ceiling}ft ceilings`);
+    if (access) measParts.push(`Access: ${access}`);
+    if (measParts.length) desc += `Measurements: ${measParts.join(' | ')}\n\n`;
+    const sysParts = [];
+    if (eqType) sysParts.push(eqType);
+    if (eqAge) sysParts.push(`${eqAge} yrs`);
+    if (condition) sysParts.push(condition);
+    if (sysParts.length) desc += `Existing System: ${sysParts.join(' · ')}\n`;
+    if (issues) desc += `Issues: ${issues}\n`;
+
+    // Upload photos
+    let photoUrlStr = '';
+    if (iestPhotoFiles.length) {
+      const allUrls = [];
+      for (const file of iestPhotoFiles) {
+        const fd = new FormData();
+        fd.append('image', file);
+        const res = await fetch(`${PROXY}/upload-photo`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.urls) allUrls.push(...data.urls);
+      }
+      iestPhotoUrls = allUrls;
+      photoUrlStr = allUrls.join('\n');
+    }
+
+    // Create Job record
+    const f = currentJob.fields;
+    const customer = f['Customer Name'] || 'Customer';
+    const jobFields = {
+      'Job Name': `${customer} — Install Estimate`,
+      'Work Order': [currentJob.id],
+      'Job Type': 'Inspection',
+      'Status': 'Complete',
+      'Problem Description': desc.trim(),
+    };
+    if (f['Customer']) jobFields['Customer'] = f['Customer'];
+    if (f['Property']) jobFields['Property'] = f['Property'];
+    if (iestUrgency) jobFields['Repair Urgency'] = iestUrgency;
+    if (photoUrlStr) jobFields['Photo URLs'] = photoUrlStr;
+    await apiPost('Jobs', jobFields);
+
+    // Create Stripe quote draft
+    if (iestLineItems.length) {
+      await fetch(`${PROXY}/quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workOrderId: currentJob.id,
+          customerId: Array.isArray(f['Customer']) ? f['Customer'][0] : f['Customer'],
+          lineItems: iestLineItems.map(li => ({
+            productName: li.productName,
+            quantity: parseFloat(li.qty) || 1,
+            unitPrice: parseFloat(li.unitPrice) || 0,
+          })),
+          description: desc.trim(),
+          notes: '',
+          finalize: false,
+        }),
+      });
+    }
+
+    // PATCH WO status to Complete
+    await apiPatch('Work Orders', currentJob.id, { 'Status': 'Complete' });
+
+    showToast('✓ Estimate draft saved', 'success');
+    setTimeout(() => {
+      showScreen('home');
+      // Reset state for good measure
+      iestLineItems = [];
+      iestPhotoFiles = [];
+      iestPhotoUrls = [];
+      iestUrgency = '';
+    }, 1500);
+  } catch (err) {
+    console.error('submitInstallEstimate error', err);
+    showToast('Error saving estimate. Please try again.', 'error');
+    btn.disabled = false;
+    btn.textContent = '💾 Save Draft';
+  }
+}
 </script>
 </body>
 </html>
