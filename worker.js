@@ -13,7 +13,7 @@ let _waveServiceProductId = null; // cached per Worker instance
 const R2_PUBLIC_URL    = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
 const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 
-const RESEND_FROM = 'CJB Comfort <hello@estimates.cjbcomfort.com>';
+const RESEND_FROM = 'CJB Comfort <office@mail.cjbcomfort.com>';
 
 // These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
 // Declared here so helper functions defined outside fetch() can access them.
