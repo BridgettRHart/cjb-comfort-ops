@@ -1805,6 +1805,14 @@
 
     <div id="summary-jobs-list" style="margin-bottom:16px;"></div>
 
+    <!-- Payment collection — shown when invoice URL is available -->
+    <div id="summary-payment-section" style="display:none;margin-bottom:12px;">
+      <button class="btn btn-success btn-full" id="summary-pay-btn" onclick="openSummaryPayment()" style="font-size:16px;padding:16px;">
+        💳 Collect Payment
+      </button>
+      <div style="text-align:center;font-size:11px;color:var(--gray-text);margin-top:6px;">Customer scans QR or taps link to pay</div>
+    </div>
+
     <button class="btn btn-dark btn-full" id="summary-submit-btn" onclick="submitWorkOrderComplete()">
       Finish Visit
     </button>
@@ -3408,6 +3416,45 @@ async function showWorkOrderSummary(jobsByEquipment) {
   updateSummaryInvoiceToggle();
   renderSummaryEstimate();
   showScreen('summary');
+
+  // Refresh WO from Airtable to catch any invoice Bridgett just sent
+  // then show the payment button if a Stripe invoice URL is present.
+  const paySection = document.getElementById('summary-payment-section');
+  paySection.style.display = 'none'; // hide until we know
+  try {
+    const fresh = await apiGet(`Work Orders/${currentJob.id}`);
+    currentJob = fresh; // update in-memory so payment overlay has latest data
+    const invoiceUrl = extractInvoiceUrl(fresh.fields['Internal Notes'] || '');
+    const woStatus   = fresh.fields['Status'] || '';
+    if (invoiceUrl || woStatus === 'Invoiced') {
+      paySection.style.display = 'block';
+      const payBtn = document.getElementById('summary-pay-btn');
+      if (invoiceUrl) {
+        payBtn.textContent = '💳 Collect Payment';
+        payBtn.style.opacity = '1';
+      } else {
+        // Invoice sent but URL not stored yet — show a dimmed check button
+        payBtn.textContent = '💳 Invoice Sent — Show QR';
+        payBtn.style.opacity = '0.8';
+      }
+    }
+  } catch(e) {
+    // Non-fatal — payment button just stays hidden
+  }
+}
+
+function openSummaryPayment() {
+  if (!currentJob) return;
+  const f = currentJob.fields;
+  const url          = extractInvoiceUrl(f['Internal Notes'] || '');
+  const customerName = f['Customer Name'] || '';
+  const total        = f['Total Amount'] != null ? `$${Number(f['Total Amount']).toFixed(2)}` : '';
+  if (url) {
+    openPaymentOverlay(url, customerName, total, currentJob.id);
+  } else {
+    // Invoice status = Invoiced but URL not cached locally — poll for it
+    checkForInvoice(currentJob.id, customerName, total);
+  }
 }
 
 function toggleSummaryInvoice() {
