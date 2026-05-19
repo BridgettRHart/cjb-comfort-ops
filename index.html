@@ -4061,6 +4061,7 @@ async function submitComplete() {
         if (woId)                        fuFields['Work Order'] = [woId];
         if (woFields['Customer']?.length) fuFields['Customer']  = woFields['Customer'];
         if (woFields['Property']?.length) fuFields['Property']  = woFields['Property'];
+        fuFields['Title'] = `Follow-up — ${customerName} · ${dateStr}`;
         fuFields['Notes'] = officeNotes;   // requires Notes field on Follow-Ups table
         await apiPost('Follow-Ups', fuFields);
       } catch (fuErr) {
@@ -4866,6 +4867,7 @@ async function submitFieldEstimate() {
           if (currentJob.id)               fuFields['Work Order'] = [currentJob.id];
           if (woFields['Customer']?.length) fuFields['Customer']  = woFields['Customer'];
           if (woFields['Property']?.length) fuFields['Property']  = woFields['Property'];
+          fuFields['Title'] = `Follow-up — ${customerName} · ${dateStr}`;
           fuFields['Notes'] = officeNotes;  // requires Notes field on Follow-Ups table
           await apiPost('Follow-Ups', fuFields);
         } catch (fuErr) {
