@@ -30,7 +30,7 @@ const BRAND_TAGLINE = 'HVAC you can trust';
 // Upload a PNG logo to R2 and paste the public URL here.
 // Email clients don't render SVG — use PNG or JPG only.
 // Leave empty to show BRAND_NAME as text instead.
-const BRAND_LOGO_URL = '';
+const BRAND_LOGO_URL = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev/CJBComfort_2026_logo.png';
 
 // These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
 // Declared here so helper functions defined outside fetch() can access them.
