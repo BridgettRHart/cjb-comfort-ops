@@ -19,8 +19,8 @@ const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 
 const RESEND_FROM      = 'CJB Comfort <office@mail.cjbcomfort.com>';
 const PORTAL_URL       = 'https://portal.cjbcomfort.com';
-const OFFICE_PHONE     = '(623) 400-7761';
-const OFFICE_PHONE_URL = 'tel:+16234007761';
+const OFFICE_PHONE     = '(480) 604-8622';
+const OFFICE_PHONE_URL = 'tel:+14806048622';
 const TELNYX_FROM      = '+14808639119';
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CUypICY_Qj1PEBM/review';
 
