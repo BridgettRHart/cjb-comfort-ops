@@ -1,9 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════════════
 //  CJB Comfort — Cloudflare Worker
-//  Deploy at: cjb-comfort-proxy.bridgettrhart.workers.dev
+//  Deploy: cjb-comfort-proxy.bridgettrhart.workers.dev
+//  Portal: portal.cjbcomfort.com
 //
-//  Environment secrets (set in Cloudflare dashboard → Settings → Variables):
-//    STRIPE_SECRET_KEY  →  sk_live_...
+//  Environment secrets (Cloudflare dashboard → Settings → Variables):
+//    AIRTABLE_API_KEY, AIRTABLE_BASE_ID, ANTHROPIC_API_KEY,
+//    CALENDLY_TOKEN, RESEND_API_KEY, STRIPE_SECRET_KEY,
+//    STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET,
+//    Telnyx_API, WAVE_API_KEY
 // ═══════════════════════════════════════════════════════════════════════════
 
 const WAVE_BUSINESS_ID       = 'QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVmYzZlZjRlNDY1';
@@ -13,7 +17,12 @@ let _waveServiceProductId = null; // cached per Worker instance
 const R2_PUBLIC_URL    = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
 const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 
-const RESEND_FROM = 'CJB Comfort <office@mail.cjbcomfort.com>';
+const RESEND_FROM      = 'CJB Comfort <office@mail.cjbcomfort.com>';
+const PORTAL_URL       = 'https://portal.cjbcomfort.com';
+const OFFICE_PHONE     = '(623) 400-7761';
+const OFFICE_PHONE_URL = 'tel:+16234007761';
+const TELNYX_FROM      = '+14808639119';
+const GOOGLE_REVIEW_URL = 'https://g.page/r/CUypICY_Qj1PEBM/review';
 
 // These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
 // Declared here so helper functions defined outside fetch() can access them.
@@ -67,6 +76,10 @@ export default {
           const inviteeName  = payload.name  || 'Unknown';
           const inviteeEmail = (payload.email || '').toLowerCase().trim();
           const inviteePhone = payload.text_reminder_number || '';
+          const cancelUrl     = payload.cancel_url     || '';
+          const rescheduleUrl = payload.reschedule_url || '';
+          // First name for emails: use first word of invitee name
+          const firstName = inviteeName.trim().split(' ')[0] || '';
 
           const eventUri  = payload.event || '';
           const eventUuid = eventUri.split('/').pop();
@@ -187,10 +200,32 @@ export default {
               const oldWoSearch = await airtableGet('Work Orders', `{Calendly ID}="${oldEventUri}"`);
               if (oldWoSearch.records?.length > 0) {
                 const rescheduleFields = { 'Status': 'Scheduled' };
-                if (scheduledDate) rescheduleFields['Scheduled Date'] = scheduledDate;
-                if (scheduledEnd)  rescheduleFields['Scheduled End']  = scheduledEnd;
-                if (eventUri)      rescheduleFields['Calendly ID']    = eventUri;
+                if (scheduledDate) rescheduleFields['Scheduled Date']          = scheduledDate;
+                if (scheduledEnd)  rescheduleFields['Scheduled End']           = scheduledEnd;
+                if (eventUri)      rescheduleFields['Calendly ID']             = eventUri;
+                if (cancelUrl)     rescheduleFields['Calendly Cancel URL']     = cancelUrl;
+                if (rescheduleUrl) rescheduleFields['Calendly Reschedule URL'] = rescheduleUrl;
                 await airtablePatch('Work Orders', oldWoSearch.records[0].id, rescheduleFields);
+
+                // Send rescheduled confirmation email
+                if (inviteeEmail && scheduledDate) {
+                  const { dateStr, timeStr, endTimeStr } = formatAZDateTime(scheduledDate);
+                  const oldWo  = oldWoSearch.records[0].fields;
+                  const html   = emailBookingConfirmedHtml({
+                    firstName, dateStr, timeStr, endTimeStr,
+                    address:            address || (Array.isArray(oldWo['Service Address']) ? oldWo['Service Address'][0] : oldWo['Service Address']) || '',
+                    woType:             workOrderType,
+                    problemDescription: problemDesc,
+                    cancelUrl, rescheduleUrl,
+                    isReschedule: true,
+                  });
+                  await sendEmail(env.RESEND_API_KEY, {
+                    to:      inviteeEmail,
+                    subject: `Your CJB Comfort appointment has been rescheduled — ${dateStr}`,
+                    html,
+                  });
+                }
+
                 return new Response(JSON.stringify({ ok: true, rescheduled: true }), {
                   headers: { ...corsHeaders, 'Content-Type': 'application/json' }
                 });
@@ -206,14 +241,33 @@ export default {
             'Notes':           noteParts.join(' | '),
             'Active':          true
           };
-          if (scheduledDate) woFields['Scheduled Date'] = scheduledDate;
-          if (scheduledEnd)  woFields['Scheduled End']  = scheduledEnd;
-          if (problemDesc)   woFields['Problem Description'] = problemDesc;
-          if (customerId)    woFields['Customer']            = [customerId];
-          if (propertyId)    woFields['Property']            = [propertyId];
-          if (eventUri)      woFields['Calendly ID']         = eventUri;
+          if (scheduledDate) woFields['Scheduled Date']          = scheduledDate;
+          if (scheduledEnd)  woFields['Scheduled End']           = scheduledEnd;
+          if (problemDesc)   woFields['Problem Description']     = problemDesc;
+          if (customerId)    woFields['Customer']                = [customerId];
+          if (propertyId)    woFields['Property']                = [propertyId];
+          if (eventUri)      woFields['Calendly ID']             = eventUri;
+          if (cancelUrl)     woFields['Calendly Cancel URL']     = cancelUrl;
+          if (rescheduleUrl) woFields['Calendly Reschedule URL'] = rescheduleUrl;
 
           await airtablePost('Work Orders', woFields);
+
+          // Send booking confirmation email
+          if (inviteeEmail && scheduledDate) {
+            const { dateStr, timeStr, endTimeStr } = formatAZDateTime(scheduledDate);
+            const html = emailBookingConfirmedHtml({
+              firstName, dateStr, timeStr, endTimeStr,
+              address:            address || '',
+              woType:             workOrderType,
+              problemDescription: problemDesc,
+              cancelUrl, rescheduleUrl,
+            });
+            await sendEmail(env.RESEND_API_KEY, {
+              to:      inviteeEmail,
+              subject: `Your CJB Comfort appointment is confirmed — ${dateStr}`,
+              html,
+            });
+          }
 
           return new Response(JSON.stringify({ ok: true }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -247,6 +301,56 @@ export default {
         return new Response(JSON.stringify({ error: err.message }), {
           status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+    }
+
+    // ── Booking confirmation email (admin-scheduled appointments) ────────────
+    // Called by CJB_Admin.html spBook() after creating a Work Order manually.
+    if (path === '/api/email/booking-confirmed' && request.method === 'POST') {
+      try {
+        const { email, firstName, scheduledDate, address, woType,
+                problemDescription, cancelUrl, rescheduleUrl } = await request.json();
+        if (!email || !scheduledDate) {
+          return new Response(JSON.stringify({ error: 'email and scheduledDate required' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const { dateStr, timeStr, endTimeStr } = formatAZDateTime(scheduledDate);
+        const html = emailBookingConfirmedHtml({
+          firstName, dateStr, timeStr, endTimeStr,
+          address: address || '', woType: woType || 'Service Visit',
+          problemDescription: problemDescription || '',
+          cancelUrl: cancelUrl || '', rescheduleUrl: rescheduleUrl || '',
+        });
+        await sendEmail(env.RESEND_API_KEY, {
+          to: email,
+          subject: `Your CJB Comfort appointment is confirmed — ${dateStr}`,
+          html,
+        });
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── "On My Way" SMS — Cornell triggers from field app ─────────────────
+    if (path === '/api/sms/on-my-way' && request.method === 'POST') {
+      try {
+        const { phone, firstName, address } = await request.json();
+        if (!phone) {
+          return new Response(JSON.stringify({ error: 'phone required' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const name = firstName ? `Hi ${firstName}` : 'Hi there';
+        const loc  = address ? ` to ${address}` : '';
+        const text = `${name} — Cornell is on his way${loc} and will arrive within your scheduled window. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+        await sendSms(env.Telnyx_API, phone, text);
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
 
@@ -2215,6 +2319,141 @@ async function waveEnsureServiceProduct(apiKey) {
 }
 
 // ── Resend email helper ───────────────────────────────────────────────────────
+// ── SMS via Telnyx ────────────────────────────────────────────────────────
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  return null; // can't normalize — don't send
+}
+
+async function sendSms(apiKey, toRaw, text) {
+  if (!apiKey || !toRaw || !text) return;
+  const to = normalizePhone(toRaw);
+  if (!to) { console.warn('sendSms: could not normalize phone:', toRaw); return; }
+  const res = await fetch('https://api.telnyx.com/v2/messages', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: TELNYX_FROM, to, text })
+  });
+  if (!res.ok) console.error('Telnyx SMS error:', await res.text());
+}
+
+// ── AZ date/time formatter (always UTC-7, no DST) ─────────────────────────
+function formatAZDateTime(isoUtc) {
+  // Returns { dateStr, timeStr, endTimeStr (+2 hrs), dayStr } for use in emails.
+  if (!isoUtc) return { dateStr: '', timeStr: '', endTimeStr: '', dayStr: '' };
+  const d  = new Date(isoUtc);
+  const az = new Date(d.getTime() - 7 * 3600000); // shift UTC → AZ
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  const fmt12 = azDate => {
+    let h = azDate.getUTCHours(), m = azDate.getUTCMinutes();
+    const ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}${m > 0 ? ':' + String(m).padStart(2,'0') : ''} ${ap}`;
+  };
+  const end = new Date(az.getTime() + 2 * 3600000);
+  return {
+    dayStr:     DAYS[az.getUTCDay()],
+    dateStr:    `${DAYS[az.getUTCDay()]}, ${MONTHS[az.getUTCMonth()]} ${az.getUTCDate()}, ${az.getUTCFullYear()}`,
+    timeStr:    fmt12(az),
+    endTimeStr: fmt12(end),
+  };
+}
+
+// ── Base email wrapper (all customer-facing emails use this) ──────────────
+function emailBase({ preheader = '', body, marketingFooter = false }) {
+  const unsubFooter = marketingFooter
+    ? `<p style="margin:8px 0 0;font-size:11px;color:#9ca3af;">You're receiving this because you're a CJB Comfort customer.
+         <a href="{{unsubscribe_url}}" style="color:#9ca3af;">Unsubscribe</a></p>`
+    : '';
+  // preheader text is hidden but shown in email client inbox preview
+  const preheaderHtml = preheader
+    ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${preheader}${'&nbsp;‌'.repeat(40)}</div>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CJB Comfort</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+${preheaderHtml}
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;">
+<tr><td align="center" style="padding:28px 16px;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+  <!-- Header -->
+  <tr><td style="background:#c81f25;border-radius:12px 12px 0 0;padding:22px 28px;text-align:center;">
+    <div style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:2px;font-family:Arial,sans-serif;line-height:1;">CJB COMFORT</div>
+    <div style="font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:3px;text-transform:uppercase;margin-top:4px;">Arizona HVAC Services</div>
+  </td></tr>
+  <!-- Body -->
+  <tr><td style="background:#ffffff;padding:32px 28px;border-radius:0 0 12px 12px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+    ${body}
+  </td></tr>
+  <!-- Footer -->
+  <tr><td style="padding:20px 0 4px;text-align:center;">
+    <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Questions? Call or text us: <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;text-decoration:none;font-weight:600;">${OFFICE_PHONE}</a></p>
+    <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">CJB Comfort &middot; Chandler, AZ &middot; <a href="https://cjbcomfort.com" style="color:#9ca3af;text-decoration:none;">cjbcomfort.com</a></p>
+    ${unsubFooter}
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
+}
+
+// ── Booking confirmation email ─────────────────────────────────────────────
+function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, address, woType, problemDescription, cancelUrl, rescheduleUrl, isReschedule = false }) {
+  const greeting   = isReschedule ? 'Your appointment has been rescheduled.' : 'Your appointment is confirmed.';
+  const preheader  = isReschedule
+    ? `Rescheduled: your CJB Comfort visit is now ${dateStr}`
+    : `Confirmed: CJB Comfort is coming ${dateStr} between ${timeStr} and ${endTimeStr}`;
+  const typeLabel  = woType || 'Service Visit';
+  const name       = firstName || 'there';
+
+  const problemBlock = problemDescription ? `
+    <div style="background:#f9fafb;border-radius:8px;padding:14px 18px;margin:20px 0 0;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#9ca3af;margin-bottom:6px;">Your Request</div>
+      <div style="font-size:14px;color:#374151;line-height:1.55;">${problemDescription}</div>
+    </div>` : '';
+
+  // Show reschedule/cancel links only if we have them (Calendly bookings).
+  // Admin-scheduled bookings use the phone number instead.
+  const changeBlock = (cancelUrl || rescheduleUrl)
+    ? `<div style="border-top:1px solid #f3f4f6;margin-top:28px;padding-top:20px;">
+        <p style="font-size:13px;color:#6b7280;margin:0 0 14px;line-height:1.5;">Need to make changes? You can reschedule or cancel up to 24&nbsp;hours before your appointment using the links below. After that, give us a call.</p>
+        <div>
+          ${rescheduleUrl ? `<a href="${rescheduleUrl}" style="display:inline-block;background:#f3f4f6;color:#374151;font-size:13px;font-weight:600;padding:10px 20px;border-radius:8px;text-decoration:none;margin-right:8px;">↩ Reschedule</a>` : ''}
+          ${cancelUrl     ? `<a href="${cancelUrl}"     style="display:inline-block;background:#f3f4f6;color:#374151;font-size:13px;font-weight:600;padding:10px 20px;border-radius:8px;text-decoration:none;">✕ Cancel</a>` : ''}
+        </div>
+      </div>`
+    : `<div style="border-top:1px solid #f3f4f6;margin-top:28px;padding-top:20px;">
+        <p style="font-size:13px;color:#6b7280;margin:0;line-height:1.5;">Need to make changes? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a> at least 24&nbsp;hours before your appointment.</p>
+      </div>`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${name},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">${greeting}</p>
+
+    <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 10px 10px 0;padding:20px 22px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c81f25;margin-bottom:10px;">${typeLabel}</div>
+      <div style="font-size:20px;font-weight:800;color:#111827;margin-bottom:6px;">${dateStr}</div>
+      <div style="font-size:15px;font-weight:600;color:#374151;">Arrival window: ${timeStr}&nbsp;&ndash;&nbsp;${endTimeStr}</div>
+      ${address ? `<div style="font-size:13px;color:#6b7280;margin-top:8px;">&#128205; ${address}</div>` : ''}
+    </div>
+
+    ${problemBlock}
+
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:24px 0 8px;">Cornell will give you a call when he&rsquo;s on his way&nbsp;&mdash; no need to wait by the door.</p>
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0;">He&rsquo;ll arrive ready to walk you through exactly what he finds and answer any questions you have.</p>
+
+    ${changeBlock}`;
+
+  return emailBase({ preheader, body });
+}
+
 async function sendEmail(apiKey, { to, subject, html }) {
   if (!apiKey || !to) return; // non-fatal if key not configured or no email on file
   const res = await fetch('https://api.resend.com/emails', {

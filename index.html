@@ -1476,6 +1476,15 @@
       <div id="active-unit-badge" style="background:var(--gold);color:var(--charcoal);font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;"></div>
     </div>
 
+    <!-- On My Way SMS button -->
+    <div id="omw-container" style="margin-bottom:12px;">
+      <button id="omw-btn" class="btn btn-outline btn-full"
+        style="font-size:14px;font-weight:600;letter-spacing:0.02em;border-color:var(--charcoal);color:var(--charcoal);"
+        onclick="sendOnMyWay()">
+        📍 Notify Customer — On My Way
+      </button>
+    </div>
+
     <h2 class="section-label">Equipment — This Visit</h2>
 
     <div id="active-equipment-list">
@@ -2770,12 +2779,59 @@ let currentContractId = null;
 let selectedUrgency = '';
 let _sessionJobIds = new Set(); // job IDs created/touched in this session (not yet on currentJob.fields['Jobs'])
 let _renameEqId    = null;      // equipment ID being renamed in the rename overlay
+let _omwSent = false;           // tracks whether "on my way" SMS was already sent this visit
+
+// ─── On My Way SMS ────────────────────────────────────────────────────────────
+async function sendOnMyWay() {
+  if (_omwSent) return;
+  if (!currentJob) return;
+  const f = currentJob.fields;
+  const phone = f['Customer Phone'] || '';
+  if (!phone) {
+    alert('No customer phone on file for this job.');
+    return;
+  }
+  const firstName = (Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : f['Customer Name'] || '').split(' ')[0] || 'there';
+  const address   = Array.isArray(f['Service Address']) ? f['Service Address'][0] : f['Service Address'] || '';
+
+  const btn = document.getElementById('omw-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    const res = await fetch(`${PROXY}/api/sms/on-my-way`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, firstName, address })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    _omwSent = true;
+    btn.textContent = '✓ Customer Notified';
+    btn.style.background = 'var(--success)';
+    btn.style.color = '#fff';
+    btn.style.border = '2px solid var(--success)';
+  } catch (e) {
+    console.error('On My Way SMS error:', e);
+    btn.disabled = false;
+    btn.textContent = '📍 Notify Customer — On My Way';
+    alert('Could not send notification. Check connection and try again.');
+  }
+}
 
 // ═══════════════════════
 // ACTIVATE JOB SCREEN
 // ═══════════════════════
 async function activateJobScreen(record) {
   _sessionJobIds = new Set(); // reset for new job context
+  _omwSent = false; // reset on-my-way state for new job
+  const omwBtn = document.getElementById('omw-btn');
+  if (omwBtn) {
+    omwBtn.disabled = false;
+    omwBtn.textContent = '📍 Notify Customer — On My Way';
+    omwBtn.style.background = '';
+    omwBtn.style.color = 'var(--charcoal)';
+    omwBtn.style.border = '';
+  }
   const woType = record.fields['Work Order Type'] || '';
   if (woType === 'Install Estimate') {
     await showInstallEstimateScreen(record);

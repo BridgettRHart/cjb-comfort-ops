@@ -5038,6 +5038,29 @@ async function spBook() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
 
+    // Send booking confirmation email (non-fatal — don't let email failure block the booking)
+    try {
+      const custEmail = _sp.cust?.fields['Email'] || _sp.newEmail || '';
+      if (custEmail) {
+        const firstName = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
+        const propAddr  = _sp.prop?.fields['Service Address'] || '';
+        await fetch(`${PROXY}/api/email/booking-confirmed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email:              custEmail,
+            firstName,
+            scheduledDate:      startUTC,
+            address:            propAddr,
+            woType:             _sp.woType,
+            problemDescription: _sp.prob || '',
+          })
+        });
+      }
+    } catch (emailErr) {
+      console.warn('Booking confirmation email failed (non-fatal):', emailErr.message);
+    }
+
     closeSchedPanel();
     _dashWOs = null;
     loadDashboard(true);
