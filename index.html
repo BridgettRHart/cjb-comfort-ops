@@ -1476,15 +1476,6 @@
       <div id="active-unit-badge" style="background:var(--gold);color:var(--charcoal);font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;"></div>
     </div>
 
-    <!-- On My Way SMS button -->
-    <div id="omw-container" style="margin-bottom:12px;">
-      <button id="omw-btn" class="btn btn-outline btn-full"
-        style="font-size:14px;font-weight:600;letter-spacing:0.02em;border-color:var(--charcoal);color:var(--charcoal);"
-        onclick="sendOnMyWay()">
-        📍 Notify Customer — On My Way
-      </button>
-    </div>
-
     <h2 class="section-label">Equipment — This Visit</h2>
 
     <div id="active-equipment-list">
@@ -2569,6 +2560,18 @@ function renderJobDetail(record) {
   const woId = f['Work Order ID'] || record.id;
   const priority = f['Priority'] || '';
 
+  // Reset on-my-way state whenever detail screen loads a job
+  _omwSent = false;
+
+  // On My Way button — shown for upcoming/active jobs with a customer phone
+  const omwBtn = (customerPhone && ['Scheduled','In Progress'].includes(status))
+    ? `<button id="omw-btn" class="btn btn-outline btn-full"
+        style="font-size:14px;font-weight:600;margin-bottom:8px;border-color:var(--charcoal);color:var(--charcoal);"
+        onclick="sendOnMyWay()">
+        📍 Notify Customer — On My Way
+      </button>`
+    : '';
+
   let statusBtn = '';
   if (status === 'Scheduled') {
     statusBtn = `<button class="btn btn-red btn-full" onclick="updateStatus('${record.id}', 'In Progress')" aria-label="Start job and mark as In Progress">
@@ -2611,6 +2614,7 @@ function renderJobDetail(record) {
         <div class="status-action-title">Status: <strong>${escHtml(status)}</strong></div>
         ${priority ? `<span class="status-pill ${priority === 'Emergency' ? 'pill-in-progress' : priority === 'Urgent' ? 'pill-scheduled' : 'pill-complete'}" style="border-radius:4px;">${escHtml(priority)}</span>` : ''}
       </div>
+      ${omwBtn}
       ${statusBtn}
     </div>
 
@@ -2823,15 +2827,6 @@ async function sendOnMyWay() {
 // ═══════════════════════
 async function activateJobScreen(record) {
   _sessionJobIds = new Set(); // reset for new job context
-  _omwSent = false; // reset on-my-way state for new job
-  const omwBtn = document.getElementById('omw-btn');
-  if (omwBtn) {
-    omwBtn.disabled = false;
-    omwBtn.textContent = '📍 Notify Customer — On My Way';
-    omwBtn.style.background = '';
-    omwBtn.style.color = 'var(--charcoal)';
-    omwBtn.style.border = '';
-  }
   const woType = record.fields['Work Order Type'] || '';
   if (woType === 'Install Estimate') {
     await showInstallEstimateScreen(record);
