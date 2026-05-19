@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Your Appointment — CJB Comfort</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      max-width: 480px;
+      width: 100%;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    }
+    .card-header {
+      background: #c81f25;
+      padding: 20px 24px;
+      text-align: center;
+    }
+    .card-header .logo-text {
+      color: white;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+    .card-header .tagline {
+      color: rgba(255,255,255,0.75);
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+    .card-body {
+      padding: 32px 24px;
+    }
+    .appt-block {
+      background: #fef2f2;
+      border-left: 4px solid #c81f25;
+      border-radius: 0 10px 10px 0;
+      padding: 18px 20px;
+      margin: 20px 0;
+    }
+    .appt-type {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #c81f25;
+      margin-bottom: 8px;
+    }
+    .appt-date {
+      font-size: 20px;
+      font-weight: 800;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+    .appt-time {
+      font-size: 15px;
+      font-weight: 600;
+      color: #374151;
+    }
+    .appt-addr {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+    h1 { font-size: 20px; font-weight: 800; color: #111827; margin-bottom: 6px; }
+    .subtitle { font-size: 15px; color: #6b7280; line-height: 1.5; margin-bottom: 4px; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border-radius: 8px;
+      border: none;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      margin-top: 12px;
+      transition: opacity .15s;
+      text-decoration: none;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn-primary { background: #c81f25; color: white; }
+    .btn-gray    { background: #f3f4f6; color: #374151; }
+    .btn-keep    { background: none; border: none; color: #6b7280; font-size: 14px; cursor: pointer; margin-top: 16px; display: block; width: 100%; text-align: center; }
+    .alert {
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 14px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+    .alert-info    { background: #eff6ff; color: #1e40af; }
+    .alert-warning { background: #fff3cd; color: #7a5a00; }
+    .alert-success { background: #f0fdf4; color: #166534; }
+    .alert-error   { background: #fef2f2; color: #991b1b; }
+    .spinner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 0;
+      color: #9ca3af;
+      font-size: 14px;
+      gap: 12px;
+    }
+    .spinner-ring {
+      width: 36px; height: 36px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #c81f25;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .icon-large { font-size: 52px; text-align: center; margin-bottom: 12px; }
+    .footer {
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      margin-top: 20px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    .footer a { color: #9ca3af; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="card-header">
+    <div class="logo-text">CJB Comfort</div>
+    <div class="tagline">HVAC you can trust</div>
+  </div>
+  <div class="card-body" id="main">
+    <div class="spinner">
+      <div class="spinner-ring"></div>
+      Looking up your appointment…
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Questions? Call or text us at <a href="tel:+14806048622">(480) 604-8622</a><br>
+  CJB Comfort &middot; Chandler, AZ &middot; <a href="https://cjbcomfort.com">cjbcomfort.com</a>
+</div>
+
+<script>
+  const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
+  const OFFICE_PHONE = '(480) 604-8622';
+  const OFFICE_PHONE_URL = 'tel:+14806048622';
+
+  const params = new URLSearchParams(location.search);
+  const woId   = params.get('wo');
+  const action = params.get('action'); // 'cancel' or 'reschedule'
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function renderApptBlock(d) {
+    return `
+      <div class="appt-block">
+        <div class="appt-type">${esc(d.woType)}</div>
+        <div class="appt-date">${esc(d.dateStr)}</div>
+        <div class="appt-time">Arrival window: ${esc(d.timeStr)} &ndash; ${esc(d.endTimeStr)}</div>
+        ${d.address ? `<div class="appt-addr">&#128205; ${esc(d.address)}</div>` : ''}
+      </div>`;
+  }
+
+  async function init() {
+    const main = document.getElementById('main');
+
+    if (!woId) {
+      main.innerHTML = `
+        <div class="alert alert-error">No appointment found. Please use the link from your confirmation email.</div>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-primary">Call Us — ${OFFICE_PHONE}</a>`;
+      return;
+    }
+
+    let d;
+    try {
+      const res = await fetch(`${PROXY}/appointment/manage?wo=${encodeURIComponent(woId)}`);
+      if (!res.ok) throw new Error('not_found');
+      d = await res.json();
+    } catch {
+      main.innerHTML = `
+        <div class="alert alert-error">We couldn't find that appointment. Please call or text us and we'll sort it out.</div>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-primary">Call or Text Us — ${OFFICE_PHONE}</a>`;
+      return;
+    }
+
+    // Already cancelled
+    if (d.isCancelled) {
+      main.innerHTML = `
+        <div class="icon-large">✕</div>
+        <h1 style="text-align:center;">Already Cancelled</h1>
+        <p class="subtitle" style="text-align:center;margin-top:8px;">This appointment has already been cancelled. If you'd like to book a new visit, give us a call.</p>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-gray" style="margin-top:20px;">Call or Text Us — ${OFFICE_PHONE}</a>`;
+      return;
+    }
+
+    // Appointment is already past or in progress
+    if (d.isPast || d.isComplete) {
+      main.innerHTML = `
+        <div class="icon-large">✓</div>
+        <h1 style="text-align:center;">Appointment Complete</h1>
+        <p class="subtitle" style="text-align:center;margin-top:8px;">This appointment has already been completed. Questions? We're here.</p>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-gray" style="margin-top:20px;">Call or Text Us — ${OFFICE_PHONE}</a>`;
+      return;
+    }
+
+    // Past the 24-hour cutoff
+    if (d.isPastCutoff) {
+      main.innerHTML = `
+        <h1>Your Appointment</h1>
+        ${renderApptBlock(d)}
+        <div class="alert alert-warning" style="margin-top:16px;">
+          It's less than 24 hours before your appointment. To make changes, please call or text us right away.
+        </div>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-primary">Call or Text Us — ${OFFICE_PHONE}</a>`;
+      return;
+    }
+
+    // Reschedule already requested
+    if (d.rescheduleRequested && action === 'reschedule') {
+      main.innerHTML = `
+        <div class="icon-large">🔄</div>
+        <h1 style="text-align:center;">Request Already Sent</h1>
+        ${renderApptBlock(d)}
+        <div class="alert alert-info" style="margin-top:8px;">We already have your reschedule request and will reach out soon to confirm a new time.</div>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-gray" style="margin-top:8px;">Call or Text Us — ${OFFICE_PHONE}</a>`;
+      return;
+    }
+
+    // CANCEL flow
+    if (action === 'cancel') {
+      main.innerHTML = `
+        <h1>Cancel Appointment?</h1>
+        <p class="subtitle" style="margin-top:6px;">Hi ${esc(d.firstName)}, are you sure you want to cancel the following appointment?</p>
+        ${renderApptBlock(d)}
+        <button class="btn btn-primary" id="confirm-btn" onclick="doCancel()">Yes, Cancel My Appointment</button>
+        <button class="btn-keep" onclick="history.back()">↩ Keep My Appointment</button>`;
+      return;
+    }
+
+    // RESCHEDULE flow
+    if (action === 'reschedule') {
+      main.innerHTML = `
+        <h1>Request to Reschedule</h1>
+        <p class="subtitle" style="margin-top:6px;">Hi ${esc(d.firstName)}, we'll reach out within a few hours to confirm your new time. Want us to get in touch?</p>
+        ${renderApptBlock(d)}
+        <button class="btn btn-primary" id="confirm-btn" onclick="doReschedule()">Yes, Request Reschedule</button>
+        <button class="btn-keep" onclick="history.back()">↩ Keep My Appointment</button>`;
+      return;
+    }
+
+    // Unknown action — show appointment info with both options
+    main.innerHTML = `
+      <h1>Your Appointment</h1>
+      <p class="subtitle" style="margin-top:6px;">Hi ${esc(d.firstName)}, here's your upcoming appointment.</p>
+      ${renderApptBlock(d)}
+      <p class="subtitle" style="margin-top:20px;">Need to make a change?</p>
+      <a href="?wo=${encodeURIComponent(woId)}&action=reschedule" class="btn btn-gray" style="margin-top:8px;">↩ Request Reschedule</a>
+      <a href="?wo=${encodeURIComponent(woId)}&action=cancel"     class="btn btn-gray" style="margin-top:8px;">✕ Cancel Appointment</a>`;
+  }
+
+  async function doCancel() {
+    const btn = document.getElementById('confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Cancelling…';
+
+    try {
+      const res = await fetch(`${PROXY}/appointment/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ woId }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === 'past_cutoff') {
+          document.getElementById('main').innerHTML = `
+            <div class="alert alert-warning">It's less than 24 hours before your appointment. Please call or text us to cancel.</div>
+            <a href="${OFFICE_PHONE_URL}" class="btn btn-primary">Call or Text Us — ${OFFICE_PHONE}</a>`;
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+        return;
+      }
+
+      document.getElementById('main').innerHTML = `
+        <div class="icon-large">✕</div>
+        <h1 style="text-align:center;">Appointment Cancelled</h1>
+        <p class="subtitle" style="text-align:center;margin-top:8px;">Your appointment has been cancelled. We hope to see you again soon — give us a call whenever you need us.</p>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-gray" style="margin-top:20px;">Call or Text Us — ${OFFICE_PHONE}</a>`;
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Yes, Cancel My Appointment';
+      alert('Something went wrong. Please call or text us at ' + OFFICE_PHONE + ' to cancel.');
+    }
+  }
+
+  async function doReschedule() {
+    const btn = document.getElementById('confirm-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending request…';
+
+    try {
+      const res = await fetch(`${PROXY}/appointment/reschedule-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ woId }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === 'past_cutoff') {
+          document.getElementById('main').innerHTML = `
+            <div class="alert alert-warning">It's less than 24 hours before your appointment. Please call or text us right away to reschedule.</div>
+            <a href="${OFFICE_PHONE_URL}" class="btn btn-primary">Call or Text Us — ${OFFICE_PHONE}</a>`;
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+        return;
+      }
+
+      document.getElementById('main').innerHTML = `
+        <div class="icon-large">🔄</div>
+        <h1 style="text-align:center;">Request Sent!</h1>
+        <p class="subtitle" style="text-align:center;margin-top:8px;">Got it — a team member will reach out within a few hours to confirm your new time. If you need us sooner, give us a call.</p>
+        <a href="${OFFICE_PHONE_URL}" class="btn btn-gray" style="margin-top:20px;">Call or Text Us — ${OFFICE_PHONE}</a>`;
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Yes, Request Reschedule';
+      alert('Something went wrong. Please call or text us at ' + OFFICE_PHONE + ' to reschedule.');
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -19,6 +19,8 @@ const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 
 const RESEND_FROM      = 'CJB Comfort <office@mail.cjbcomfort.com>';
 const PORTAL_URL       = 'https://portal.cjbcomfort.com';
+const MANAGE_BASE_URL  = 'https://app.cjbcomfort.com/manage.html';
+const ADMIN_EMAIL      = 'bridgett@cjbcomfort.com'; // admin notification destination
 const OFFICE_PHONE     = '(480) 604-8622';
 const OFFICE_PHONE_URL = 'tel:+14806048622';
 const TELNYX_FROM      = '+14808639119';
@@ -54,6 +56,13 @@ const EVENT_TYPE_MAP = {
 };
 
 export default {
+  async scheduled(event, env, ctx) {
+    // Load secrets (same as fetch handler)
+    AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID || AIRTABLE_BASE_ID;
+    AIRTABLE_API_KEY = env.AIRTABLE_API_KEY || AIRTABLE_API_KEY;
+    ctx.waitUntil(sendAppointmentReminders(env));
+  },
+
   async fetch(request, env) {
     // Load secrets from Cloudflare environment on every request
     AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID || AIRTABLE_BASE_ID;
@@ -355,6 +364,119 @@ export default {
         const loc  = address ? ` to ${address}` : '';
         const text = `${name} — Cornell is on his way${loc} and will arrive within your scheduled window. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
         await sendSms(env.Telnyx_API, phone, text);
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Appointment manage — customer self-service (cancel / reschedule) ──
+    if (path === '/api/appointment/manage' && request.method === 'GET') {
+      try {
+        const woId = url.searchParams.get('wo');
+        if (!woId) return new Response(JSON.stringify({ error: 'wo required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo = await airtableGetById('Work Orders', woId);
+        const f  = wo.fields;
+        const status        = f['Status'] || '';
+        const scheduledDate = f['Scheduled Date'] || '';
+
+        const isCancelled          = status === 'Cancelled';
+        const isComplete           = ['Complete','Invoiced','Paid','In Progress'].includes(status);
+        const rescheduleRequested  = !!(f['Reschedule Requested']);
+
+        const apptMs     = scheduledDate ? new Date(scheduledDate).getTime() : 0;
+        const cutoffMs   = apptMs - 24 * 60 * 60 * 1000;
+        const isPastCutoff = apptMs > 0 && Date.now() > cutoffMs;
+        const isPast       = apptMs > 0 && Date.now() > apptMs;
+
+        const { dateStr, timeStr, endTimeStr } = scheduledDate
+          ? formatAZDateTime(scheduledDate) : { dateStr:'', timeStr:'', endTimeStr:'' };
+
+        return new Response(JSON.stringify({
+          ok: true,
+          firstName:           (f['Customer Name'] || '').split(' ')[0] || 'there',
+          customerName:        f['Customer Name'] || '',
+          dateStr, timeStr, endTimeStr,
+          address:             f['Service Address'] || '',
+          woType:              f['Work Order Type'] || 'Service Visit',
+          status, isCancelled, isComplete, isPastCutoff, isPast, rescheduleRequested,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    if (path === '/api/appointment/cancel' && request.method === 'POST') {
+      try {
+        const { woId } = await request.json();
+        if (!woId) return new Response(JSON.stringify({ error: 'woId required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo = await airtableGetById('Work Orders', woId);
+        const f  = wo.fields;
+        const scheduledDate = f['Scheduled Date'] || '';
+        const apptMs   = scheduledDate ? new Date(scheduledDate).getTime() : 0;
+        const cutoffMs = apptMs - 24 * 60 * 60 * 1000;
+        if (apptMs && Date.now() > cutoffMs) {
+          return new Response(JSON.stringify({ error: 'past_cutoff' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        await airtablePatch('Work Orders', woId, { 'Status': 'Cancelled' });
+
+        const { dateStr, timeStr } = scheduledDate
+          ? formatAZDateTime(scheduledDate) : { dateStr: '', timeStr: '' };
+        const customerName = f['Customer Name'] || 'A customer';
+        await sendEmail(env.RESEND_API_KEY, {
+          to:      ADMIN_EMAIL,
+          subject: `❌ Cancellation: ${customerName} — ${dateStr || 'upcoming appointment'}`,
+          html:    emailAdminAlertHtml({ type: 'cancel', customerName,
+                     dateStr, timeStr, address: f['Service Address'] || '',
+                     woType: f['Work Order Type'] || 'appointment' }),
+        });
+
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    if (path === '/api/appointment/reschedule-request' && request.method === 'POST') {
+      try {
+        const { woId } = await request.json();
+        if (!woId) return new Response(JSON.stringify({ error: 'woId required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo = await airtableGetById('Work Orders', woId);
+        const f  = wo.fields;
+        const scheduledDate = f['Scheduled Date'] || '';
+        const apptMs   = scheduledDate ? new Date(scheduledDate).getTime() : 0;
+        const cutoffMs = apptMs - 24 * 60 * 60 * 1000;
+        if (apptMs && Date.now() > cutoffMs) {
+          return new Response(JSON.stringify({ error: 'past_cutoff' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        await airtablePatch('Work Orders', woId, { 'Reschedule Requested': true });
+
+        const { dateStr, timeStr } = scheduledDate
+          ? formatAZDateTime(scheduledDate) : { dateStr: '', timeStr: '' };
+        const customerName = f['Customer Name'] || 'A customer';
+        await sendEmail(env.RESEND_API_KEY, {
+          to:      ADMIN_EMAIL,
+          subject: `🔄 Reschedule Request: ${customerName} — ${dateStr || 'upcoming appointment'}`,
+          html:    emailAdminAlertHtml({ type: 'reschedule', customerName,
+                     dateStr, timeStr, address: f['Service Address'] || '',
+                     woType: f['Work Order Type'] || 'appointment' }),
+        });
+
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
@@ -2552,6 +2674,105 @@ function emailApprovalHtml({ customerName, approved }) {
     <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services</p>
   </div>
 </body></html>`;
+}
+
+// ── Appointment reminder cron ─────────────────────────────────────────────────
+async function sendAppointmentReminders(env) {
+  const now = Date.now();
+  const windows = [
+    { hours: 48, field: '48hr Reminder Sent' },
+    { hours: 24, field: '24hr Reminder Sent'  },
+  ];
+
+  for (const { hours, field } of windows) {
+    const windowStart = new Date(now + (hours - 1) * 3600000).toISOString();
+    const windowEnd   = new Date(now + (hours + 1) * 3600000).toISOString();
+
+    const formula = `AND({Status}="Scheduled",NOT({${field}}),IS_AFTER({Scheduled Date},"${windowStart}"),IS_BEFORE({Scheduled Date},"${windowEnd}"))`;
+    const res = await fetch(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Work%20Orders?filterByFormula=${encodeURIComponent(formula)}`,
+      { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+    );
+    if (!res.ok) continue;
+    const data = await res.json();
+
+    for (const wo of (data.records || [])) {
+      const f     = wo.fields;
+      const email = f['Customer Email'] || '';
+      if (!email) continue;
+
+      const { dateStr, timeStr, endTimeStr } = formatAZDateTime(f['Scheduled Date']);
+      const firstName = (f['Customer Name'] || '').split(' ')[0] || 'there';
+      const isDay = hours === 24;
+
+      const cancelUrl     = `${MANAGE_BASE_URL}?wo=${wo.id}&action=cancel`;
+      const rescheduleUrl = `${MANAGE_BASE_URL}?wo=${wo.id}&action=reschedule`;
+
+      const subject = isDay
+        ? `Reminder: your CJB Comfort appointment is tomorrow — ${dateStr}`
+        : `Reminder: your CJB Comfort appointment is in 2 days — ${dateStr}`;
+
+      await sendEmail(env.RESEND_API_KEY, {
+        to: email, subject,
+        html: emailReminderHtml({
+          firstName, dateStr, timeStr, endTimeStr, isDay,
+          address: f['Service Address'] || '',
+          woType:  f['Work Order Type'] || 'Service Visit',
+          cancelUrl, rescheduleUrl,
+        }),
+      });
+
+      // Mark sent so cron doesn't re-send
+      await airtablePatch('Work Orders', wo.id, { [field]: true });
+    }
+  }
+}
+
+function emailReminderHtml({ firstName, dateStr, timeStr, endTimeStr, address, woType, cancelUrl, rescheduleUrl, isDay }) {
+  const timeLabel = isDay ? 'tomorrow' : 'in 2 days';
+  const preheader = `Reminder: your CJB Comfort ${woType} is ${timeLabel} — ${dateStr}, ${timeStr}–${endTimeStr}`;
+  const typeLabel = woType || 'Service Visit';
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${firstName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">Just a reminder — your appointment is coming up ${timeLabel}.</p>
+
+    <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 10px 10px 0;padding:20px 22px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c81f25;margin-bottom:10px;">${typeLabel}</div>
+      <div style="font-size:20px;font-weight:800;color:#111827;margin-bottom:6px;">${dateStr}</div>
+      <div style="font-size:15px;font-weight:600;color:#374151;">Arrival window: ${timeStr}&nbsp;&ndash;&nbsp;${endTimeStr}</div>
+      ${address ? `<div style="font-size:13px;color:#6b7280;margin-top:8px;">&#128205; ${address}</div>` : ''}
+    </div>
+
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:24px 0 0;">Your technician will send you a text when they&rsquo;re on the way &mdash; no need to wait by the door.</p>
+
+    <div style="border-top:1px solid #f3f4f6;margin-top:28px;padding-top:20px;">
+      <p style="font-size:13px;color:#6b7280;margin:0 0 14px;line-height:1.5;">Need to make changes? You can reschedule or cancel up to 24&nbsp;hours before your appointment.</p>
+      <div>
+        <a href="${rescheduleUrl}" style="display:inline-block;background:#f3f4f6;color:#374151;font-size:13px;font-weight:600;padding:10px 20px;border-radius:8px;text-decoration:none;margin-right:8px;">↩ Reschedule</a>
+        <a href="${cancelUrl}"     style="display:inline-block;background:#f3f4f6;color:#374151;font-size:13px;font-weight:600;padding:10px 20px;border-radius:8px;text-decoration:none;">✕ Cancel</a>
+      </div>
+    </div>`;
+
+  return emailBase({ preheader, body });
+}
+
+function emailAdminAlertHtml({ type, customerName, dateStr, timeStr, address, woType }) {
+  const isCancel = type === 'cancel';
+  const icon     = isCancel ? '❌' : '🔄';
+  const headline = isCancel ? 'Appointment Cancelled' : 'Reschedule Requested';
+  const detail   = isCancel
+    ? `<strong>${customerName}</strong> has cancelled their ${woType} appointment${dateStr ? ` on <strong>${dateStr}</strong>${timeStr ? ` at ${timeStr}` : ''}` : ''}${address ? ` at ${address}` : ''}.`
+    : `<strong>${customerName}</strong> has requested to reschedule their ${woType} appointment${dateStr ? ` on <strong>${dateStr}</strong>${timeStr ? ` at ${timeStr}` : ''}` : ''}${address ? ` at ${address}` : ''}. Please reach out to confirm a new time.`;
+
+  const preheader = `${headline}: ${customerName}${dateStr ? ' — ' + dateStr : ''}`;
+  const body = `
+    <div style="text-align:center;font-size:48px;margin-bottom:16px;">${icon}</div>
+    <p style="font-size:20px;font-weight:800;color:#111827;margin:0 0 16px;text-align:center;">${headline}</p>
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0;">${detail}</p>
+    ${!isCancel ? `<p style="font-size:14px;color:#6b7280;margin:16px 0 0;">Log into the <a href="https://app.cjbcomfort.com/CJB_Admin.html" style="color:#c81f25;font-weight:600;">admin app</a> to view and reschedule this work order.</p>` : ''}`;
+
+  return emailBase({ preheader, body });
 }
 
 // ── Utility: ArrayBuffer → base64 (chunked to avoid stack overflow) ──────────

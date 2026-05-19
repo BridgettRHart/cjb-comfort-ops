@@ -2324,9 +2324,12 @@ function renderDetail(customer, props, wos, contacts) {
                  style="display:block;margin-top:4px;color:#7a5a00;font-weight:700;text-decoration:underline;">→ Urgent HVAC Request</a>
             </div>
           </div>` : '';
+        const reschedBadge = wf['Reschedule Requested']
+          ? `<span style="display:inline-block;background:#fff3cd;color:#7a5a00;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle;">🔄 Reschedule Requested</span>`
+          : '';
         return `${eaPanel}<div class="wo-row">
           <div class="wo-info">
-            <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
+            <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}${reschedBadge}</div>
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
             ${eqChipsHtml}
           </div>
@@ -5076,10 +5079,13 @@ async function spBook() {
     try {
       const custEmail = _sp.cust?.fields['Email'] || _sp.newEmail || '';
       if (custEmail) {
-        const firstName = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
-        const propAddr  = _sp.prop?.fields['Service Address'] || '';
-        const techRec   = (_technicianOptions || []).find(t => t.id === techId);
-        const techName  = techRec?.fields['Technician Name'] || '';
+        const firstName     = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
+        const propAddr      = _sp.prop?.fields['Service Address'] || _sp.newServiceStreet || '';
+        const techRec       = (_technicianOptions || []).find(t => t.id === techId);
+        const techName      = techRec?.fields['Technician Name'] || '';
+        const newWoId       = data.id;
+        const cancelUrl     = `https://app.cjbcomfort.com/manage.html?wo=${newWoId}&action=cancel`;
+        const rescheduleUrl = `https://app.cjbcomfort.com/manage.html?wo=${newWoId}&action=reschedule`;
         await fetch(`${PROXY}/email/booking-confirmed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -5091,6 +5097,8 @@ async function spBook() {
             woType:             _sp.woType,
             problemDescription: _sp.prob || '',
             techName,
+            cancelUrl,
+            rescheduleUrl,
           })
         });
       }
