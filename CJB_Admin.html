@@ -5044,6 +5044,8 @@ async function spBook() {
       if (custEmail) {
         const firstName = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
         const propAddr  = _sp.prop?.fields['Service Address'] || '';
+        const techRec   = (_technicianOptions || []).find(t => t.id === techId);
+        const techName  = techRec?.fields['Technician Name'] || '';
         await fetch(`${PROXY}/email/booking-confirmed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -5054,6 +5056,7 @@ async function spBook() {
             address:            propAddr,
             woType:             _sp.woType,
             problemDescription: _sp.prob || '',
+            techName,
           })
         });
       }

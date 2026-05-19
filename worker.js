@@ -24,6 +24,14 @@ const OFFICE_PHONE_URL = 'tel:+16234007761';
 const TELNYX_FROM      = '+14808639119';
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CUypICY_Qj1PEBM/review';
 
+// White-label: swap these for a different company's branding
+const BRAND_NAME    = 'CJB Comfort';
+const BRAND_TAGLINE = 'HVAC you can trust';
+// Upload a PNG logo to R2 and paste the public URL here.
+// Email clients don't render SVG — use PNG or JPG only.
+// Leave empty to show BRAND_NAME as text instead.
+const BRAND_LOGO_URL = '';
+
 // These are loaded from Cloudflare Worker secrets on each request (see fetch handler).
 // Declared here so helper functions defined outside fetch() can access them.
 let AIRTABLE_BASE_ID = '';
@@ -309,7 +317,7 @@ export default {
     if (path === '/api/email/booking-confirmed' && request.method === 'POST') {
       try {
         const { email, firstName, scheduledDate, address, woType,
-                problemDescription, cancelUrl, rescheduleUrl } = await request.json();
+                problemDescription, cancelUrl, rescheduleUrl, techName } = await request.json();
         if (!email || !scheduledDate) {
           return new Response(JSON.stringify({ error: 'email and scheduledDate required' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -320,6 +328,7 @@ export default {
           address: address || '', woType: woType || 'Service Visit',
           problemDescription: problemDescription || '',
           cancelUrl: cancelUrl || '', rescheduleUrl: rescheduleUrl || '',
+          techName: techName || '',
         });
         await sendEmail(env.RESEND_API_KEY, {
           to: email,
@@ -2384,9 +2393,12 @@ ${preheaderHtml}
 <tr><td align="center" style="padding:28px 16px;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
   <!-- Header -->
-  <tr><td style="background:#c81f25;border-radius:12px 12px 0 0;padding:22px 28px;text-align:center;">
-    <div style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:2px;font-family:Arial,sans-serif;line-height:1;">CJB COMFORT</div>
-    <div style="font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:3px;text-transform:uppercase;margin-top:4px;">Arizona HVAC Services</div>
+  <tr><td style="background:#c81f25;border-radius:12px 12px 0 0;padding:24px 28px;text-align:center;">
+    ${BRAND_LOGO_URL
+      ? `<img src="${BRAND_LOGO_URL}" alt="${BRAND_NAME}" style="height:48px;width:auto;display:block;margin:0 auto;" border="0">`
+      : `<div style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:2px;font-family:Arial,sans-serif;line-height:1;">${BRAND_NAME.toUpperCase()}</div>`
+    }
+    ${BRAND_TAGLINE ? `<div style="font-size:11px;color:rgba(255,255,255,0.80);letter-spacing:2px;text-transform:uppercase;margin-top:6px;">${BRAND_TAGLINE}</div>` : ''}
   </td></tr>
   <!-- Body -->
   <tr><td style="background:#ffffff;padding:32px 28px;border-radius:0 0 12px 12px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
@@ -2405,7 +2417,7 @@ ${preheaderHtml}
 }
 
 // ── Booking confirmation email ─────────────────────────────────────────────
-function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, address, woType, problemDescription, cancelUrl, rescheduleUrl, isReschedule = false }) {
+function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, address, woType, problemDescription, cancelUrl, rescheduleUrl, techName = '', isReschedule = false }) {
   const greeting   = isReschedule ? 'Your appointment has been rescheduled.' : 'Your appointment is confirmed.';
   const preheader  = isReschedule
     ? `Rescheduled: your CJB Comfort visit is now ${dateStr}`
@@ -2446,8 +2458,8 @@ function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, ad
 
     ${problemBlock}
 
-    <p style="font-size:15px;color:#374151;line-height:1.65;margin:24px 0 8px;">Cornell will give you a call when he&rsquo;s on his way&nbsp;&mdash; no need to wait by the door.</p>
-    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0;">He&rsquo;ll arrive ready to walk you through exactly what he finds and answer any questions you have.</p>
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:24px 0 8px;">${techName ? techName : 'Your technician'} will send you a text when they&rsquo;re on the way&nbsp;&mdash; no need to wait by the door.</p>
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0;">They&rsquo;ll arrive ready to walk you through exactly what they find and answer any questions you have.</p>
 
     ${changeBlock}`;
 
