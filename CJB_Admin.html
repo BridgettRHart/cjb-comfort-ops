@@ -2307,7 +2307,24 @@ function renderDetail(customer, props, wos, contacts) {
         const eqChipsHtml = eqChips.length
           ? `<div class="wo-eq-chips">${eqChips.slice(0,4).map(e => `<span class="wo-eq-chip">${e.name}</span>`).join('')}${eqChips.length > 4 ? `<span class="wo-eq-chip">+${eqChips.length - 4}</span>` : ''}</div>`
           : '';
-        return `<div class="wo-row">
+        const eaPanel = wf['Efficiency Arizona Job'] ? `
+          <div style="border:1.5px solid #1a6b35;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#f4faf6;">
+            <div style="font-size:11px;font-weight:700;color:#1a6b35;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">⚡ Efficiency Arizona Forms</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pag1tpv6rV2VG5MJ8/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Scope of Work</a>
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Project Updates</a>
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pagYzSdmOOWNPP7H6/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Change Order</a>
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pagVVSoydYr6mRK1X/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Quality Install Report</a>
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pag0NLf2oRhixIZjV/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Business Updates</a>
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pagRhdCs3NNsHe8TQ/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">General Questions</a>
+            </div>
+            <div style="padding:6px 8px;background:#fff3cd;border-radius:4px;font-size:11px;color:#7a5a00;">
+              🚨 <strong>Emergency Only</strong> — non-functional system + heat-vulnerable occupant + 100°F+ temps
+              <a href="https://airtable.com/appi09WiT6MFsy9zo/pag2FJ4z2iMo9sddP/form" target="_blank" rel="noopener"
+                 style="display:block;margin-top:4px;color:#7a5a00;font-weight:700;text-decoration:underline;">→ Urgent HVAC Request</a>
+            </div>
+          </div>` : '';
+        return `${eaPanel}<div class="wo-row">
           <div class="wo-info">
             <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
@@ -4142,6 +4159,12 @@ async function openWOForm(existingRecord) {
       <textarea class="form-inp" id="wf-problem" rows="3">${esc(f['Problem Description']||'')}</textarea></div>
     <div class="form-group"><label class="form-label">Notes (internal)</label>
       <textarea class="form-inp" id="wf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
+    <div class="form-group" style="margin-top:4px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#1a6b35;">
+        <input type="checkbox" id="wf-ea-job" ${f['Efficiency Arizona Job'] ? 'checked' : ''} style="width:16px;height:16px;accent-color:#1a6b35;">
+        ⚡ Efficiency Arizona Job
+      </label>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-gray" onclick="closeFormModal()">Cancel</button>
       <button class="btn btn-red" id="form-submit-btn" onclick="submitWOForm()">
@@ -4197,6 +4220,7 @@ async function submitWOForm() {
   // Specific Equipment — write IDs if any selected, clear if editing with none
   if (_woSpecificEq.length) fields['Specific Equipment'] = _woSpecificEq.map(r => r.id);
   else if (formModalRecordId) fields['Specific Equipment'] = [];
+  fields['Efficiency Arizona Job'] = !!(document.getElementById('wf-ea-job')?.checked);
 
   const btn = document.getElementById('form-submit-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -4271,7 +4295,7 @@ function openSchedPanel() {
     newContactName: '',
     // Job details — Step 3
     woType: 'Maintenance', priority: 'Routine', mode: ' All Units',
-    propId: null, contId: null, prob: '', notes: '',
+    propId: null, contId: null, prob: '', notes: '', eaJob: false,
     specificEq: [],
     // Scheduling — Step 4
     weekStart: mon,
@@ -4622,7 +4646,13 @@ function spRenderStep2() {
     <div class="form-group"><label class="form-label">Problem Description</label>
       <textarea class="form-inp" id="sp-prob" rows="3" placeholder="What's the issue?"></textarea></div>
     <div class="form-group"><label class="form-label">Internal Notes</label>
-      <textarea class="form-inp" id="sp-notes" rows="2" placeholder="Office notes…"></textarea></div>`;
+      <textarea class="form-inp" id="sp-notes" rows="2" placeholder="Office notes…"></textarea></div>
+    <div class="form-group" style="margin-top:4px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#1a6b35;">
+        <input type="checkbox" id="sp-ea-job" style="width:16px;height:16px;accent-color:#1a6b35;">
+        ⚡ Efficiency Arizona Job
+      </label>
+    </div>`;
 
   // Restore saved values or auto-select
   setTimeout(() => {
@@ -4638,6 +4668,8 @@ function spRenderStep2() {
     if (msel)  msel.value  = _sp.mode;
     if (probEl)  probEl.value  = _sp.prob;
     if (notesEl) notesEl.value = _sp.notes;
+    const eaEl = document.getElementById('sp-ea-job');
+    if (eaEl) eaEl.checked = _sp.eaJob || false;
     // Show/hide equipment picker and restore chips based on saved mode
     spToggleEqPicker();
     spRenderEqChips();
@@ -4900,6 +4932,7 @@ function spGoNext() {
     _sp.contId   = document.getElementById('sp-contact')?.value || null;
     _sp.prob     = (document.getElementById('sp-prob')?.value   || '').trim();
     _sp.notes    = (document.getElementById('sp-notes')?.value  || '').trim();
+    _sp.eaJob    = !!(document.getElementById('sp-ea-job')?.checked);
     // specificEq updated live via spPickEq/spRemoveEq
     _sp.step = 4;
   }
@@ -5028,7 +5061,8 @@ async function spBook() {
     if (contId)              woFields['Primary Contact']     = [contId];
     if (techId)              woFields['Technician']          = [techId];
     if (_sp.prob)            woFields['Problem Description'] = _sp.prob;
-    if (_sp.notes) woFields['Notes'] = _sp.notes;
+    if (_sp.notes)           woFields['Notes'] = _sp.notes;
+    if (_sp.eaJob)           woFields['Efficiency Arizona Job'] = true;
     if (_sp.specificEq?.length) woFields['Specific Equipment'] = _sp.specificEq.map(r => r.id);
 
     const res  = await fetch(`${PROXY}/Work%20Orders`, {

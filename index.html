@@ -2684,6 +2684,21 @@ function renderJobDetail(record) {
       </div>
     </div>
 
+    ${f['Efficiency Arizona Job'] ? `
+    <div class="detail-section" style="border:1.5px solid #1a6b35;padding:12px 16px;margin:0 0 12px;">
+      <div class="detail-section-header" style="color:#1a6b35;margin-bottom:10px;">⚡ Efficiency Arizona</div>
+      <a href="https://airtable.com/appi09WiT6MFsy9zo/pagVVSoydYr6mRK1X/form" target="_blank" rel="noopener"
+         class="btn btn-outline btn-full"
+         style="margin-bottom:8px;border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
+        📋 Quality Install Report
+      </a>
+      <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener"
+         class="btn btn-outline btn-full"
+         style="border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
+        📝 Project Updates
+      </a>
+    </div>` : ''}
+
     <div class="bottom-pad"></div>
   `;
 
