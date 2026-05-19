@@ -2818,7 +2818,7 @@ async function sendOnMyWay() {
     console.error('On My Way SMS error:', e);
     btn.disabled = false;
     btn.textContent = '📍 Notify Customer — On My Way';
-    alert('Could not send notification. Check connection and try again.');
+    alert('Could not send notification.\n\n' + (e.message || 'Unknown error'));
   }
 }
 
