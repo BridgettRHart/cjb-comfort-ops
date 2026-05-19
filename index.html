@@ -2799,7 +2799,7 @@ async function sendOnMyWay() {
   btn.textContent = 'Sending…';
 
   try {
-    const res = await fetch(`${PROXY}/api/sms/on-my-way`, {
+    const res = await fetch(`${PROXY}/sms/on-my-way`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, firstName, address })

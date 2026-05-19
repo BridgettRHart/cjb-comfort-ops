@@ -5044,7 +5044,7 @@ async function spBook() {
       if (custEmail) {
         const firstName = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
         const propAddr  = _sp.prop?.fields['Service Address'] || '';
-        await fetch(`${PROXY}/api/email/booking-confirmed`, {
+        await fetch(`${PROXY}/email/booking-confirmed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
