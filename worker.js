@@ -2340,13 +2340,16 @@ function normalizePhone(raw) {
 async function sendSms(apiKey, toRaw, text) {
   if (!apiKey || !toRaw || !text) return;
   const to = normalizePhone(toRaw);
-  if (!to) { console.warn('sendSms: could not normalize phone:', toRaw); return; }
+  if (!to) throw new Error(`sendSms: could not normalize phone: ${toRaw}`);
   const res = await fetch('https://api.telnyx.com/v2/messages', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: TELNYX_FROM, to, text })
   });
-  if (!res.ok) console.error('Telnyx SMS error:', await res.text());
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Telnyx ${res.status}: ${errBody}`);
+  }
 }
 
 // ── AZ date/time formatter (always UTC-7, no DST) ─────────────────────────
