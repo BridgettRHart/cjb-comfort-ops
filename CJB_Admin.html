@@ -6158,7 +6158,12 @@ async function convertEstimateToJob(woId) {
     const res  = await fetch(`${PROXY}/Work%20Orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-    showToast('Job created! Open the Work Orders tab to schedule it.');
+
+    // Navigate to the customer so the edit modal has full context (properties, etc.)
+    switchTab('customers', true);
+    if (custId) await selectCustomer(custId);
+    // Open the new WO for scheduling — lets you add date, time, technician
+    await editWorkOrder(data.id);
   } catch(err) { alert('Error converting estimate: ' + err.message); }
 }
 
