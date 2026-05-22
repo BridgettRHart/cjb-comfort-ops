@@ -4,3 +4,7 @@ compatibility_date = "2024-11-01"
 
 [triggers]
 crons = ["0 * * * *"]
+
+[[r2_buckets]]
+binding = "PHOTOS_BUCKET"
+bucket_name = "cjb-photos"
