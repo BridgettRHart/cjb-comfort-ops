@@ -6225,19 +6225,21 @@ async function convertEstimateToJob(woId) {
   const custName = Array.isArray(wo.fields['Customer Name']) ? wo.fields['Customer Name'][0] : (wo.fields['Customer Name'] || 'Customer');
   if (!confirm(`Convert this estimate to a scheduled job? A new Work Order will be created for Cornell to schedule.`)) return;
 
-  const custId  = (wo.fields['Customer'] || [])[0] || null;
-  const propId  = (wo.fields['Property'] || [])[0] || null;
-  const today   = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  const custId       = (wo.fields['Customer'] || [])[0] || null;
+  const propId       = (wo.fields['Property'] || [])[0] || null;
+  const stripeQuoteId = (wo.fields['Stripe Quote ID'] || '').trim();
+  const today        = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
 
   const fields = {
     'Work Order Name':  `${custName} — Job — ${today}`,
     'Work Order Type':  'Repair',
-    'Status':           'Scheduled',
+    'Status':           'Estimate Approved',
     'Active':           true,
     'Internal Notes':   `Converted from estimate: ${wo.fields['Work Order Name'] || woId}`,
   };
-  if (custId) fields['Customer']        = [custId];
-  if (propId) fields['Property']        = [propId];
+  if (custId)        fields['Customer']        = [custId];
+  if (propId)        fields['Property']        = [propId];
+  if (stripeQuoteId) fields['Stripe Quote ID'] = stripeQuoteId;
 
   try {
     const res  = await fetch(`${PROXY}/Work%20Orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
