@@ -1410,7 +1410,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               'Status':         'Paid in Full',
               'Paid Date':      paidDate,
               'Amount Paid':    (stripeInv.amount_paid || 0) / 100,
-              'Payment Method': paymentMethodSelect,
             });
           }
           return new Response(JSON.stringify({ ok: true }),
@@ -1451,7 +1450,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             await airtablePatch('Invoices', atInvId, {
               'Status':          'Balance Due',
               'Amount Paid':     totalPaid,
-              'Payment Method':  paymentMethodSelect,
               'Payment Notes':   allNotes,
             });
           }
@@ -1483,7 +1481,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'Status':          'Paid in Full',
             'Paid Date':       paidDate,
             'Amount Paid':     totalPaid,
-            'Payment Method':  paymentMethodSelect,
             'Payment Notes':   allNotes,
           });
         }
