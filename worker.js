@@ -1443,14 +1443,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const allNotes   = priorPayNotes ? `${priorPayNotes}\n${newNote}` : newNote;
 
         if (!isFullPayment) {
-          // ── Partial payment ──────────────────────────────────────────────
-          // Update Airtable Invoice record with running totals; leave Stripe invoice open.
-          // Note: Balance Due is a formula field in Airtable (Total − Amount Paid) — don't write it.
+          // ── Partial / deposit payment ────────────────────────────────────
+          // Use deposit fields; leave Stripe invoice open.
+          // Payment Method is a multiple-select field — must pass an array.
+          // Balance Due is a formula field — don't write it.
           if (atInvId) {
             await airtablePatch('Invoices', atInvId, {
-              'Status':          'Balance Due',
-              'Amount Paid':     totalPaid,
-              'Payment Notes':   allNotes,
+              'Status':            'Deposit Paid',
+              'Amount Paid':       totalPaid,
+              'Deposit Amount':    payAmount,
+              'Deposit Paid':      true,
+              'Deposit Paid Date': paidDate,
+              'Payment Method':    [paymentMethodSelect],
+              'Payment Notes':     allNotes,
             });
           }
           // Append a note to the WO Internal Notes for visibility
@@ -1476,11 +1481,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         // Also sync Airtable Invoice so it shows correct totals even before webhook fires
         // Balance Due is a formula field — don't write it.
+        // Payment Method is multiple-select — must be an array.
         if (atInvId) {
           await airtablePatch('Invoices', atInvId, {
             'Status':          'Paid in Full',
             'Paid Date':       paidDate,
             'Amount Paid':     totalPaid,
+            'Payment Method':  [paymentMethodSelect],
             'Payment Notes':   allNotes,
           });
         }
@@ -1712,7 +1719,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Due Date':       dueDate,
           'Subtotal':       subtotal,
           'Total':          subtotal,
-          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`
+          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`,
+          ...(sendNow ? { 'Sent Date': today } : {}),
+          ...(waveInvoiceId ? { 'Wave Exported': true, 'Wave Invoice ID': waveInvoiceId } : {}),
         };
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
