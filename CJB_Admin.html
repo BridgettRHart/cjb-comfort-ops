@@ -2755,7 +2755,7 @@ async function openInvoiceModal(workOrderId, customerId) {
         : fetchAll('Product List',
             'fields[]=Product Name&fields[]=Unit Price&fields[]=Unit Type&fields[]=Category' +
             '&fields[]=Active&sort[0][field]=Product Name&sort[0][direction]=asc'),
-      fetch(`${PROXY}/Work%20Orders/${workOrderId}?fields[]=Jobs`).then(r => r.json())
+      fetch(`${PROXY}/Work%20Orders/${workOrderId}?fields[]=Jobs&fields[]=Stripe%20Quote%20ID`).then(r => r.json())
     ]);
     if (prodsRaw) allProducts = prodsRaw.filter(p => p.fields['Active'] !== false);
 
@@ -2826,13 +2826,32 @@ async function openInvoiceModal(workOrderId, customerId) {
       }
 
     } else {
-      // ── New invoice: derive line items from job data ──
-      if (jobs.length > 0) {
-        addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
-        addLaborItem(jobs);
-        for (const job of jobs) addPartsFromJob(job);
-      } else {
-        addLineItem();
+      // ── New invoice: prefer accepted quote line items; fall back to job data ──
+      const stripeQuoteId = (woDetail.fields?.['Stripe Quote ID'] || '').trim();
+      let loadedFromQuote = false;
+
+      if (stripeQuoteId) {
+        try {
+          const quoteRes  = await fetch(`${PROXY}/quote/${stripeQuoteId}`);
+          const quoteData = await quoteRes.json();
+          if (quoteRes.ok && quoteData.lines?.length) {
+            for (const line of quoteData.lines) {
+              const { name, qty, unitPrice } = unfoldLineItem(line.description, line.quantity, line.unitPrice);
+              fillLineItem(name, qty, unitPrice, null);
+            }
+            loadedFromQuote = true;
+          }
+        } catch(e) { /* fall through to job-derived items */ }
+      }
+
+      if (!loadedFromQuote) {
+        if (jobs.length > 0) {
+          addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
+          addLaborItem(jobs);
+          for (const job of jobs) addPartsFromJob(job);
+        } else {
+          addLineItem();
+        }
       }
     }
 
