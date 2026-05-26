@@ -4027,6 +4027,15 @@ function wfRemoveEq(id) {
 }
 
 // ── Specific Equipment chip picker (Schedule panel) ──────────────────────────
+function spToggleNewPropFields() {
+  const sel = document.getElementById('sp-prop');
+  const wrap = document.getElementById('sp-new-prop-fields');
+  if (!wrap) return;
+  const isNew = !sel || sel.value === '__new__';
+  wrap.style.display = isNew ? '' : 'none';
+  if (isNew) document.getElementById('sp-np-street')?.focus();
+}
+
 function spToggleEqPicker() {
   const mode = (document.getElementById('sp-mode')?.value || '').trim();
   document.getElementById('sp-eq-section').style.display = mode === 'Specific Unit' ? 'block' : 'none';
@@ -4663,10 +4672,27 @@ function spRenderStep2() {
         </div>
       </div>
     </div>
-    ${_sp.custProps.length ? `<div class="form-group"><label class="form-label">Property</label>
-      <select class="form-inp" id="sp-prop">
-        <option value="">— Select property —</option>${propOpts}
-      </select></div>` : ''}
+    <div class="form-group"><label class="form-label">Property</label>
+      ${_sp.custProps.length ? `<select class="form-inp" id="sp-prop" onchange="spToggleNewPropFields()">
+        <option value="">— Select property —</option>
+        ${propOpts}
+        <option value="__new__">+ New address…</option>
+      </select>` : `<select class="form-inp" id="sp-prop" onchange="spToggleNewPropFields()" style="display:none;"><option value="__new__">__new__</option></select>
+      <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">No properties on file — enter service address below.</div>`}
+    </div>
+    <div id="sp-new-prop-fields" style="${_sp.custProps.length ? 'display:none;' : ''}padding:0;">
+      <div class="form-group"><label class="form-label">Street Address <span style="color:#c81f25;">*</span></label>
+        <input class="form-inp" id="sp-np-street" type="text" placeholder="123 Main St" autocomplete="street-address"></div>
+      <div class="form-row-2">
+        <div class="form-group"><label class="form-label">City</label>
+          <input class="form-inp" id="sp-np-city" type="text" placeholder="Mesa" autocomplete="address-level2"></div>
+        <div class="form-group"><label class="form-label">State &amp; Zip</label>
+          <div style="display:flex;gap:8px;">
+            <input class="form-inp" id="sp-np-state" type="text" maxlength="2" placeholder="AZ" value="AZ" style="width:62px;flex-shrink:0;">
+            <input class="form-inp" id="sp-np-zip" type="text" placeholder="85201" inputmode="numeric">
+          </div></div>
+      </div>
+    </div>
     ${_sp.custContacts.length ? `<div class="form-group"><label class="form-label">Contact</label>
       <select class="form-inp" id="sp-contact">
         <option value="">— Select contact —</option>${contactOpts}
@@ -4956,12 +4982,26 @@ function spGoNext() {
     _sp.woType   = document.getElementById('sp-type')?.value    || 'Maintenance';
     _sp.priority = document.getElementById('sp-pri')?.value     || 'Routine';
     _sp.mode     = document.getElementById('sp-mode')?.value    || ' All Units';
-    _sp.propId   = document.getElementById('sp-prop')?.value    || null;
+    const rawPropId = document.getElementById('sp-prop')?.value || '';
+    _sp.propId   = (rawPropId && rawPropId !== '__new__') ? rawPropId : null;
     _sp.contId   = document.getElementById('sp-contact')?.value || null;
     _sp.prob     = (document.getElementById('sp-prob')?.value   || '').trim();
     _sp.notes    = (document.getElementById('sp-notes')?.value  || '').trim();
     _sp.eaJob    = !!(document.getElementById('sp-ea-job')?.checked);
     // specificEq updated live via spPickEq/spRemoveEq
+
+    // If adding a new property for an existing customer, capture the address
+    if (!_sp.propId) {
+      _sp.newServiceStreet = (document.getElementById('sp-np-street')?.value || '').trim();
+      _sp.newServiceCity   = (document.getElementById('sp-np-city')?.value   || '').trim();
+      _sp.newServiceState  = (document.getElementById('sp-np-state')?.value  || 'AZ').trim().toUpperCase();
+      _sp.newServiceZip    = (document.getElementById('sp-np-zip')?.value    || '').trim();
+      if (!_sp.newServiceStreet) {
+        alert('Street address is required to create a new property.');
+        document.getElementById('sp-np-street')?.focus();
+        return;
+      }
+    }
     _sp.step = 4;
   }
   spRender();
@@ -5013,11 +5053,12 @@ async function spBook() {
       renderCustList();
     }
 
-    // ── 2. Create Property (new customers with service address) ──────────
+    // ── 2. Create Property (new or existing customer, new service address) ─
     if (!propId && _sp.newServiceStreet) {
       btn.textContent = 'Creating property…';
+      const propOwnerName = _sp.cust?.fields['Customer Name'] || _sp.newName || '';
       const propFields = {
-        'Property Name': `${_sp.newName} — ${_sp.newServiceStreet}`,
+        'Property Name': `${propOwnerName} — ${_sp.newServiceStreet}`,
         'Customer':         [custId],
         'Service Address':  _sp.newServiceStreet,
         'City':             _sp.newServiceCity,
