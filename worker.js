@@ -1458,11 +1458,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               'Payment Notes':     allNotes,
             });
           }
-          // Update Stripe invoice footer — visible to customer on hosted invoice + PDF
+          // Update Stripe invoice footer — visible to customer on hosted invoice + PDF.
+          // Appends to any existing footer text rather than replacing it.
           try {
-            const footerText = `Deposit received: $${payAmount.toFixed(2)} (${paymentNote}) on ${dateStr} · Balance due: $${balanceDue.toFixed(2)}`;
+            const depositLine = `Deposit received: $${payAmount.toFixed(2)} (${paymentNote}) on ${dateStr} · Balance due: $${balanceDue.toFixed(2)}`;
+            const existingFooter = (stripeInv.footer || '').trim();
+            const newFooter = existingFooter ? `${existingFooter}\n${depositLine}` : depositLine;
             await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
-              footer: footerText,
+              footer: newFooter,
               'metadata[deposit_received]': `$${payAmount.toFixed(2)} — ${paymentNote} — ${dateStr}`,
               'metadata[balance_due]':      `$${balanceDue.toFixed(2)}`,
             });
