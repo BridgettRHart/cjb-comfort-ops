@@ -1374,7 +1374,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     // ── Mark invoice paid out-of-band (cash / check) ─────────────────────
     if (path === '/api/invoice/pay-offline' && request.method === 'POST') {
       try {
-        const { workOrderId, method, checkNumber } = await request.json();
+        const { workOrderId, method, checkNumber, amount } = await request.json();
         if (!workOrderId) throw new Error('workOrderId required');
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
 
@@ -1386,22 +1386,23 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        // Build a readable payment note for Stripe metadata
+        // Build a readable payment note
         const paymentNote = method === 'check'
           ? `Check${checkNumber ? ' #' + checkNumber : ''}`
+          : method === 'keyin' ? 'Credit Card (Key-in)'
+          : method === 'card'  ? 'Credit Card'
           : 'Cash';
 
         // Check current Stripe invoice status — $0 warranty invoices are auto-paid
         // by Stripe immediately on send, so calling /pay again would throw an error.
-        const stripeInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`);
-        const paidDate  = new Date().toISOString().split('T')[0];
+        const stripeInv  = await stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`);
+        const paidDate   = new Date().toISOString().split('T')[0];
+        const atInvId    = (wo.fields['Invoice'] || [])[0] || (wo.fields['Invoices'] || [])[0] || null;
 
         if (stripeInv.status === 'paid') {
           // Already paid (auto-paid $0 or previously collected) — just sync Airtable
           await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
-          // Mirror Paid to linked Jobs (skips Cancelled / skipped-unit jobs)
           await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
-          const atInvId = (wo.fields['Invoice'] || [])[0] || (wo.fields['Invoices'] || [])[0];
           if (atInvId) {
             await airtablePatch('Invoices', atInvId, {
               'Status':         'Paid in Full',
@@ -1414,16 +1415,76 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        // Update invoice metadata before marking paid
+        // Determine invoice total and whether this is a partial payment.
+        // amount_due = full balance Stripe expects; amount_remaining = after any prior Stripe payments.
+        const invoiceTotal = (stripeInv.amount_due || 0) / 100;
+        const payAmount    = (amount && Number(amount) > 0) ? Number(amount) : invoiceTotal;
+
+        // Read prior partial payments already recorded in Airtable Invoice
+        let priorPaid        = 0;
+        let priorPayNotes    = '';
+        if (atInvId) {
+          try {
+            const atInv   = await airtableGetById('Invoices', atInvId);
+            priorPaid      = Number(atInv.fields['Amount Paid'] || 0);
+            priorPayNotes  = atInv.fields['Payment Notes'] || '';
+          } catch(e) { /* non-fatal */ }
+        }
+
+        const totalPaid  = priorPaid + payAmount;
+        const balanceDue = Math.max(0, invoiceTotal - totalPaid);
+        // Treat as full if the remaining balance is ≤ 1¢ (rounding tolerance)
+        const isFullPayment = balanceDue <= 0.01;
+
+        // Append timestamped payment note
+        const dateStr    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const newNote    = `${dateStr}: $${payAmount.toFixed(2)} — ${paymentNote}`;
+        const allNotes   = priorPayNotes ? `${priorPayNotes}\n${newNote}` : newNote;
+
+        if (!isFullPayment) {
+          // ── Partial payment ──────────────────────────────────────────────
+          // Update Airtable Invoice record with running totals; leave Stripe invoice open.
+          if (atInvId) {
+            await airtablePatch('Invoices', atInvId, {
+              'Status':          'Balance Due',
+              'Amount Paid':     totalPaid,
+              'Balance Due':     balanceDue,
+              'Payment Method':  paymentNote,
+              'Payment Notes':   allNotes,
+            });
+          }
+          // Append a note to the WO Internal Notes for visibility
+          const existingNotes = (wo.fields['Internal Notes'] || '');
+          const partialNote   = `\n[Partial payment: $${payAmount.toFixed(2)} — ${paymentNote} — ${dateStr}]`;
+          await airtablePatch('Work Orders', workOrderId, {
+            'Internal Notes': existingNotes + partialNote
+          });
+          return new Response(JSON.stringify({ ok: true, partial: true, amountPaid: payAmount, totalPaid, balanceDue }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        // ── Full payment ─────────────────────────────────────────────────
+        // Update Stripe invoice metadata, then mark paid out of band.
         await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
           'metadata[payment_method]': paymentNote,
           'metadata[collected_by]':   'Technician — on site'
         });
-
-        // Mark invoice as paid out of band — triggers invoice.paid webhook
+        // Triggers invoice.paid webhook → worker updates WO status to Paid
         await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}/pay`, {
           paid_out_of_band: 'true'
         });
+
+        // Also sync Airtable Invoice so it shows correct totals even before webhook fires
+        if (atInvId) {
+          await airtablePatch('Invoices', atInvId, {
+            'Status':          'Paid in Full',
+            'Paid Date':       paidDate,
+            'Amount Paid':     totalPaid,
+            'Balance Due':     0,
+            'Payment Method':  paymentNote,
+            'Payment Notes':   allNotes,
+          });
+        }
 
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

@@ -551,6 +551,14 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   margin-bottom: 4px;
 }
 .apm-label { font-size: 12px; color: #9ca3af; }
+.apm-partial-row { display:flex; align-items:center; gap:6px; margin-top:12px; justify-content:center; }
+.apm-partial-prefix { font-size:20px; font-weight:700; color:#374151; }
+.apm-partial-input { font-size:20px; font-weight:700; color:#111827; text-align:center; border:2px solid #d1d5db; border-radius:8px; padding:6px 10px; width:120px; -moz-appearance:textfield; }
+.apm-partial-input::-webkit-outer-spin-button,
+.apm-partial-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.apm-partial-input:focus { outline:none; border-color:#c81f25; }
+.apm-partial-full-btn { font-size:12px; padding:6px 10px; border-radius:6px; border:1px solid #d1d5db; background:#f3f4f6; cursor:pointer; color:#374151; flex-shrink:0; }
+.apm-partial-note { font-size:12px; color:#6b7280; margin-top:6px; min-height:16px; }
 .apm-methods { display: flex; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
 .apm-method-btn {
   flex: 1;
@@ -1049,6 +1057,12 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <div class="apm-customer" id="apm-customer">Customer</div>
       <div class="apm-amount" id="apm-amount">—</div>
       <div class="apm-label">Balance due</div>
+      <div class="apm-partial-row">
+        <span class="apm-partial-prefix">$</span>
+        <input type="number" id="apm-pay-amount" class="apm-partial-input" step="0.01" min="0.01" inputmode="decimal" placeholder="0.00">
+        <button class="apm-partial-full-btn" onclick="setFullAmount()">Full</button>
+      </div>
+      <div id="apm-balance-note" class="apm-partial-note"></div>
     </div>
 
     <!-- Method tabs -->
@@ -2173,6 +2187,17 @@ async function selectCustomer(id) {
       currentWorkOrders = await fetchAll('Work Orders',
         `filterByFormula=${encodeURIComponent(formula)}&sort[0][field]=Scheduled Date&sort[0][direction]=desc`);
     }
+    // Safety net: Airtable backlinks can lag after WO creation.
+    // Merge any _dashWOs entries linked to this customer that aren't already in the list.
+    if (_dashWOs) {
+      for (const dwo of _dashWOs) {
+        if ((dwo.fields['Customer'] || []).includes(id) && !currentWorkOrders.find(w => w.id === dwo.id)) {
+          currentWorkOrders.push(dwo);
+        }
+      }
+      currentWorkOrders.sort((a, b) =>
+        (b.fields['Scheduled Date'] || '').localeCompare(a.fields['Scheduled Date'] || ''));
+    }
 
     // Query Equipment directly by customer name — Airtable linked field formulas match
     // on the linked record's primary field value (name), not the record ID.
@@ -2297,7 +2322,7 @@ function renderDetail(customer, props, wos, contacts) {
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
         } else if (status === 'Invoiced') {
-          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect Payment</button>`;
+          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
           if (stripeUrl) invoiceBtn += ` <a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View ↗</a>`;
         } else if (status === 'Paid') {
           if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;
@@ -6172,13 +6197,14 @@ function closeEstWizard() {
 }
 
 // ── Admin Payment Modal ───────────────────────────────────────────────────────
-let _apmWoId        = null;
-let _apmInvoiceId   = null;
-let _apmInvoiceUrl  = null;
-let _apmPoll        = null;
-let _apmMethod      = 'card';
-let _apmStripe      = null;  // Stripe.js instance
-let _apmStripeCard  = null;  // mounted Card Element
+let _apmWoId           = null;
+let _apmInvoiceId      = null;
+let _apmInvoiceUrl     = null;
+let _apmPoll           = null;
+let _apmMethod         = 'card';
+let _apmTotalNumeric   = 0;    // numeric balance due (updated after partial-payment check)
+let _apmStripe         = null; // Stripe.js instance
+let _apmStripeCard     = null; // mounted Card Element
 let _apmStripePkPromise = null; // cache the PK fetch
 
 async function openAdminPayModal(woId) {
@@ -6197,9 +6223,12 @@ async function openAdminPayModal(woId) {
   });
   document.getElementById('apm-tab-card').classList.add('active');
   _apmStripeCard = null; // force remount next time key-in is opened
+  _apmTotalNumeric = 0;
   document.querySelectorAll('.apm-confirm-btn').forEach(b => { b.disabled = false; b.textContent = b.textContent; });
   document.getElementById('apm-customer').textContent = 'Loading…';
   document.getElementById('apm-amount').textContent = '—';
+  document.getElementById('apm-pay-amount').value = '';
+  document.getElementById('apm-balance-note').textContent = '';
   document.getElementById('admin-pay-modal').classList.remove('hidden');
 
   try {
@@ -6208,13 +6237,36 @@ async function openAdminPayModal(woId) {
     const f    = wo.fields || {};
 
     const custName   = f['Customer Name'] || 'Customer';
-    const total      = f['Total Amount'] ? '$' + Number(f['Total Amount']).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const invoiceUrl = extractStripeUrl(f['Internal Notes'] || '');
-    _apmInvoiceId  = (f['Stripe Invoice ID'] || '').trim();
-    _apmInvoiceUrl = invoiceUrl || '';
+    _apmInvoiceId    = (f['Stripe Invoice ID'] || '').trim();
+    _apmInvoiceUrl   = invoiceUrl || '';
+    _apmTotalNumeric = f['Total Amount'] ? Number(f['Total Amount']) : 0;
 
     document.getElementById('apm-customer').textContent = custName;
-    document.getElementById('apm-amount').textContent   = total;
+    document.getElementById('apm-amount').textContent   = _apmTotalNumeric > 0
+      ? '$' + _apmTotalNumeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '—';
+    document.getElementById('apm-balance-note').textContent = '';
+    setFullAmount();
+
+    // Fetch Airtable Invoice record to check for prior partial payments
+    const atInvId = ((f['Invoice'] || [])[0] || (f['Invoices'] || [])[0] || '').trim();
+    if (atInvId && _apmTotalNumeric > 0) {
+      try {
+        const invRes   = await fetch(`${PROXY}/Invoices/${atInvId}`);
+        const invData  = await invRes.json();
+        const alreadyPaid = Number(invData.fields?.['Amount Paid'] || 0);
+        if (alreadyPaid > 0) {
+          const balanceDue = Math.max(0, _apmTotalNumeric - alreadyPaid);
+          _apmTotalNumeric = balanceDue;
+          document.getElementById('apm-amount').textContent =
+            '$' + balanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          document.getElementById('apm-balance-note').textContent =
+            `$${alreadyPaid.toFixed(2)} already collected · $${balanceDue.toFixed(2)} remaining`;
+          setFullAmount();
+        }
+      } catch(e) { /* non-fatal — show full amount */ }
+    }
 
     if (invoiceUrl) {
       const encoded = encodeURIComponent(invoiceUrl);
@@ -6269,6 +6321,12 @@ async function checkAdminPayStatus() {
 }
 
 async function submitAdminPayment(method) {
+  const amountVal = parseFloat(document.getElementById('apm-pay-amount')?.value || '0');
+  if (!(amountVal > 0)) {
+    alert('Please enter the payment amount.');
+    return;
+  }
+
   const btn = document.querySelector(`#apm-${method}-panel .apm-confirm-btn`);
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
@@ -6278,15 +6336,24 @@ async function submitAdminPayment(method) {
     const res = await fetch(`${PROXY}/invoice/pay-offline`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workOrderId: _apmWoId, method, checkNumber: checkNo }),
+      body: JSON.stringify({ workOrderId: _apmWoId, method, checkNumber: checkNo, amount: amountVal }),
     });
     if (!res.ok) throw new Error('Server error');
+    const data = await res.json();
+
     const label = method === 'check'
       ? `Check${checkNo ? ' #' + checkNo : ''}`
       : 'Cash';
     _stopApmPoll();
-    _showApmPaid(`Recorded as ${label}`);
-    showToast('✓ Payment recorded');
+
+    if (data.partial) {
+      const balStr = '$' + Number(data.balanceDue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      _showApmPaid(`$${amountVal.toFixed(2)} recorded — ${balStr} still owed`, true);
+      showToast('✓ Partial payment recorded');
+    } else {
+      _showApmPaid(`Recorded as ${label}`);
+      showToast('✓ Payment recorded');
+    }
     // Refresh customer detail so WO status updates
     if (selectedCustomer) selectCustomer(selectedCustomer.id);
   } catch(e) {
@@ -6295,13 +6362,27 @@ async function submitAdminPayment(method) {
   }
 }
 
-function _showApmPaid(detail) {
+function _showApmPaid(detail, partial) {
   ['apm-card-panel','apm-cash-panel','apm-check-panel'].forEach(id => {
     document.getElementById(id).style.display = 'none';
   });
   document.getElementById('apm-methods').style.pointerEvents = 'none';
   document.getElementById('apm-paid-detail').textContent = detail;
+  const emojiEl = document.querySelector('#apm-paid-panel .apm-paid-emoji');
+  const titleEl = document.querySelector('#apm-paid-panel .apm-paid-title');
+  if (partial) {
+    if (emojiEl) emojiEl.textContent = '💰';
+    if (titleEl) { titleEl.textContent = 'Payment Recorded'; titleEl.style.color = '#d97706'; }
+  } else {
+    if (emojiEl) emojiEl.textContent = '✅';
+    if (titleEl) { titleEl.textContent = 'Payment Received!'; titleEl.style.color = '#059669'; }
+  }
   document.getElementById('apm-paid-panel').style.display = 'flex';
+}
+
+function setFullAmount() {
+  const inp = document.getElementById('apm-pay-amount');
+  if (inp && _apmTotalNumeric > 0) inp.value = _apmTotalNumeric.toFixed(2);
 }
 
 function closeAdminPayModal() {
