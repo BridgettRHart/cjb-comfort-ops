@@ -1520,8 +1520,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           }
         };
 
-        // 4. Update existing draft in place, or create a new invoice.
-        //    Updating in place keeps the Stripe Invoice ID stable (no stale-ID issues).
+        // 4. If a draft invoice already exists, delete it entirely and start fresh.
+        //    Attempting to surgically delete individual line items proved unreliable —
+        //    Stripe silently keeps items in some cases, causing doubles on every save.
+        //    Deleting the whole draft and recreating is simpler and always correct.
+        //    The new ID gets written back to Airtable immediately after creation.
         const existingStripeId = (woRecord?.fields?.['Stripe Invoice ID'] || '').trim();
         let inv = null;
 
@@ -1529,49 +1532,36 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           try {
             const existingInv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
             if (existingInv.status === 'draft') {
-              // Remove current line items from the existing draft
-              const existingLines = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}/lines?limit=100`);
-              await Promise.all(
-                (existingLines.data || [])
-                  .filter(l => l.invoice_item)
-                  .map(l => stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${l.invoice_item}`).catch(() => {}))
-              );
-              // Attach new items directly to the existing draft
-              await attachLineItems(existingStripeId);
-              // Update description on the invoice
-              await stripePost(STRIPE_KEY, `/v1/invoices/${existingStripeId}`, { description: fullDesc });
-              inv = await stripeGet(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
+              await stripeDelete(STRIPE_KEY, `/v1/invoices/${existingStripeId}`);
             }
-          } catch (e) { /* not a draft, gone, or update failed — fall through to create */ }
+          } catch (e) { /* invoice gone or inaccessible — proceed to create fresh */ }
         }
 
-        if (!inv) {
-          // 5. Guard: delete any floating pending items that might interfere
-          try {
-            const pendRes  = await fetch(
-              `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
-              { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
-            );
-            const pendData = await pendRes.json();
-            for (const pitem of (pendData.data || [])) {
-              if (!pitem.invoice) await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${pitem.id}`);
-            }
-          } catch (e) { /* best effort */ }
+        // 5. Guard: delete any floating pending invoice items for this customer
+        try {
+          const pendRes  = await fetch(
+            `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
+            { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
+          );
+          const pendData = await pendRes.json();
+          for (const pitem of (pendData.data || [])) {
+            if (!pitem.invoice) await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${pitem.id}`).catch(() => {});
+          }
+        } catch (e) { /* best effort */ }
 
-          // 6. Create a new empty draft invoice
-          const invParams = {
-            customer:          stripeCustId,
-            auto_advance:      'false',
-            collection_method: 'send_invoice',
-            days_until_due:    isCommercial ? '30' : '0'
-          };
-          if (fullDesc) invParams.description              = fullDesc;
-          if (woName)   invParams['metadata[work_order]'] = woName;
-          inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
+        // 6. Create a fresh draft invoice
+        const invParams = {
+          customer:          stripeCustId,
+          auto_advance:      'false',
+          collection_method: 'send_invoice',
+          days_until_due:    isCommercial ? '30' : '0'
+        };
+        if (fullDesc) invParams.description              = fullDesc;
+        if (woName)   invParams['metadata[work_order]'] = woName;
+        inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
-          // 7. Attach line items directly to the new invoice
-          await attachLineItems(inv.id);
-        }
+        // 7. Attach line items directly to the new invoice
+        await attachLineItems(inv.id);
 
         // 8. Before finalizing: purge any floating pending invoice items for this customer.
         //    When Stripe finalizes an invoice it auto-collects ALL unattached pending items
