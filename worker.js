@@ -1386,12 +1386,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        // Build a readable payment note
+        // Airtable Payment Method is a select field — must match exact option values
+        const paymentMethodSelect = method === 'check'  ? 'Check'
+          : (method === 'keyin' || method === 'card')   ? 'Credit Card'
+          : 'Cash';
+        // Human-readable note includes check number detail
         const paymentNote = method === 'check'
           ? `Check${checkNumber ? ' #' + checkNumber : ''}`
-          : method === 'keyin' ? 'Credit Card (Key-in)'
-          : method === 'card'  ? 'Credit Card'
-          : 'Cash';
+          : paymentMethodSelect;
 
         // Check current Stripe invoice status — $0 warranty invoices are auto-paid
         // by Stripe immediately on send, so calling /pay again would throw an error.
@@ -1408,7 +1410,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               'Status':         'Paid in Full',
               'Paid Date':      paidDate,
               'Amount Paid':    (stripeInv.amount_paid || 0) / 100,
-              'Payment Method': paymentNote,
+              'Payment Method': paymentMethodSelect,
             });
           }
           return new Response(JSON.stringify({ ok: true }),
@@ -1449,7 +1451,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             await airtablePatch('Invoices', atInvId, {
               'Status':          'Balance Due',
               'Amount Paid':     totalPaid,
-              'Payment Method':  paymentNote,
+              'Payment Method':  paymentMethodSelect,
               'Payment Notes':   allNotes,
             });
           }
@@ -1481,7 +1483,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'Status':          'Paid in Full',
             'Paid Date':       paidDate,
             'Amount Paid':     totalPaid,
-            'Payment Method':  paymentNote,
+            'Payment Method':  paymentMethodSelect,
             'Payment Notes':   allNotes,
           });
         }
