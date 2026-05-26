@@ -1458,9 +1458,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               'Payment Notes':     allNotes,
             });
           }
+          // Update Stripe invoice footer — visible to customer on hosted invoice + PDF
+          try {
+            const footerText = `Deposit received: $${payAmount.toFixed(2)} (${paymentNote}) on ${dateStr} · Balance due: $${balanceDue.toFixed(2)}`;
+            await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
+              footer: footerText,
+              'metadata[deposit_received]': `$${payAmount.toFixed(2)} — ${paymentNote} — ${dateStr}`,
+              'metadata[balance_due]':      `$${balanceDue.toFixed(2)}`,
+            });
+          } catch(e) { /* non-fatal — Airtable already has the record */ }
+
           // Append a note to the WO Internal Notes for visibility
           const existingNotes = (wo.fields['Internal Notes'] || '');
-          const partialNote   = `\n[Partial payment: $${payAmount.toFixed(2)} — ${paymentNote} — ${dateStr}]`;
+          const partialNote   = `\n[Deposit: $${payAmount.toFixed(2)} — ${paymentNote} — ${dateStr}]`;
           await airtablePatch('Work Orders', workOrderId, {
             'Internal Notes': existingNotes + partialNote
           });
