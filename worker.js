@@ -1444,11 +1444,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (!isFullPayment) {
           // ── Partial payment ──────────────────────────────────────────────
           // Update Airtable Invoice record with running totals; leave Stripe invoice open.
+          // Note: Balance Due is a formula field in Airtable (Total − Amount Paid) — don't write it.
           if (atInvId) {
             await airtablePatch('Invoices', atInvId, {
               'Status':          'Balance Due',
               'Amount Paid':     totalPaid,
-              'Balance Due':     balanceDue,
               'Payment Method':  paymentNote,
               'Payment Notes':   allNotes,
             });
@@ -1475,12 +1475,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         });
 
         // Also sync Airtable Invoice so it shows correct totals even before webhook fires
+        // Balance Due is a formula field — don't write it.
         if (atInvId) {
           await airtablePatch('Invoices', atInvId, {
             'Status':          'Paid in Full',
             'Paid Date':       paidDate,
             'Amount Paid':     totalPaid,
-            'Balance Due':     0,
             'Payment Method':  paymentNote,
             'Payment Notes':   allNotes,
           });

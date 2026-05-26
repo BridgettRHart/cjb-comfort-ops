@@ -6338,8 +6338,8 @@ async function submitAdminPayment(method) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workOrderId: _apmWoId, method, checkNumber: checkNo, amount: amountVal }),
     });
-    if (!res.ok) throw new Error('Server error');
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
 
     const label = method === 'check'
       ? `Check${checkNo ? ' #' + checkNo : ''}`
@@ -6358,7 +6358,7 @@ async function submitAdminPayment(method) {
     if (selectedCustomer) selectCustomer(selectedCustomer.id);
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = method === 'cash' ? '✓  Mark Paid — Cash' : '✓  Mark Paid — Check'; }
-    showToast('⚠ Could not record payment — try again');
+    showToast('⚠ ' + (e.message || 'Could not record payment — try again'));
   }
 }
 
