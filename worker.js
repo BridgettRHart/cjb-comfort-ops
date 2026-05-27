@@ -1146,6 +1146,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               'End Date':               endDate.toISOString().split('T')[0],
               'Visits Used This Year':  0,
             });
+            // Schedule first visit WO + follow-up
+            scheduleFirstContractVisit(env, contractId).catch(e => console.error('scheduleFirstContractVisit error:', e.message));
           }
 
           // Maintenance contract renewal payment → roll contract forward one year
@@ -1200,6 +1202,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                   customerId: custId,
                 }).catch(() => {});
               }
+              // Schedule first visit WO + follow-up for the new year
+              scheduleFirstContractVisit(env, contractId).catch(e => console.error('scheduleFirstContractVisit (renewal) error:', e.message));
             } catch(e) {
               console.error('Contract renewal roll-forward error:', e.message);
             }
@@ -3111,6 +3115,65 @@ async function sendAppointmentReminders(env) {
       await airtablePatch('Work Orders', wo.id, { [field]: true });
     }
   }
+}
+
+// ── Create first-visit Work Order + Follow-Up when a contract activates/renews ─
+async function scheduleFirstContractVisit(env, contractId) {
+  const contract  = await airtableGetById('Maintenance Contracts', contractId);
+  const cf        = contract.fields;
+
+  const custIds   = cf['Customer']  || [];
+  const propIds   = cf['Property']  || [];
+  const planName  = cf['Plan Name'] || 'Maintenance Agreement';
+  const custId    = custIds[0] || null;
+  const propId    = propIds[0] || null;
+
+  // Customer name for WO/Follow-Up title
+  const custRec   = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+  const custName  = custRec?.fields?.['Customer Name'] || 'Customer';
+
+  // Due date = 2 weeks from now — prompt Bridgett to reach out and book soon
+  const dueDate   = new Date(Date.now() + 14 * 86400000).toISOString();
+  const woName    = `${custName} — ${planName} (Visit 1)`;
+
+  // Create placeholder Work Order (On Hold — no scheduled date yet)
+  const woFields = {
+    'Work Order Name': woName,
+    'Work Order Type': 'Maintenance',
+    'Status':          'On Hold',
+    'Active':          true,
+    'Notes':           `Maintenance contract visit — contact customer to schedule. Contract: ${planName}.`,
+  };
+  if (custId) woFields['Customer']             = [custId];
+  if (propId) woFields['Property']             = [propId];
+  woFields['Maintenance Contract']             = [contractId];
+
+  const woRes  = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Work%20Orders`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ fields: woFields }),
+  });
+  const woData = await woRes.json();
+  const woId   = woData.id || null;
+
+  // Create Follow-Up task for Bridgett to schedule the visit
+  const fuFields = {
+    'Title':    `Schedule Visit 1 — ${custName} · ${planName}`,
+    'Type':     'Follow-Up',
+    'Status':   'Open',
+    'Due Date': dueDate,
+    'Notes':    `Contract activated/renewed. Reach out to schedule the first maintenance visit. Placeholder work order created: "${woName}".`,
+  };
+  if (custId) fuFields['Customer']   = [custId];
+  if (woId)   fuFields['Work Order'] = [woId];
+
+  await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Follow-Ups`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ fields: fuFields }),
+  });
+
+  console.log(`scheduleFirstContractVisit: WO + Follow-Up created for contract ${contractId}`);
 }
 
 // ── Maintenance contract renewal check (runs every cron tick, idempotent) ────
