@@ -61,7 +61,10 @@ export default {
     // Load secrets (same as fetch handler)
     AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID || AIRTABLE_BASE_ID;
     AIRTABLE_API_KEY = env.AIRTABLE_API_KEY || AIRTABLE_API_KEY;
-    ctx.waitUntil(sendAppointmentReminders(env));
+    ctx.waitUntil(Promise.all([
+      sendAppointmentReminders(env),
+      checkContractRenewals(env),
+    ]));
   },
 
   async fetch(request, env) {
@@ -1143,6 +1146,63 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               'End Date':               endDate.toISOString().split('T')[0],
               'Visits Used This Year':  0,
             });
+          }
+
+          // Maintenance contract renewal payment → roll contract forward one year
+          if (inv.metadata?.invoice_type === 'maintenance_renewal' && inv.metadata?.contract_airtable_id) {
+            const contractId = inv.metadata.contract_airtable_id;
+            try {
+              const contract = await airtableGetById('Maintenance Contracts', contractId);
+              const cf = contract.fields;
+
+              // Roll dates: new start = old end + 1 day, new end = new start + 1 year - 1 day
+              const oldEnd      = cf['End Date'] ? new Date(cf['End Date'] + 'T12:00:00') : new Date();
+              const newStart    = new Date(oldEnd);
+              newStart.setDate(newStart.getDate() + 1);
+              const newEnd      = new Date(newStart);
+              newEnd.setFullYear(newEnd.getFullYear() + 1);
+              newEnd.setDate(newEnd.getDate() - 1);
+
+              await airtablePatch('Maintenance Contracts', contractId, {
+                'Status':                'Active',
+                'Start Date':            newStart.toISOString().split('T')[0],
+                'End Date':              newEnd.toISOString().split('T')[0],
+                'Visits Used This Year': 0,
+                'Renewal Invoice Sent':  null, // clear so next year's renewal can fire
+              });
+
+              // Send renewal confirmed email
+              const custId    = (cf['Customer'] || [])[0] || null;
+              const custRec   = custId ? await airtableGetById('Customers', custId) : null;
+              const custEmail = custRec?.fields?.['Email'] || inv.customer_email || '';
+              const custFirst = (custRec?.fields?.['First Name'] || inv.customer_name || '').split(' ')[0] || 'there';
+              const planName  = cf['Plan Name'] || 'Annual Maintenance Agreement';
+              const amtPaid   = (inv.amount_paid || 0) / 100;
+
+              if (custEmail && env.RESEND_API_KEY) {
+                const renewSubj = `Your CJB Comfort maintenance agreement has been renewed`;
+                await sendEmail(env.RESEND_API_KEY, {
+                  to:      custEmail,
+                  subject: renewSubj,
+                  html:    emailRenewalConfirmedHtml({
+                    customerName: custFirst,
+                    planName,
+                    amountPaid:   amtPaid,
+                    newStartDate: newStart.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+                    newEndDate:   newEnd.toLocaleDateString('en-US',   { month: 'long', day: 'numeric', year: 'numeric' }),
+                  }),
+                }).catch(e => console.error('Renewal confirmed email error:', e));
+                logCommunication(env, {
+                  type:       'Email',
+                  trigger:    'Contract Renewed',
+                  sentTo:     custEmail,
+                  subject:    renewSubj,
+                  customerId: custId,
+                }).catch(() => {});
+              }
+            } catch(e) {
+              console.error('Contract renewal roll-forward error:', e.message);
+            }
           }
         }
 
@@ -3053,6 +3113,173 @@ async function sendAppointmentReminders(env) {
   }
 }
 
+// ── Maintenance contract renewal check (runs every cron tick, idempotent) ────
+async function checkContractRenewals(env) {
+  try {
+    // Target window: End Date is 28–32 days from today (catches any missed ticks)
+    const now        = new Date();
+    const dayMs      = 86400000;
+    const windowLow  = new Date(now.getTime() + 28 * dayMs).toISOString().split('T')[0];
+    const windowHigh = new Date(now.getTime() + 32 * dayMs).toISOString().split('T')[0];
+    const today      = now.toISOString().split('T')[0];
+
+    // Find Active contracts expiring in the window that haven't had a renewal notice sent yet
+    const formula = `AND({Status}="Active",NOT({Renewal Invoice Sent}),IS_AFTER({End Date},"${windowLow}"),IS_BEFORE({End Date},"${windowHigh}"))`;
+    const res = await fetch(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Maintenance%20Contracts?filterByFormula=${encodeURIComponent(formula)}`,
+      { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+    );
+    if (!res.ok) { console.error('Contract renewal query failed:', await res.text()); return; }
+    const data = await res.json();
+    const contracts = data.records || [];
+
+    for (const contract of contracts) {
+      const cf         = contract.fields;
+      const contractId = contract.id;
+      const planName   = cf['Plan Name'] || 'Annual Maintenance Agreement';
+      const autoRenew  = !!(cf['Auto Renew']);
+      const annualVal  = cf['Annual Value'] || 0;
+      const endDate    = cf['End Date'] || '';
+
+      // Fetch customer
+      const custId    = (cf['Customer'] || [])[0] || null;
+      const custRec   = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+      const custEmail = custRec?.fields?.['Email'] || '';
+      const custName  = custRec?.fields?.['Customer Name'] || '';
+      const custFirst = custRec?.fields?.['First Name'] || custName.split(' ')[0] || 'there';
+
+      if (autoRenew) {
+        // ── Auto-renew: create and send renewal invoice ───────────────────
+        if (!custEmail || !env.STRIPE_SECRET_KEY || !env.RESEND_API_KEY) {
+          console.error(`Contract ${contractId}: missing email or API keys, skipping auto-renew`);
+          continue;
+        }
+
+        // Find or create Stripe customer
+        const srchRes  = await fetch(
+          `https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
+          { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }
+        );
+        const srchData = await srchRes.json();
+        let stripeCustId;
+        if (srchData.data?.length > 0) {
+          stripeCustId = srchData.data[0].id;
+        } else {
+          const cc = await stripePost(env.STRIPE_SECRET_KEY, '/v1/customers', { email: custEmail, name: custName });
+          stripeCustId = cc.id;
+        }
+
+        // Invoice item + invoice
+        await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoiceitems', {
+          customer:    stripeCustId,
+          amount:      Math.round(annualVal * 100),
+          currency:    'usd',
+          description: `${planName} — Annual Renewal`,
+        });
+
+        const inv = await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoices', {
+          customer:                          stripeCustId,
+          description:                       `${planName} — Annual Renewal`,
+          'metadata[invoice_type]':          'maintenance_renewal',
+          'metadata[contract_airtable_id]':  contractId,
+          'collection_method':               'send_invoice',
+          'days_until_due':                  '30',
+        });
+
+        await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${inv.id}/finalize`, {});
+        const sent = await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${inv.id}/send`, {});
+
+        // Email customer
+        const endDateFmt = endDate
+          ? new Date(endDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : '';
+        const renewSubj = `Your CJB Comfort maintenance agreement is renewing — action required`;
+        await sendEmail(env.RESEND_API_KEY, {
+          to:      custEmail,
+          subject: renewSubj,
+          html:    emailRenewalInvoiceHtml({
+            customerName: custFirst,
+            planName,
+            annualValue:  annualVal,
+            hostedUrl:    sent.hosted_invoice_url || '',
+            expiresDate:  endDateFmt,
+          }),
+        }).catch(e => console.error('Renewal invoice email error:', e));
+        logCommunication(env, {
+          type:       'Email',
+          trigger:    'Contract Renewal Invoice',
+          sentTo:     custEmail,
+          subject:    renewSubj,
+          customerId: custId,
+        }).catch(() => {});
+
+        // Write Stripe Invoice ID back to contract + mark notice sent
+        await airtablePatch('Maintenance Contracts', contractId, {
+          'Stripe Invoice ID':    sent.id,
+          'Stripe Invoice URL':   sent.hosted_invoice_url || '',
+          'Renewal Invoice Sent': today,
+        });
+
+        console.log(`Contract renewal invoice sent: ${contractId} → ${custEmail}`);
+
+      } else {
+        // ── Not auto-renew: flag for Bridgett, no customer email ─────────
+        const endDateFmt = endDate
+          ? new Date(endDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : endDate;
+
+        // Create Follow-Up record
+        await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Follow-Ups`, {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: {
+            'Title':      `Contract Renewal — ${custName || 'Customer'} · ${planName}`,
+            'Type':       'Follow-Up',
+            'Status':     'Open',
+            'Due Date':   new Date(now.getTime() + 7 * dayMs).toISOString(), // follow up within a week
+            'Customer':   custId ? [custId] : undefined,
+            'Notes':      `Maintenance agreement "${planName}" expires ${endDateFmt}. Auto-renew is OFF — manual renewal needed.`,
+          }}),
+        }).catch(e => console.error('Follow-Up create error:', e.message));
+
+        // Notify Bridgett
+        if (env.RESEND_API_KEY) {
+          await sendEmail(env.RESEND_API_KEY, {
+            to:      ADMIN_EMAIL,
+            subject: `⚠️ Contract expiring (no auto-renew): ${custName} — ${planName}`,
+            replyTo: ADMIN_EMAIL, // internal email, reply to self
+            html:    emailBase({
+              preheader: `${custName}'s maintenance agreement expires ${endDateFmt} — no auto-renew set.`,
+              body: `
+                <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Maintenance Agreement Expiring</p>
+                <div style="background:#fef3c7;border-left:4px solid #d97706;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:20px;">
+                  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#d97706;margin-bottom:8px;">No Auto-Renew</div>
+                  <div style="font-size:15px;font-weight:700;color:#111827;">${custName}</div>
+                  <div style="font-size:14px;color:#374151;margin-top:4px;">${planName}</div>
+                  <div style="font-size:13px;color:#6b7280;margin-top:4px;">Expires: ${endDateFmt}</div>
+                  <div style="font-size:13px;color:#6b7280;">Annual value: $${annualVal.toFixed(2)}</div>
+                </div>
+                <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 20px;">This customer's contract does not have auto-renew enabled. A follow-up has been created in Airtable. You'll need to reach out manually to offer renewal.</p>
+                <div style="text-align:center;">
+                  <a href="https://app.cjbcomfort.com/CJB_Admin.html" style="display:inline-block;background:#c81f25;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">Open Admin App →</a>
+                </div>`,
+            }),
+          }).catch(e => console.error('Admin renewal notice error:', e));
+        }
+
+        // Mark notice sent so we don't create duplicate follow-ups
+        await airtablePatch('Maintenance Contracts', contractId, {
+          'Renewal Invoice Sent': today,
+        });
+
+        console.log(`Contract renewal notice sent to admin: ${contractId} (no auto-renew)`);
+      }
+    }
+  } catch(e) {
+    console.error('checkContractRenewals error:', e.message);
+  }
+}
+
 function emailReminderHtml({ firstName, dateStr, timeStr, endTimeStr, address, woType, cancelUrl, rescheduleUrl, isDay }) {
   const timeLabel = isDay ? 'tomorrow' : 'in 2 days';
   const preheader = `Reminder: your CJB Comfort ${woType} is ${timeLabel} — ${dateStr}, ${timeStr}–${endTimeStr}`;
@@ -3178,6 +3405,59 @@ function emailDepositReceivedHtml({ customerName, amountPaid, invoiceNumber }) {
     </div>
 
     <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us anytime at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Renewal invoice email (sent 30 days before expiry) ───────────────────────
+function emailRenewalInvoiceHtml({ customerName, planName, annualValue, hostedUrl, expiresDate }) {
+  const amountStr = typeof annualValue === 'number' && annualValue > 0 ? `$${annualValue.toFixed(2)}` : '';
+  const preheader = `Your CJB Comfort maintenance agreement is coming up for renewal${amountStr ? ` — ${amountStr}` : ''}. Pay to keep your coverage active.`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">Your maintenance agreement with CJB Comfort is coming up for renewal. Pay your renewal invoice below to keep your coverage active without any interruption.</p>
+
+    <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c81f25;margin-bottom:10px;">Renewal Invoice — ${planName}</div>
+      ${amountStr ? `<div style="font-size:28px;font-weight:800;color:#111827;margin-bottom:4px;">${amountStr} / year</div>` : ''}
+      ${expiresDate ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">Current coverage expires: ${expiresDate}</div>` : ''}
+    </div>
+
+    <div style="text-align:center;margin:0 0 28px;">
+      <a href="${hostedUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:17px;font-weight:700;padding:16px 36px;border-radius:10px;text-decoration:none;">Pay Renewal Invoice &rarr;</a>
+    </div>
+
+    <div style="background:#f9fafb;border-radius:10px;padding:20px 22px;margin-bottom:24px;">
+      <p style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:0 0 10px;">What your agreement includes</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 6px;">&#10003;&nbsp; Scheduled maintenance visits to keep your system running efficiently</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 6px;">&#10003;&nbsp; Priority scheduling as a maintenance agreement customer</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0;">&#10003;&nbsp; Discounted rates on any repairs needed throughout the year</p>
+    </div>
+
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Renewal confirmed email (sent when renewal invoice is paid) ───────────────
+function emailRenewalConfirmedHtml({ customerName, planName, amountPaid, newStartDate, newEndDate }) {
+  const amountStr = typeof amountPaid === 'number' && amountPaid > 0 ? `$${amountPaid.toFixed(2)}` : '';
+  const preheader = `Your CJB Comfort maintenance agreement has been renewed through ${newEndDate}. Thank you!`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">Your maintenance agreement has been renewed &mdash; thank you! You&rsquo;re all set for another year of worry-free comfort.</p>
+
+    <div style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#16a34a;margin-bottom:10px;">Agreement Renewed — ${planName}</div>
+      ${amountStr ? `<div style="font-size:28px;font-weight:800;color:#111827;margin-bottom:8px;">${amountStr}</div>` : ''}
+      <div style="font-size:14px;color:#374151;">Coverage period: <strong>${newStartDate}</strong> &ndash; <strong>${newEndDate}</strong></div>
+    </div>
+
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0 0 24px;">We&rsquo;ll be in touch to schedule your first maintenance visit of the new agreement year. As always, if you notice anything with your system before then, just give us a call or text &mdash; you&rsquo;re a priority customer.</p>
+
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 
   return emailBase({ preheader, body });
 }
