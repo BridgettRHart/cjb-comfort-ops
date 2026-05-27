@@ -411,7 +411,7 @@ export default {
         const custGreet = firstName ? `Hi ${firstName}` : 'Hi there';
         const loc       = address ? ` to ${address}` : '';
         const tech      = techName || 'Your technician';
-        const text = `${custGreet} — ${tech} is on the way${loc} and will arrive within your scheduled window. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+        const text = `${custGreet} — ${tech} is on the way${loc} and will be there soon. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
         await sendSms(env.Telnyx_API, phone, text);
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
