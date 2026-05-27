@@ -236,11 +236,18 @@ export default {
                     cancelUrl, rescheduleUrl,
                     isReschedule: true,
                   });
+                  const reschedSubject = `Your CJB Comfort appointment has been rescheduled — ${dateStr}`;
                   await sendEmail(env.RESEND_API_KEY, {
                     to:      inviteeEmail,
-                    subject: `Your CJB Comfort appointment has been rescheduled — ${dateStr}`,
+                    subject: reschedSubject,
                     html,
                   });
+                  logCommunication(env, {
+                    type:    'Email',
+                    trigger: 'Booking Rescheduled',
+                    sentTo:  inviteeEmail,
+                    subject: reschedSubject,
+                  }).catch(() => {});
                 }
 
                 return new Response(JSON.stringify({ ok: true, rescheduled: true }), {
@@ -279,11 +286,18 @@ export default {
               problemDescription: problemDesc,
               cancelUrl, rescheduleUrl,
             });
+            const bookSubject = `Your CJB Comfort appointment is confirmed — ${dateStr}`;
             await sendEmail(env.RESEND_API_KEY, {
               to:      inviteeEmail,
-              subject: `Your CJB Comfort appointment is confirmed — ${dateStr}`,
+              subject: bookSubject,
               html,
             });
+            logCommunication(env, {
+              type:    'Email',
+              trigger: 'Booking Confirm',
+              sentTo:  inviteeEmail,
+              subject: bookSubject,
+            }).catch(() => {});
           }
 
           return new Response(JSON.stringify({ ok: true }), {
@@ -339,11 +353,18 @@ export default {
           cancelUrl: cancelUrl || '', rescheduleUrl: rescheduleUrl || '',
           techName: techName || '',
         });
+        const adminBookSubject = `Your CJB Comfort appointment is confirmed — ${dateStr}`;
         await sendEmail(env.RESEND_API_KEY, {
           to: email,
-          subject: `Your CJB Comfort appointment is confirmed — ${dateStr}`,
+          subject: adminBookSubject,
           html,
         });
+        logCommunication(env, {
+          type:    'Email',
+          trigger: 'Booking Confirm',
+          sentTo:  email,
+          subject: adminBookSubject,
+        }).catch(() => {});
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
@@ -1000,6 +1021,32 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 'Paid Date':   paidDate,
                 'Amount Paid': amountPaid
               });
+            }
+
+            // Send branded thank you + Google Review ask email
+            const custEmail = inv.customer_email || '';
+            if (custEmail && env.RESEND_API_KEY) {
+              const firstName  = (inv.customer_name || '').split(' ')[0] || 'there';
+              const tySubject  = 'Thank you for your payment — CJB Comfort';
+              const atCustId   = (wo.fields['Customer'] || [])[0] || null;
+              await sendEmail(env.RESEND_API_KEY, {
+                to:      custEmail,
+                subject: tySubject,
+                html:    emailPaymentThankYouHtml({
+                  customerName:    firstName,
+                  amountPaid,
+                  invoiceNumber:   inv.number || null,
+                  googleReviewUrl: GOOGLE_REVIEW_URL,
+                }),
+              }).catch(e => console.error('Thank-you email error:', e));
+              logCommunication(env, {
+                type:        'Email',
+                trigger:     'Invoice Paid',
+                sentTo:      custEmail,
+                subject:     tySubject,
+                customerId:  atCustId,
+                workOrderId: wo.id,
+              }).catch(() => {});
             }
           }
 
@@ -1667,9 +1714,34 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (sendNow) {
           await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
           finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
+
+          // Send our own branded invoice email via Resend (in addition to Stripe's)
+          if (custEmail && env.RESEND_API_KEY) {
+            const firstName      = custName.split(' ')[0] || custName;
+            const invoiceSubject = `Your invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`;
+            await sendEmail(env.RESEND_API_KEY, {
+              to:      custEmail,
+              subject: invoiceSubject,
+              html:    emailInvoiceHtml({
+                customerName: firstName,
+                invoiceNumber: finalInv.number || null,
+                total:         subtotal,
+                hostedUrl:     finalInv.hosted_invoice_url || '',
+                dueDate,
+              }),
+            }).catch(e => console.error('Invoice email error:', e));
+            logCommunication(env, {
+              type:        'Email',
+              trigger:     'Invoice Sent',
+              sentTo:      custEmail,
+              subject:     invoiceSubject,
+              customerId,
+              workOrderId: workOrderId || null,
+            }).catch(() => {});
+          }
         }
 
-        // 9. Create Wave invoice (only on sendNow — drafts don't go to Wave yet)
+        // 10. Create Wave invoice (only on sendNow — drafts don't go to Wave yet)
         let waveInvoiceId = null;
         if (sendNow && env.WAVE_API_KEY) {
           try {
@@ -2029,9 +2101,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 ? Number(li.unitPrice) * (Number(li.quantity || li.qty) || 1)
                 : (Number(li.unitAmount) || 0) / 100 * (Number(li.qty) || 1)
             }));
+            const estSubject = 'Your CJB Comfort Estimate is Ready to Review';
             await sendEmail(env.RESEND_API_KEY, {
               to:      custEmail,
-              subject: 'Your CJB Comfort Estimate is Ready to Review',
+              subject: estSubject,
               html:    emailEstimateHtml({
                 customerName: custName,
                 approveUrl,
@@ -2040,6 +2113,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 total:        emailTotal
               })
             });
+            logCommunication(env, {
+              type:        'Email',
+              trigger:     'Estimate Sent',
+              sentTo:      custEmail,
+              subject:     estSubject,
+              customerId,
+              workOrderId: workOrderId || null,
+            }).catch(() => {});
           } catch (emailErr) {
             console.error('Estimate email failed (non-fatal):', emailErr.message);
           }
@@ -2182,10 +2263,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               if (cEmail) {
                 const emailTotal = lineItems.reduce((s, li) => s + ((li.unitPrice||0) * (Number(li.quantity)||1)), 0);
                 const emailLineItems = lineItems.map(li => ({ name: li.productName||'Service', amount: (li.unitPrice||0)*(Number(li.quantity)||1) }));
+                const patchEstSubject = 'Your CJB Comfort Estimate is Ready to Review';
                 await sendEmail(env.RESEND_API_KEY, {
-                  to: cEmail, subject: 'Your CJB Comfort Estimate is Ready to Review',
+                  to: cEmail, subject: patchEstSubject,
                   html: emailEstimateHtml({ customerName: cName, approveUrl: patchApproveUrl, description: notes||'', lineItems: emailLineItems, total: emailTotal })
                 });
+                logCommunication(env, {
+                  type:        'Email',
+                  trigger:     'Estimate Sent',
+                  sentTo:      cEmail,
+                  subject:     patchEstSubject,
+                  customerId,
+                  workOrderId: workOrderId || null,
+                }).catch(() => {});
               }
             } catch(e) { /* non-fatal */ }
           }
@@ -2674,6 +2764,32 @@ async function sendEmail(apiKey, { to, subject, html }) {
   }
 }
 
+// ── Communication log — fire-and-forget, never blocks main flow ───────────────
+async function logCommunication(env, { type, trigger, sentTo, subject, customerId, workOrderId, status = 'Sent' }) {
+  try {
+    const now     = new Date().toISOString();
+    const logName = `${type} · ${trigger} · ${sentTo || ''} · ${now.substring(0, 10)}`;
+    const fields  = {
+      'Log Name': logName,
+      'Type':     type,
+      'Trigger':  trigger,
+      'Sent To':  sentTo  || '',
+      'Subject':  subject || '',
+      'Status':   status,
+      'Sent At':  now,
+    };
+    if (customerId)  fields['Customer']   = [customerId];
+    if (workOrderId) fields['Work Order'] = [workOrderId];
+    await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Communication%20Log`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ fields }),
+    });
+  } catch (e) {
+    console.error('logCommunication failed:', e.message);
+  }
+}
+
 function emailEstimateHtml({ customerName, approveUrl, description, lineItems, total }) {
   const itemRows = lineItems.length ? lineItems.map(li =>
     `<tr>
@@ -2791,6 +2907,13 @@ async function sendAppointmentReminders(env) {
           cancelUrl, rescheduleUrl,
         }),
       });
+      logCommunication(env, {
+        type:        'Email',
+        trigger:     isDay ? 'Appt Reminder 24hr' : 'Appt Reminder 48hr',
+        sentTo:      email,
+        subject,
+        workOrderId: wo.id,
+      }).catch(() => {});
 
       // Mark sent so cron doesn't re-send
       await airtablePatch('Work Orders', wo.id, { [field]: true });
@@ -2841,6 +2964,60 @@ function emailAdminAlertHtml({ type, customerName, dateStr, timeStr, address, wo
     <p style="font-size:20px;font-weight:800;color:#111827;margin:0 0 16px;text-align:center;">${headline}</p>
     <p style="font-size:15px;color:#374151;line-height:1.65;margin:0;">${detail}</p>
     ${!isCancel ? `<p style="font-size:14px;color:#6b7280;margin:16px 0 0;">Log into the <a href="https://app.cjbcomfort.com/CJB_Admin.html" style="color:#c81f25;font-weight:600;">admin app</a> to view and reschedule this work order.</p>` : ''}`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Invoice sent email ────────────────────────────────────────────────────────
+function emailInvoiceHtml({ customerName, invoiceNumber, total, hostedUrl, dueDate }) {
+  const invoiceLabel  = invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your Invoice';
+  const formattedTotal = typeof total === 'number' && total > 0 ? `$${total.toFixed(2)}` : '';
+  const dueLine        = dueDate ? `<div style="font-size:13px;color:#6b7280;margin-top:6px;">Due: ${dueDate}</div>` : '';
+  const preheader      = `Your invoice from CJB Comfort is ready${formattedTotal ? ` — ${formattedTotal}` : ''}. Tap to view and pay.`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">Your invoice is ready. You can view and pay securely online using the button below.</p>
+
+    <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c81f25;margin-bottom:10px;">${invoiceLabel}</div>
+      ${formattedTotal ? `<div style="font-size:28px;font-weight:800;color:#111827;margin-bottom:4px;">${formattedTotal}</div>` : ''}
+      ${dueLine}
+    </div>
+
+    <div style="text-align:center;margin:0 0 28px;">
+      <a href="${hostedUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:17px;font-weight:700;padding:16px 36px;border-radius:10px;text-decoration:none;">View &amp; Pay Invoice &rarr;</a>
+    </div>
+
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0 0 6px;">We accept all major credit and debit cards.</p>
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Prefer to pay by check or have questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Invoice paid — thank you + Google Review ask ──────────────────────────────
+function emailPaymentThankYouHtml({ customerName, amountPaid, invoiceNumber, googleReviewUrl }) {
+  const amountStr  = typeof amountPaid === 'number' && amountPaid > 0 ? `$${amountPaid.toFixed(2)}` : '';
+  const invoiceRef = invoiceNumber ? ` (${invoiceNumber})` : '';
+  const preheader  = `Payment received${amountStr ? ` — ${amountStr}` : ''}. Thank you for choosing CJB Comfort!`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">We&rsquo;ve received your payment${invoiceRef}. Thank you for choosing CJB Comfort &mdash; it means a lot to us.</p>
+
+    ${amountStr ? `
+    <div style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#16a34a;margin-bottom:10px;">Payment Received</div>
+      <div style="font-size:28px;font-weight:800;color:#111827;">${amountStr}</div>
+    </div>` : ''}
+
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0 0 24px;">If you have any questions about your service or notice anything we can help with, don&rsquo;t hesitate to reach out &mdash; we&rsquo;re always a call or text away.</p>
+
+    <div style="background:#f9fafb;border-radius:10px;padding:24px;text-align:center;">
+      <p style="font-size:15px;font-weight:700;color:#111827;margin:0 0 8px;">Happy with your service?</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 18px;line-height:1.5;">A quick Google review helps our small business more than you know. It takes less than a minute and means the world to us.</p>
+      <a href="${googleReviewUrl}" style="display:inline-block;background:#111827;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">&#11088; Leave a Google Review</a>
+    </div>`;
 
   return emailBase({ preheader, body });
 }
