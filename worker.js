@@ -18,6 +18,7 @@ const R2_PUBLIC_URL    = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev';
 const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 
 const RESEND_FROM      = 'CJB Comfort <office@mail.cjbcomfort.com>';
+const REPLY_TO_EMAIL   = 'service@cjbcomfort.com'; // customer replies land here
 const PORTAL_URL       = 'https://portal.cjbcomfort.com';
 const MANAGE_BASE_URL  = 'https://app.cjbcomfort.com/manage.html';
 const ADMIN_EMAIL      = 'bridgett@cjbcomfort.com'; // admin notification destination
@@ -399,17 +400,18 @@ export default {
       }
     }
 
-    // ── "On My Way" SMS — Cornell triggers from field app ─────────────────
+    // ── "On My Way" SMS — technician triggers from field app ─────────────
     if (path === '/api/sms/on-my-way' && request.method === 'POST') {
       try {
-        const { phone, firstName, address } = await request.json();
+        const { phone, firstName, address, techName } = await request.json();
         if (!phone) {
           return new Response(JSON.stringify({ error: 'phone required' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
-        const name = firstName ? `Hi ${firstName}` : 'Hi there';
-        const loc  = address ? ` to ${address}` : '';
-        const text = `${name} — Cornell is on his way${loc} and will arrive within your scheduled window. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+        const custGreet = firstName ? `Hi ${firstName}` : 'Hi there';
+        const loc       = address ? ` to ${address}` : '';
+        const tech      = techName || 'Your technician';
+        const text = `${custGreet} — ${tech} is on the way${loc} and will arrive within your scheduled window. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
         await sendSms(env.Telnyx_API, phone, text);
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -2868,12 +2870,14 @@ function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, ad
   return emailBase({ preheader, body });
 }
 
-async function sendEmail(apiKey, { to, subject, html }) {
+async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL }) {
   if (!apiKey || !to) return; // non-fatal if key not configured or no email on file
+  const payload = { from: RESEND_FROM, to: [to], subject, html };
+  if (replyTo) payload.reply_to = replyTo;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, html })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
     const err = await res.text();

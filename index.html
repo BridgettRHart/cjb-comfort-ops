@@ -1766,7 +1766,7 @@
       </div>
       <div id="followup-notes-wrap" style="display:none;">
         <label class="form-label" for="field-followup-notes" style="margin-bottom:6px;">Notes for Office</label>
-        <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="What does Bridgett need to know about this visit?…"></textarea>
+        <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="What does the office need to know about this visit?…"></textarea>
       </div>
     </div>
 
@@ -2036,7 +2036,7 @@
 
     <!-- Submit -->
     <button id="iest-submit-btn" class="btn btn-red" style="width:100%;font-size:17px;padding:14px;" onclick="submitInstallEstimate()">💾 Save Draft</button>
-    <div style="text-align:center;font-size:12px;color:var(--gray-text);margin-top:8px;">Saves as Stripe Quote draft — Bridgett reviews and sends from admin.</div>
+    <div style="text-align:center;font-size:12px;color:var(--gray-text);margin-top:8px;">Saves as Stripe Quote draft — office reviews and sends from admin.</div>
   </div>
 </div>
 
@@ -2217,6 +2217,9 @@ document.addEventListener('DOMContentLoaded', () => {
   _startAutoRefresh();
 });
 
+// Loaded once at startup; used by on-my-way SMS so the customer gets the real name
+let _currentTechName = '';
+
 async function loadTechName() {
   try {
     const data = await apiGet('Technicians', {
@@ -2224,9 +2227,10 @@ async function loadTechName() {
       'fields[]': 'Technician Name',
       maxRecords: '1',
     });
-    const rec = (data.records || [])[0];
+    const rec  = (data.records || [])[0];
     const name = rec?.fields?.['Technician Name'] || 'Technician';
-    // Show first name only (everything before the first space)
+    _currentTechName = name; // store full name for on-my-way SMS
+    // Show first name only in the header
     const firstName = name.split(' ')[0];
     const el = document.getElementById('header-tech-name');
     if (el) el.textContent = firstName;
@@ -2821,7 +2825,7 @@ async function sendOnMyWay() {
     const res = await fetch(`${PROXY}/sms/on-my-way`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, firstName, address })
+      body: JSON.stringify({ phone, firstName, address, techName: _currentTechName || '' })
     });
     if (!res.ok) throw new Error(await res.text());
     _omwSent = true;
