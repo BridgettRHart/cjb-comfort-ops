@@ -941,7 +941,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 'Invoice Type': 'Standard',
                 'Invoice Date': today,
                 'Subtotal':     subtotal,
-                'Total':        subtotal,
                 'Internal Notes': `From Quote: ${stripeQuoteId}\nStripe Invoice ID: ${inv.id}`
               };
               if (custId) atInvFields['Customers']     = [custId];
@@ -1731,7 +1730,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Invoice Date':   today,
           'Due Date':       dueDate,
           'Subtotal':       subtotal,
-          'Total':          subtotal,
           'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`,
           ...(sendNow ? { 'Sent Date': today } : {}),
           ...(waveInvoiceId ? { 'Wave Exported': true, 'Wave Invoice ID': waveInvoiceId } : {}),
