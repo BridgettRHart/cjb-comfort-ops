@@ -1031,48 +1031,100 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const stripeInvId    = inv.id;
           const amountPaid     = (inv.amount_paid || 0) / 100;
           const paidDate       = new Date().toISOString().split('T')[0];
+          const stripeInvType  = inv.metadata?.invoice_type || 'standard'; // 'deposit' | 'final_balance' | 'standard'
+          const custEmail      = inv.customer_email || '';
+          const firstName      = (inv.customer_name || '').split(' ')[0] || 'there';
 
           // Find Work Order by Stripe Invoice ID field
           const woData = await airtableGet('Work Orders', `{Stripe Invoice ID}="${stripeInvId}"`);
           const wo     = (woData.records || [])[0];
-          if (wo) {
-            await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
-            // Mirror Paid to linked Jobs (skips Cancelled / skipped-unit jobs)
-            await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
-            // Get linked Airtable Invoice record from Work Order
-            const atInvId = (wo.fields['Invoice'] || [])[0];
-            if (atInvId) {
-              await airtablePatch('Invoices', atInvId, {
-                'Status':      'Paid in Full',
-                'Paid Date':   paidDate,
-                'Amount Paid': amountPaid
-              });
-            }
 
-            // Send branded thank you + Google Review ask email
-            const custEmail = inv.customer_email || '';
-            if (custEmail && env.RESEND_API_KEY) {
-              const firstName  = (inv.customer_name || '').split(' ')[0] || 'there';
-              const tySubject  = 'Thank you for your payment — CJB Comfort';
-              const atCustId   = (wo.fields['Customer'] || [])[0] || null;
-              await sendEmail(env.RESEND_API_KEY, {
-                to:      custEmail,
-                subject: tySubject,
-                html:    emailPaymentThankYouHtml({
-                  customerName:    firstName,
-                  amountPaid,
-                  invoiceNumber:   inv.number || null,
-                  googleReviewUrl: GOOGLE_REVIEW_URL,
-                }),
-              }).catch(e => console.error('Thank-you email error:', e));
-              logCommunication(env, {
-                type:        'Email',
-                trigger:     'Invoice Paid',
-                sentTo:      custEmail,
-                subject:     tySubject,
-                customerId:  atCustId,
-                workOrderId: wo.id,
-              }).catch(() => {});
+          if (wo) {
+            const atCustId = (wo.fields['Customer'] || [])[0] || null;
+
+            if (stripeInvType === 'deposit') {
+              // ── Deposit paid ─────────────────────────────────────────────
+              // Mark deposit paid on WO; don't flip WO status to Paid yet
+              await airtablePatch('Work Orders', wo.id, { 'Deposit Paid': true });
+
+              // Update the Airtable Invoice record for this deposit
+              // Find it by looking through linked Invoice records for type=Deposit
+              const linkedInvIds = wo.fields['Invoice'] || [];
+              for (const invId of linkedInvIds) {
+                try {
+                  const atInv = await airtableGetById('Invoices', invId);
+                  if ((atInv.fields['Invoice Type'] || '') === 'Deposit') {
+                    await airtablePatch('Invoices', invId, {
+                      'Status':            'Paid in Full',
+                      'Paid Date':         paidDate,
+                      'Amount Paid':       amountPaid,
+                      'Deposit Paid':      true,
+                      'Deposit Paid Date': paidDate,
+                    });
+                    break;
+                  }
+                } catch(e) { /* skip */ }
+              }
+
+              // Send deposit received confirmation email
+              if (custEmail && env.RESEND_API_KEY) {
+                const depSubject = 'Deposit received — CJB Comfort';
+                await sendEmail(env.RESEND_API_KEY, {
+                  to:      custEmail,
+                  subject: depSubject,
+                  html:    emailDepositReceivedHtml({
+                    customerName: firstName,
+                    amountPaid,
+                    invoiceNumber: inv.number || null,
+                  }),
+                }).catch(e => console.error('Deposit email error:', e));
+                logCommunication(env, {
+                  type:        'Email',
+                  trigger:     'Deposit Received',
+                  sentTo:      custEmail,
+                  subject:     depSubject,
+                  customerId:  atCustId,
+                  workOrderId: wo.id,
+                }).catch(() => {});
+              }
+
+            } else {
+              // ── Standard or final balance paid ───────────────────────────
+              await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
+              await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
+
+              // Update linked Invoice record
+              const atInvId = (wo.fields['Invoice'] || [])[0];
+              if (atInvId) {
+                await airtablePatch('Invoices', atInvId, {
+                  'Status':      'Paid in Full',
+                  'Paid Date':   paidDate,
+                  'Amount Paid': amountPaid
+                });
+              }
+
+              // Send thank you + Google Review ask
+              if (custEmail && env.RESEND_API_KEY) {
+                const tySubject = 'Thank you for your payment — CJB Comfort';
+                await sendEmail(env.RESEND_API_KEY, {
+                  to:      custEmail,
+                  subject: tySubject,
+                  html:    emailPaymentThankYouHtml({
+                    customerName:    firstName,
+                    amountPaid,
+                    invoiceNumber:   inv.number || null,
+                    googleReviewUrl: GOOGLE_REVIEW_URL,
+                  }),
+                }).catch(e => console.error('Thank-you email error:', e));
+                logCommunication(env, {
+                  type:        'Email',
+                  trigger:     'Invoice Paid',
+                  sentTo:      custEmail,
+                  subject:     tySubject,
+                  customerId:  atCustId,
+                  workOrderId: wo.id,
+                }).catch(() => {});
+              }
             }
           }
 
@@ -1588,9 +1640,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     // ── Stripe Invoice — create / update ─────────────────────────────────
     if (path === '/api/invoice' && request.method === 'POST') {
       try {
-        const { workOrderId, customerId, lineItems, notes, sendNow } = await request.json();
+        const body = await request.json();
+        const { workOrderId, customerId, notes, sendNow } = body;
+        const invoiceType   = body.invoiceType   || 'standard'; // 'standard' | 'deposit' | 'final_balance'
+        const depositAmount = body.depositAmount || 0;          // dollar amount for deposit invoices
 
         if (!customerId) throw new Error('customerId is required');
+
+        // For deposit invoices, override line items with a single deposit line
+        let lineItems = body.lineItems || [];
+        if (invoiceType === 'deposit') {
+          if (!depositAmount || depositAmount <= 0) throw new Error('depositAmount is required for deposit invoices');
+          lineItems = [{ productName: 'Deposit', quantity: 1, unitPrice: depositAmount }];
+        }
         if (!lineItems?.length) throw new Error('At least one line item is required');
 
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
@@ -1710,6 +1772,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         };
         if (fullDesc) invParams.description              = fullDesc;
         if (woName)   invParams['metadata[work_order]'] = woName;
+        // Tag invoice type so the paid webhook knows what to do
+        invParams['metadata[invoice_type]'] = invoiceType;
+        if (workOrderId) invParams['metadata[airtable_wo_id]'] = workOrderId;
         inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
         // 7. Attach line items directly to the new invoice
@@ -1744,16 +1809,24 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           // Send our own branded invoice email via Resend (in addition to Stripe's)
           if (custEmail && env.RESEND_API_KEY) {
             const firstName      = custName.split(' ')[0] || custName;
-            const invoiceSubject = `Your invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`;
+            const isDeposit      = invoiceType === 'deposit';
+            const isFinal        = invoiceType === 'final_balance';
+            const invoiceSubject = isDeposit
+              ? `Deposit invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`
+              : isFinal
+              ? `Final balance due — CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`
+              : `Your invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`;
             await sendEmail(env.RESEND_API_KEY, {
               to:      custEmail,
               subject: invoiceSubject,
               html:    emailInvoiceHtml({
-                customerName: firstName,
+                customerName:  firstName,
                 invoiceNumber: finalInv.number || null,
                 total:         subtotal,
                 hostedUrl:     finalInv.hosted_invoice_url || '',
                 dueDate,
+                isDeposit,
+                isFinal,
               }),
             }).catch(e => console.error('Invoice email error:', e));
             logCommunication(env, {
@@ -1820,25 +1893,42 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
         const today   = new Date().toISOString().split('T')[0];
         const dueDate = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
+
+        // Map invoiceType to Airtable Invoice Type select value
+        const atInvoiceType = invoiceType === 'deposit'        ? 'Deposit'
+                            : invoiceType === 'final_balance'  ? 'Final — Balance Due'
+                            : 'Standard';
+
         const atFields = {
-          'Invoice Name':   `${custName} — ${today}`,
+          'Invoice Name':   `${custName} — ${today}${invoiceType === 'deposit' ? ' (Deposit)' : invoiceType === 'final_balance' ? ' (Final)' : ''}`,
           'Customers':      [customerId],
           'Status':         sendNow ? 'Sent' : 'Draft',
-          'Invoice Type':   'Standard',
+          'Invoice Type':   atInvoiceType,
           'Invoice Date':   today,
           'Due Date':       dueDate,
           'Subtotal':       subtotal,
+          'Stripe Invoice ID': finalInv.id,
           'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`,
           ...(sendNow ? { 'Sent Date': today } : {}),
           ...(waveInvoiceId ? { 'Wave Exported': true, 'Wave Invoice ID': waveInvoiceId } : {}),
+          // Deposit-specific fields
+          ...(invoiceType === 'deposit' ? {
+            'Deposit Required': true,
+            'Deposit Amount':   depositAmount,
+          } : {}),
         };
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
         if (notes)       atFields['Notes']        = notes;
 
-        const existingAtInvoiceId =
+        // For deposit invoices: always create a NEW Airtable record (don't overwrite any existing invoice)
+        // For final_balance: also create a new record (second invoice on the same WO)
+        // For standard: check for existing draft invoice to update in place
+        let atInvId;
+        const isNewInvoiceType = invoiceType === 'deposit' || invoiceType === 'final_balance';
+        const existingAtInvoiceId = isNewInvoiceType ? null :
           (woRecord?.fields?.['Invoice']  || [])[0] ||
           (woRecord?.fields?.['Invoices'] || [])[0] || null;
-        let atInvId;
+
         if (existingAtInvoiceId) {
           await airtablePatch('Invoices', existingAtInvoiceId, atFields);
           atInvId = existingAtInvoiceId;
@@ -1847,22 +1937,23 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           atInvId = atInv.id;
         }
 
-        // 11. Store Stripe ID + Airtable Invoice ID in Work Order Internal Notes
+        // 11. Update Work Order with Stripe Invoice ID and status
         // For $0 invoices Stripe auto-pays immediately on send (status='paid').
-        // The invoice.paid webhook fires before Airtable has been updated with the
-        // Stripe Invoice ID, so it finds nothing. Detect this here and mark Paid inline.
         const zeroDollarAutoPaid = sendNow && finalInv.status === 'paid';
         if (workOrderId) {
-          const woUpdate = {
-            'Stripe Invoice ID': finalInv.id,
-            'Total Amount':      subtotal
-          };
+          const woUpdate = { 'Stripe Invoice ID': finalInv.id };
+          // Only set Total Amount on standard / final invoices (not deposit alone)
+          if (invoiceType !== 'deposit') woUpdate['Total Amount'] = subtotal;
           if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
           if (sendNow) {
-            woUpdate['Status'] = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
-            // Mirror status to linked Jobs (skips Cancelled / skipped-unit jobs)
-            const jobStatus = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
-            await patchBillableJobs(woRecord?.fields?.['Jobs'] || [], jobStatus);
+            if (invoiceType === 'deposit') {
+              // Deposit sent — don't flip WO to Invoiced; keep current status
+              // (WO remains Scheduled/In Progress until deposit is paid)
+            } else {
+              woUpdate['Status'] = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
+              const jobStatus = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
+              await patchBillableJobs(woRecord?.fields?.['Jobs'] || [], jobStatus);
+            }
           }
           await airtablePatch('Work Orders', workOrderId, woUpdate);
         }
@@ -3055,6 +3146,34 @@ function emailPaymentThankYouHtml({ customerName, amountPaid, invoiceNumber, goo
       <p style="font-size:14px;color:#6b7280;margin:0 0 18px;line-height:1.5;">A quick Google review helps our small business more than you know. It takes less than a minute and means the world to us.</p>
       <a href="${googleReviewUrl}" style="display:inline-block;background:#111827;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">&#11088; Leave a Google Review</a>
     </div>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Deposit received confirmation ─────────────────────────────────────────────
+function emailDepositReceivedHtml({ customerName, amountPaid, invoiceNumber }) {
+  const amountStr  = typeof amountPaid === 'number' && amountPaid > 0 ? `$${amountPaid.toFixed(2)}` : '';
+  const invoiceRef = invoiceNumber ? ` (${invoiceNumber})` : '';
+  const preheader  = `Deposit received${amountStr ? ` — ${amountStr}` : ''}. You're all set with CJB Comfort!`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">We&rsquo;ve received your deposit${invoiceRef} &mdash; thank you! Your appointment is confirmed and we look forward to seeing you.</p>
+
+    ${amountStr ? `
+    <div style="background:#eff6ff;border-left:4px solid #2563eb;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#2563eb;margin-bottom:10px;">Deposit Received</div>
+      <div style="font-size:28px;font-weight:800;color:#111827;">${amountStr}</div>
+    </div>` : ''}
+
+    <div style="background:#f9fafb;border-radius:10px;padding:20px 22px;margin-bottom:24px;">
+      <p style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:0 0 10px;">What happens next</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 8px;">&#10003;&nbsp; Your deposit is applied to the total cost of your service.</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 8px;">&#10003;&nbsp; After the work is complete, we&rsquo;ll send a final balance invoice for the remaining amount.</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0;">&#10003;&nbsp; You&rsquo;ll get a reminder before your appointment.</p>
+    </div>
+
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us anytime at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 
   return emailBase({ preheader, body });
 }

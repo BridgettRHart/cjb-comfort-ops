@@ -1037,6 +1037,23 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <span class="total-amt" id="inv-total">$0.00</span>
     </div>
 
+    <!-- Invoice type selector (hidden for final-balance flow, shown for standard/deposit) -->
+    <div id="inv-type-section" style="margin:12px 0;padding:12px 14px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+      <label class="form-label" style="margin-bottom:6px;">Invoice Type</label>
+      <select id="inv-type-select" class="form-inp" onchange="handleInvTypeChange()">
+        <option value="standard">Standard Invoice</option>
+        <option value="deposit">Deposit Invoice</option>
+      </select>
+      <div id="inv-deposit-row" style="display:none;margin-top:10px;">
+        <label class="form-label" style="margin-bottom:4px;">Deposit Amount</label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-weight:700;color:#374151;font-size:14px;">$</span>
+          <input type="number" id="inv-deposit-amt" class="form-inp" step="0.01" min="0.01" placeholder="0.00" style="flex:1;">
+        </div>
+        <div style="font-size:12px;color:#6b7280;margin-top:5px;line-height:1.4;">Line items above are replaced with a single "Deposit" charge. The remaining balance will be invoiced after the work is complete.</div>
+      </div>
+    </div>
+
     <textarea class="notes-inp" id="inv-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
 
     <div class="modal-actions">
@@ -2315,8 +2332,12 @@ function renderDetail(customer, props, wos, contacts) {
         }
 
         // Invoice button
+        const depositPaid = !!(wf['Deposit Paid']);
         let invoiceBtn = '';
-        if (['Complete','Estimate Approved','Estimate Declined'].includes(status)) {
+        if (depositPaid && !['Invoiced','Paid','Cancelled'].includes(status)) {
+          // Deposit was collected — show button to send the final balance invoice
+          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openFinalInvoiceModal('${wo.id}','${customer.id}')">Send Final Balance</button>`;
+        } else if (['Complete','Estimate Approved','Estimate Declined'].includes(status)) {
           const label = status === 'Estimate Declined' ? 'Service Call Invoice' : 'Create Invoice';
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
@@ -2739,6 +2760,11 @@ async function openInvoiceModal(workOrderId, customerId) {
   document.getElementById('send-btn').disabled    = true;
   document.getElementById('send-btn').textContent = 'Loading…';
 
+  // Reset invoice type selector to standard
+  const typeSelect = document.getElementById('inv-type-select');
+  if (typeSelect) { typeSelect.value = 'standard'; handleInvTypeChange(); }
+  document.getElementById('inv-type-section').style.display = '';
+
   const wo = currentWorkOrders.find(w => w.id === workOrderId);
   document.getElementById('modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
   document.getElementById('invoice-modal').classList.remove('hidden');
@@ -3011,7 +3037,11 @@ function addLaborItem(jobs) {
 }
 
 function closeModal() {
-  document.getElementById('invoice-modal').classList.add('hidden');
+  const m = document.getElementById('invoice-modal');
+  m.classList.add('hidden');
+  delete m.dataset.invType;
+  const sb = document.getElementById('send-btn');
+  if (sb) sb.textContent = 'Send Invoice Now';
 }
 
 // ── Quote / Estimate modal ────────────────────────────────────────────────
@@ -3451,6 +3481,24 @@ function updateTotal() {
   document.getElementById('inv-total').textContent = '$' + t.toFixed(2);
 }
 
+function handleInvTypeChange() {
+  const typeSelect = document.getElementById('inv-type-select');
+  const depositRow = document.getElementById('inv-deposit-row');
+  if (!typeSelect || !depositRow) return;
+  depositRow.style.display = typeSelect.value === 'deposit' ? '' : 'none';
+}
+
+// Opens the invoice modal pre-configured for a final balance invoice
+async function openFinalInvoiceModal(workOrderId, customerId) {
+  await openInvoiceModal(workOrderId, customerId);
+  // After modal is open and initialized, switch to final_balance mode
+  // Hide the type selector (type is locked to final_balance for this flow)
+  document.getElementById('inv-type-section').style.display = 'none';
+  document.getElementById('send-btn').textContent = 'Send Final Balance';
+  // Store the invoice type on the modal element so submitInvoice can read it
+  document.getElementById('invoice-modal').dataset.invType = 'final_balance';
+}
+
 async function submitInvoice(sendNow) {
   const lineItems = [];
   document.querySelectorAll('[id^="li-"]').forEach(row => {
@@ -3472,7 +3520,21 @@ async function submitInvoice(sendNow) {
     });
   });
 
-  if (!lineItems.length) { alert('Please add at least one line item.'); return; }
+  // Determine invoice type — check modal data attr (set by openFinalInvoiceModal) first
+  const modalEl        = document.getElementById('invoice-modal');
+  const lockedType     = modalEl?.dataset?.invType || null;
+  const invTypeSelect  = document.getElementById('inv-type-select');
+  const invType        = lockedType || (invTypeSelect ? invTypeSelect.value : 'standard');
+  const depositAmtEl   = document.getElementById('inv-deposit-amt');
+  const depositAmount  = invType === 'deposit' ? (parseFloat(depositAmtEl?.value) || 0) : 0;
+  // Clear the locked type so the next open() call starts fresh
+  if (modalEl) delete modalEl.dataset.invType;
+
+  if (invType === 'deposit') {
+    if (!depositAmount || depositAmount <= 0) { alert('Please enter a deposit amount.'); return; }
+  } else if (!lineItems.length) {
+    alert('Please add at least one line item.'); return;
+  }
 
   const notes = document.getElementById('inv-notes').value.trim();
   const draftBtn = document.getElementById('draft-btn');
@@ -3486,11 +3548,13 @@ async function submitInvoice(sendNow) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        workOrderId: invoiceWOId,
-        customerId:  invoiceCustId,
+        workOrderId:   invoiceWOId,
+        customerId:    invoiceCustId,
         lineItems,
         notes,
-        sendNow
+        sendNow,
+        invoiceType:   invType,
+        depositAmount: depositAmount || undefined,
       })
     });
     const data = await res.json();
