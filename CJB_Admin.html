@@ -5165,6 +5165,7 @@ async function spBook() {
       const custEmail = _sp.cust?.fields['Email'] || _sp.newEmail || '';
       if (custEmail) {
         const firstName     = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
+        const custPhone     = _sp.cust?.fields['Phone'] || _sp.newPhone || '';
         const propAddr      = _sp.prop?.fields['Service Address'] || _sp.newServiceStreet || '';
         const techRec       = (_technicianOptions || []).find(t => t.id === techId);
         const techName      = techRec?.fields['Technician Name'] || '';
@@ -5176,6 +5177,7 @@ async function spBook() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email:              custEmail,
+            phone:              custPhone,
             firstName,
             scheduledDate:      startUTC,
             address:            propAddr,

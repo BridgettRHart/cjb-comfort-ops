@@ -248,6 +248,15 @@ export default {
                     sentTo:  inviteeEmail,
                     subject: reschedSubject,
                   }).catch(() => {});
+
+                  // Reschedule confirmation SMS
+                  if (inviteePhone && env.Telnyx_API) {
+                    const { dateStr: rd, timeStr: rt, endTimeStr: ret } = formatAZDateTime(scheduledDate);
+                    const rSmsText = `Hi ${firstName || 'there'} — your CJB Comfort appointment has been rescheduled to ${rd}, ${rt}–${ret}. Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`;
+                    sendSms(env.Telnyx_API, inviteePhone, rSmsText)
+                      .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Rescheduled', sentTo: inviteePhone, subject: 'Reschedule confirmation SMS' }))
+                      .catch(e => console.error('Reschedule SMS error:', e));
+                  }
                 }
 
                 return new Response(JSON.stringify({ ok: true, rescheduled: true }), {
@@ -298,6 +307,14 @@ export default {
               sentTo:  inviteeEmail,
               subject: bookSubject,
             }).catch(() => {});
+
+            // Booking confirmation SMS
+            if (inviteePhone && env.Telnyx_API) {
+              const smsText = `Hi ${firstName || 'there'} — your CJB Comfort ${workOrderType || 'appointment'} is confirmed for ${dateStr}, ${timeStr}–${endTimeStr}. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+              sendSms(env.Telnyx_API, inviteePhone, smsText)
+                .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Confirm', sentTo: inviteePhone, subject: 'Booking confirmation SMS' }))
+                .catch(e => console.error('Booking SMS error:', e));
+            }
           }
 
           return new Response(JSON.stringify({ ok: true }), {
@@ -339,7 +356,7 @@ export default {
     // Called by CJB_Admin.html spBook() after creating a Work Order manually.
     if (path === '/api/email/booking-confirmed' && request.method === 'POST') {
       try {
-        const { email, firstName, scheduledDate, address, woType,
+        const { email, phone, firstName, scheduledDate, address, woType,
                 problemDescription, cancelUrl, rescheduleUrl, techName } = await request.json();
         if (!email || !scheduledDate) {
           return new Response(JSON.stringify({ error: 'email and scheduledDate required' }),
@@ -365,6 +382,15 @@ export default {
           sentTo:  email,
           subject: adminBookSubject,
         }).catch(() => {});
+
+        // Booking confirmation SMS (admin-scheduled)
+        if (phone && env.Telnyx_API) {
+          const smsText = `Hi ${firstName || 'there'} — your CJB Comfort ${woType || 'appointment'} is confirmed for ${dateStr}, ${timeStr}–${endTimeStr}. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+          sendSms(env.Telnyx_API, phone, smsText)
+            .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Confirm', sentTo: phone, subject: 'Booking confirmation SMS' }))
+            .catch(e => console.error('Admin booking SMS error:', e));
+        }
+
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
@@ -2914,6 +2940,17 @@ async function sendAppointmentReminders(env) {
         subject,
         workOrderId: wo.id,
       }).catch(() => {});
+
+      // SMS reminder — 24hr only (day-before is most useful; 48hr is email-only)
+      if (isDay && env.Telnyx_API) {
+        const custPhone = Array.isArray(f['Customer Phone']) ? f['Customer Phone'][0] : (f['Customer Phone'] || '');
+        if (custPhone) {
+          const smsReminder = `Reminder: your CJB Comfort ${f['Work Order Type'] || 'appointment'} is TOMORROW, ${dateStr} between ${timeStr}–${endTimeStr}. Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`;
+          sendSms(env.Telnyx_API, custPhone, smsReminder)
+            .then(() => logCommunication(env, { type: 'SMS', trigger: 'Appt Reminder 24hr', sentTo: custPhone, subject: '24hr reminder SMS', workOrderId: wo.id }))
+            .catch(e => console.error('Reminder SMS error:', e));
+        }
+      }
 
       // Mark sent so cron doesn't re-send
       await airtablePatch('Work Orders', wo.id, { [field]: true });
