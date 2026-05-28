@@ -722,7 +722,7 @@ export default {
         // Update Airtable Quote record status if linked
         try {
           const wo = await airtableGetById('Work Orders', woId);
-          const quoteLinks = wo.fields['Quote'] || [];
+          const quoteLinks = wo.fields['Quotes'] || [];
           if (quoteLinks.length) {
             const atStatus = decision === 'approved' ? 'Accepted' : 'Declined';
             await airtablePatch('Quotes', quoteLinks[0], { 'Status': atStatus });
@@ -1590,7 +1590,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // by Stripe immediately on send, so calling /pay again would throw an error.
         const stripeInv  = await stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`);
         const paidDate   = new Date().toISOString().split('T')[0];
-        const atInvId    = (wo.fields['Invoice'] || [])[0] || (wo.fields['Invoices'] || [])[0] || null;
+        const atInvId    = (wo.fields['Invoice'] || [])[0] || null;
 
         if (stripeInv.status === 'paid') {
           // Already paid (auto-paid $0 or previously collected) — just sync Airtable
@@ -1993,8 +1993,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         let atInvId;
         const isNewInvoiceType = invoiceType === 'deposit' || invoiceType === 'final_balance';
         const existingAtInvoiceId = isNewInvoiceType ? null :
-          (woRecord?.fields?.['Invoice']  || [])[0] ||
-          (woRecord?.fields?.['Invoices'] || [])[0] || null;
+          (woRecord?.fields?.['Invoice'] || [])[0] || null;
 
         if (existingAtInvoiceId) {
           await airtablePatch('Invoices', existingAtInvoiceId, atFields);
@@ -3070,7 +3069,8 @@ async function sendAppointmentReminders(env) {
 
     for (const wo of (data.records || [])) {
       const f     = wo.fields;
-      const email = f['Customer Email'] || '';
+      const emailRaw = f['Email (from Customer)'];
+      const email = Array.isArray(emailRaw) ? (emailRaw[0] || '') : (emailRaw || '');
       if (!email) continue;
 
       const { dateStr, timeStr, endTimeStr } = formatAZDateTime(f['Scheduled Date']);
@@ -3103,7 +3103,7 @@ async function sendAppointmentReminders(env) {
 
       // SMS reminder — 24hr only (day-before is most useful; 48hr is email-only)
       if (isDay && env.Telnyx_API) {
-        const custPhone = Array.isArray(f['Customer Phone']) ? f['Customer Phone'][0] : (f['Customer Phone'] || '');
+        const custPhone = Array.isArray(f['Customer Phone (lookup)']) ? f['Customer Phone (lookup)'][0] : (f['Customer Phone (lookup)'] || '');
         if (custPhone) {
           const smsReminder = `Reminder: your CJB Comfort ${f['Work Order Type'] || 'appointment'} is TOMORROW, ${dateStr} between ${timeStr}–${endTimeStr}. Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`;
           sendSms(env.Telnyx_API, custPhone, smsReminder)

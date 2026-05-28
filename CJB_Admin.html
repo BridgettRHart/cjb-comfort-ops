@@ -1910,7 +1910,8 @@ function renderFollowUpQueue(fuRecords, wos, scrollFuId = null) {
       const cust      = custId ? allCustomers.find(c => c.id === custId) : null;
       const custName  = cust?.fields['Customer Name']
         || (Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : (wf['Customer Name'] || '(Unknown)'));
-      const custPhone = cust?.fields['Phone'] || wf['Customer Phone'] || '';
+      const custPhoneRaw = wf['Customer Phone (lookup)'];
+      const custPhone = cust?.fields['Phone'] || (Array.isArray(custPhoneRaw) ? custPhoneRaw[0] : (custPhoneRaw || ''));
       const woType    = wf['Work Order Type'] || '';
       const woStatus  = wf['Status'] || '';
       // Notes: admin note on FU record first, then Cornell's original job note
