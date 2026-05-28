@@ -1041,9 +1041,17 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const custEmail      = inv.customer_email || '';
           const firstName      = (inv.customer_name || '').split(' ')[0] || 'there';
 
-          // Find Work Order by Stripe Invoice ID field
-          const woData = await airtableGet('Work Orders', `{Stripe Invoice ID}="${stripeInvId}"`);
-          const wo     = (woData.records || [])[0];
+          // Find Work Order — prefer airtable_wo_id from metadata (direct, reliable),
+          // fall back to formula search by Stripe Invoice ID
+          let wo = null;
+          const metaWoId = inv.metadata?.airtable_wo_id || inv.metadata?.work_order_airtable_id || '';
+          if (metaWoId) {
+            try { wo = await airtableGetById('Work Orders', metaWoId); } catch(e) { wo = null; }
+          }
+          if (!wo) {
+            const woData = await airtableGet('Work Orders', `{Stripe Invoice ID}="${stripeInvId}"`);
+            wo = (woData.records || [])[0] || null;
+          }
 
           if (wo) {
             const atCustId = (wo.fields['Customer'] || [])[0] || null;
