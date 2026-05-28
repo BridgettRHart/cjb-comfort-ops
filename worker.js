@@ -1875,6 +1875,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           } catch (e) { /* best effort — don't block send */ }
         }
 
+        // Compute subtotal and dueDate here — needed by both the email (step 9) and Airtable (step 10)
+        const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
+        const today   = new Date().toISOString().split('T')[0];
+        const dueDate = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
+
         // 9. Finalize + send only if sendNow — otherwise leave as Stripe draft
         let finalInv = inv;
         if (sendNow) {
@@ -1965,9 +1970,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // 10. Create or update Airtable Invoice record
-        const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
-        const today   = new Date().toISOString().split('T')[0];
-        const dueDate = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
 
         // Map invoiceType to Airtable Invoice Type select value
         const atInvoiceType = invoiceType === 'deposit'        ? 'Deposit'
