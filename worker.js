@@ -64,6 +64,7 @@ export default {
     ctx.waitUntil(Promise.all([
       sendAppointmentReminders(env),
       checkContractRenewals(env),
+      checkOverdueInvoices(env),
     ]));
   },
 
@@ -3117,6 +3118,247 @@ async function sendAppointmentReminders(env) {
   }
 }
 
+// ── Overdue invoice follow-up (7 days) + late fee (30 days) ──────────────────
+async function checkOverdueInvoices(env) {
+  if (!env.RESEND_API_KEY) return;
+  try {
+    const today   = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const day7    = new Date(today.getTime() -  7 * 86400000).toISOString().split('T')[0];
+    const day30   = new Date(today.getTime() - 30 * 86400000).toISOString().split('T')[0];
+
+    // Process 30-day late fees FIRST so those invoices get Overdue Notice Sent set,
+    // preventing a duplicate 7-day notice from firing in the same run.
+    const f30 = `AND({Status}="Sent",NOT({Late Fee Applied}),IS_BEFORE({Due Date},"${day30}"),{Active})`;
+    const r30 = await fetch(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Invoices?filterByFormula=${encodeURIComponent(f30)}`,
+      { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+    );
+    if (r30.ok) {
+      const d30 = await r30.json();
+      for (const inv of (d30.records || [])) {
+        await applyLateFee(env, inv, todayStr);
+      }
+    }
+
+    // 7-day overdue notices (invoices that haven't had any notice yet)
+    const f7 = `AND({Status}="Sent",NOT({Overdue Notice Sent}),IS_BEFORE({Due Date},"${day7}"),{Active})`;
+    const r7 = await fetch(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Invoices?filterByFormula=${encodeURIComponent(f7)}`,
+      { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+    );
+    if (r7.ok) {
+      const d7 = await r7.json();
+      for (const inv of (d7.records || [])) {
+        await sendOverdueNotice(env, inv, todayStr);
+      }
+    }
+  } catch(e) {
+    console.error('checkOverdueInvoices error:', e.message);
+  }
+}
+
+async function sendOverdueNotice(env, atInv, todayStr) {
+  try {
+    const f       = atInv.fields;
+    const custIds = f['Customers'] || [];
+    const custId  = custIds[0] || null;
+    if (!custId) return;
+
+    const custRec   = await airtableGetById('Customers', custId);
+    const custEmail = custRec?.fields?.['Email'] || '';
+    const custPhone = custRec?.fields?.['Phone'] || '';
+    const custName  = custRec?.fields?.['Customer Name'] || '';
+    const custFirst = custRec?.fields?.['First Name'] || custName.split(' ')[0] || 'there';
+    if (!custEmail) return;
+
+    // Fetch Stripe invoice for hosted URL and live amount
+    const stripeInvId = f['Stripe Invoice ID'] || '';
+    let hostedUrl = '', amountDue = 0, invNumber = '';
+    if (stripeInvId && env.STRIPE_SECRET_KEY) {
+      const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeInvId}`,
+        { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } });
+      if (sr.ok) {
+        const sd = await sr.json();
+        hostedUrl  = sd.hosted_invoice_url || '';
+        amountDue  = (sd.amount_due || 0) / 100;
+        invNumber  = sd.number || '';
+      }
+    }
+
+    const dueDate    = f['Due Date'] || '';
+    const daysOverdue = dueDate
+      ? Math.floor((Date.now() - new Date(dueDate + 'T12:00:00').getTime()) / 86400000)
+      : 7;
+
+    // Email customer
+    const subject = `Friendly reminder: your CJB Comfort invoice is past due`;
+    await sendEmail(env.RESEND_API_KEY, { to: custEmail, subject,
+      html: emailOverdueHtml({ customerName: custFirst, invoiceNumber: invNumber, amountDue, hostedUrl, dueDate, daysOverdue }),
+    }).catch(e => console.error('Overdue email error:', e));
+    logCommunication(env, { type: 'Email', trigger: 'Overdue Notice', sentTo: custEmail, subject, customerId: custId }).catch(() => {});
+
+    // SMS customer
+    if (custPhone && env.Telnyx_API) {
+      const amtStr = amountDue > 0 ? ` ($${amountDue.toFixed(2)})` : '';
+      const payStr = hostedUrl ? ` Pay here: ${hostedUrl}` : '';
+      sendSms(env.Telnyx_API, custPhone,
+        `Hi ${custFirst} — a friendly reminder that your CJB Comfort invoice${amtStr} is past due.${payStr} Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`
+      ).then(() => logCommunication(env, { type: 'SMS', trigger: 'Overdue Notice', sentTo: custPhone, subject: 'Overdue SMS', customerId: custId }))
+       .catch(e => console.error('Overdue SMS error:', e));
+    }
+
+    // Follow-Up for Bridgett
+    const woIds = f['Work Orders'] || [];
+    const fuFields = {
+      'Title':    `⚠️ Overdue Invoice — ${custName} (${daysOverdue} days)`,
+      'Type':     'Follow-Up',
+      'Status':   'Open',
+      'Due Date': new Date().toISOString(),
+      'Notes':    `Invoice${invNumber ? ` #${invNumber}` : ''}${amountDue ? ` for $${amountDue.toFixed(2)}` : ''} is ${daysOverdue} days past due. Customer notified via email${custPhone ? ' and SMS' : ''}.`,
+    };
+    if (custId)    fuFields['Customer']   = [custId];
+    if (woIds[0])  fuFields['Work Order'] = [woIds[0]];
+    await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Follow-Ups`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: fuFields }),
+    }).catch(e => console.error('Overdue Follow-Up error:', e.message));
+
+    // Notify Bridgett
+    const amtLabel = amountDue > 0 ? ` — $${amountDue.toFixed(2)}` : '';
+    const dueFmt   = dueDate ? new Date(dueDate + 'T12:00:00').toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '';
+    await sendEmail(env.RESEND_API_KEY, {
+      to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
+      subject: `⚠️ Overdue invoice: ${custName}${amtLabel} (${daysOverdue} days)`,
+      html: emailBase({ preheader: `Invoice ${daysOverdue} days overdue — customer notified.`, body: `
+        <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Overdue Invoice — Customer Notified</p>
+        <div style="background:#fef3c7;border-left:4px solid #d97706;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:20px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#d97706;margin-bottom:8px;">${daysOverdue} Days Past Due</div>
+          <div style="font-size:16px;font-weight:700;color:#111827;">${custName}</div>
+          ${invNumber  ? `<div style="font-size:13px;color:#374151;margin-top:4px;">Invoice ${invNumber}</div>` : ''}
+          ${amountDue  ? `<div style="font-size:13px;color:#374151;">Amount due: $${amountDue.toFixed(2)}</div>` : ''}
+          ${dueFmt     ? `<div style="font-size:13px;color:#6b7280;">Due date: ${dueFmt}</div>` : ''}
+        </div>
+        <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 20px;">Reminder email${custPhone ? ' and SMS' : ''} sent. A Follow-Up task has been created.</p>
+        ${hostedUrl ? `<div style="text-align:center;"><a href="${hostedUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">View Invoice ↗</a></div>` : ''}`,
+      }),
+    }).catch(e => console.error('Admin overdue email error:', e));
+
+    await airtablePatch('Invoices', atInv.id, { 'Overdue Notice Sent': todayStr });
+    console.log(`Overdue notice sent: ${atInv.id} → ${custEmail}`);
+  } catch(e) {
+    console.error('sendOverdueNotice error:', e.message);
+  }
+}
+
+async function applyLateFee(env, atInv, todayStr) {
+  try {
+    const f       = atInv.fields;
+    const custIds = f['Customers'] || [];
+    const custId  = custIds[0] || null;
+    if (!custId || !env.STRIPE_SECRET_KEY) return;
+
+    const custRec   = await airtableGetById('Customers', custId);
+    const custEmail = custRec?.fields?.['Email'] || '';
+    const custPhone = custRec?.fields?.['Phone'] || '';
+    const custName  = custRec?.fields?.['Customer Name'] || '';
+    const custFirst = custRec?.fields?.['First Name'] || custName.split(' ')[0] || 'there';
+    if (!custEmail) return;
+
+    // Fetch Stripe invoice for live amount and hosted URL
+    const stripeInvId = f['Stripe Invoice ID'] || '';
+    let hostedUrl = '', amountDue = 0, invNumber = '';
+    if (stripeInvId) {
+      const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeInvId}`,
+        { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } });
+      if (sr.ok) {
+        const sd = await sr.json();
+        hostedUrl = sd.hosted_invoice_url || '';
+        amountDue = (sd.amount_due || 0) / 100;
+        invNumber = sd.number || '';
+      }
+    }
+
+    // 1.5% of amount due, minimum $5
+    const lateFee = Math.max(Math.round(amountDue * 0.015 * 100) / 100, 5);
+
+    // Find or create Stripe customer
+    const srchRes  = await fetch(
+      `https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
+      { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }
+    );
+    const srchData = await srchRes.json();
+    const stripeCustId = srchData.data?.length > 0
+      ? srchData.data[0].id
+      : (await stripePost(env.STRIPE_SECRET_KEY, '/v1/customers', { email: custEmail, name: custName })).id;
+
+    // Create and send a separate late fee invoice
+    await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoiceitems', {
+      customer:    stripeCustId,
+      amount:      Math.round(lateFee * 100),
+      currency:    'usd',
+      description: `Late fee (1.5%)${invNumber ? ` — Invoice ${invNumber}` : ''}`,
+    });
+    const lfInv  = await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoices', {
+      customer:                   stripeCustId,
+      description:                `Late fee — Invoice${invNumber ? ` ${invNumber}` : ''} (1.5% of $${amountDue.toFixed(2)})`,
+      'metadata[invoice_type]':   'late_fee',
+      'collection_method':        'send_invoice',
+      'days_until_due':           '15',
+    });
+    await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${lfInv.id}/finalize`, {});
+    const lfSent    = await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${lfInv.id}/send`, {});
+    const lateFeeUrl = lfSent.hosted_invoice_url || '';
+
+    // Email customer
+    const subject = `Late fee added to your CJB Comfort account`;
+    await sendEmail(env.RESEND_API_KEY, { to: custEmail, subject,
+      html: emailLateFeeHtml({ customerName: custFirst, invoiceNumber: invNumber, originalAmount: amountDue, lateFeeAmount: lateFee, hostedUrl, lateFeeUrl }),
+    }).catch(e => console.error('Late fee email error:', e));
+    logCommunication(env, { type: 'Email', trigger: 'Late Fee', sentTo: custEmail, subject, customerId: custId }).catch(() => {});
+
+    // SMS customer
+    if (custPhone && env.Telnyx_API) {
+      sendSms(env.Telnyx_API, custPhone,
+        `Hi ${custFirst} — a 1.5% late fee ($${lateFee.toFixed(2)}) has been added to your CJB Comfort account.${hostedUrl ? ` Original invoice: ${hostedUrl}` : ''}${lateFeeUrl ? ` Late fee: ${lateFeeUrl}` : ''} Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`
+      ).then(() => logCommunication(env, { type: 'SMS', trigger: 'Late Fee', sentTo: custPhone, subject: 'Late fee SMS', customerId: custId }))
+       .catch(e => console.error('Late fee SMS error:', e));
+    }
+
+    // Notify Bridgett
+    await sendEmail(env.RESEND_API_KEY, {
+      to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
+      subject: `💰 Late fee applied: ${custName} — $${lateFee.toFixed(2)}`,
+      html: emailBase({ preheader: `$${lateFee.toFixed(2)} late fee invoiced to ${custName}.`, body: `
+        <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Late Fee Applied &amp; Invoiced</p>
+        <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:20px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c81f25;margin-bottom:8px;">30 Days Past Due</div>
+          <div style="font-size:16px;font-weight:700;color:#111827;">${custName}</div>
+          ${invNumber  ? `<div style="font-size:13px;color:#374151;margin-top:4px;">Original invoice: ${invNumber} — $${amountDue.toFixed(2)}</div>` : ''}
+          <div style="font-size:13px;color:#374151;">Late fee sent: $${lateFee.toFixed(2)} (1.5%)</div>
+        </div>
+        <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 20px;">A separate late fee invoice was created in Stripe and sent to the customer via email${custPhone ? ' and SMS' : ''}.</p>
+        <div style="text-align:center;">
+          ${hostedUrl  ? `<a href="${hostedUrl}"  style="display:inline-block;background:#f3f4f6;color:#374151;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;text-decoration:none;margin-right:8px;">Original Invoice ↗</a>` : ''}
+          ${lateFeeUrl ? `<a href="${lateFeeUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;text-decoration:none;">Late Fee Invoice ↗</a>` : ''}
+        </div>`,
+      }),
+    }).catch(e => console.error('Admin late fee email error:', e));
+
+    // Update Airtable — also set Overdue Notice Sent to block 7-day notice
+    await airtablePatch('Invoices', atInv.id, {
+      'Late Fee Applied':    true,
+      'Late Fee Amount':     lateFee,
+      'Late Fee Date':       todayStr,
+      'Overdue Notice Sent': todayStr,
+    });
+    console.log(`Late fee applied: ${atInv.id} → ${custEmail}, $${lateFee}`);
+  } catch(e) {
+    console.error('applyLateFee error:', e.message);
+  }
+}
+
 // ── Create first-visit Work Order + Follow-Up when a contract activates/renews ─
 async function scheduleFirstContractVisit(env, contractId) {
   const contract  = await airtableGetById('Maintenance Contracts', contractId);
@@ -3468,6 +3710,64 @@ function emailDepositReceivedHtml({ customerName, amountPaid, invoiceNumber }) {
     </div>
 
     <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us anytime at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Overdue invoice reminder (7 days past due) ────────────────────────────────
+function emailOverdueHtml({ customerName, invoiceNumber, amountDue, hostedUrl, dueDate, daysOverdue }) {
+  const amountStr  = amountDue > 0 ? `$${amountDue.toFixed(2)}` : '';
+  const invoiceRef = invoiceNumber ? `Invoice ${invoiceNumber}` : 'Your Invoice';
+  const dueFmt     = dueDate ? new Date(dueDate + 'T12:00:00').toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '';
+  const preheader  = `Your CJB Comfort invoice${amountStr ? ` for ${amountStr}` : ''} is past due. A quick payment keeps everything on track.`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">Just a friendly heads-up &mdash; we have an invoice that&rsquo;s past due on your account. If you&rsquo;ve already taken care of it, please disregard this message!</p>
+
+    <div style="background:#fef3c7;border-left:4px solid #d97706;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#d97706;margin-bottom:10px;">${invoiceRef} &mdash; Past Due</div>
+      ${amountStr ? `<div style="font-size:28px;font-weight:800;color:#111827;margin-bottom:4px;">${amountStr}</div>` : ''}
+      ${dueFmt    ? `<div style="font-size:13px;color:#6b7280;">Was due: ${dueFmt} (${daysOverdue} day${daysOverdue === 1 ? '' : 's'} ago)</div>` : ''}
+    </div>
+
+    ${hostedUrl ? `
+    <div style="text-align:center;margin:0 0 28px;">
+      <a href="${hostedUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:17px;font-weight:700;padding:16px 36px;border-radius:10px;text-decoration:none;">Pay Now &rarr;</a>
+    </div>` : ''}
+
+    <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 12px;">If you have any questions about this invoice or need to make other arrangements, don&rsquo;t hesitate to reach out &mdash; we&rsquo;re happy to help.</p>
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Late fee notification (30 days past due) ──────────────────────────────────
+function emailLateFeeHtml({ customerName, invoiceNumber, originalAmount, lateFeeAmount, hostedUrl, lateFeeUrl }) {
+  const origStr    = originalAmount  > 0 ? `$${originalAmount.toFixed(2)}`  : '';
+  const feeStr     = lateFeeAmount   > 0 ? `$${lateFeeAmount.toFixed(2)}`   : '';
+  const invoiceRef = invoiceNumber ? `Invoice ${invoiceNumber}` : 'your invoice';
+  const preheader  = `A 1.5% late fee${feeStr ? ` of ${feeStr}` : ''} has been added to your CJB Comfort account.`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">We haven&rsquo;t received payment for ${invoiceRef}${origStr ? ` ($${originalAmount.toFixed(2)})` : ''}, which is now 30 days past due. Per our billing policy, a 1.5% late fee has been added to your account.</p>
+
+    <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c81f25;margin-bottom:10px;">Late Fee Added</div>
+      ${origStr ? `<div style="font-size:14px;color:#6b7280;margin-bottom:4px;">Original invoice: ${origStr}</div>` : ''}
+      ${feeStr  ? `<div style="font-size:24px;font-weight:800;color:#111827;">+ ${feeStr} late fee</div>` : ''}
+    </div>
+
+    <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 20px;">Both the original invoice and the late fee have separate pay links below. To avoid additional fees, please pay as soon as possible.</p>
+
+    <div style="text-align:center;margin:0 0 24px;">
+      ${hostedUrl    ? `<a href="${hostedUrl}"    style="display:inline-block;background:#f3f4f6;color:#374151;font-size:15px;font-weight:600;padding:13px 24px;border-radius:8px;text-decoration:none;margin:0 6px 8px;">Pay Original Invoice &rarr;</a>` : ''}
+      ${lateFeeUrl   ? `<a href="${lateFeeUrl}"   style="display:inline-block;background:#c81f25;color:white;font-size:15px;font-weight:600;padding:13px 24px;border-radius:8px;text-decoration:none;margin:0 6px 8px;">Pay Late Fee &rarr;</a>` : ''}
+    </div>
+
+    <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 12px;">If there&rsquo;s been an error or you&rsquo;d like to discuss your account, please reach out right away and we&rsquo;ll get it sorted out.</p>
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 
   return emailBase({ preheader, body });
 }
