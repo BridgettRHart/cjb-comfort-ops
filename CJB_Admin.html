@@ -5605,7 +5605,7 @@ function openNewContractModal(renewFromContractId = null) {
 
       document.getElementById('ctr-wiz-title').textContent = 'Renew Contract';
       const ctx = document.getElementById('ctr-wiz-context-label');
-      const custName = Array.isArray(cf['Customer Name']) ? cf['Customer Name'][0] : (cf['Customer Name'] || '');
+      const custName = _ctrWizCust?.fields?.['Customer Name'] || cf['Contract Name'] || '';
       ctx.textContent = `Renewing: ${custName}`;
       ctx.style.display = 'block';
       document.getElementById('ctr-wiz-back-btn').style.display = 'none';
@@ -5799,7 +5799,8 @@ async function openRepairEstimateFromContract(contractId) {
   const cf = contract.fields;
   const custId  = (cf['Customer'] || [])[0];
   const propId  = (cf['Property'] || [])[0];
-  const custName = esc(cf['Customer Name'] || cf['Contract Name'] || 'Customer');
+  const custRec  = custId ? allCustomers.find(c => c.id === custId) : null;
+  const custName = esc(custRec?.fields?.['Customer Name'] || cf['Contract Name'] || 'Customer');
 
   const urgencyOrder = ['Safety Issue','Repair Now','Repair Soon','Monitor'];
   const repairJobs = (_selectedContractJobs || [])

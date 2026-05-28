@@ -1336,9 +1336,17 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       try {
         const contract = await airtableGetById('Maintenance Contracts', contractId);
         const cf = contract.fields;
-        const custName   = Array.isArray(cf['Customer Name'])  ? cf['Customer Name'][0]  : (cf['Customer Name']  || '');
-        const propName   = Array.isArray(cf['Property Name'])  ? cf['Property Name'][0]  : (cf['Property Name']  || '');
-        const propAddr   = Array.isArray(cf['Service Address']) ? cf['Service Address'][0] : (cf['Service Address'] || '');
+
+        // Fetch customer and property names directly (more portable than lookup fields)
+        const custId  = (cf['Customer'] || [])[0] || null;
+        const propId  = (cf['Property'] || [])[0] || null;
+        const [custRec, propRec] = await Promise.all([
+          custId ? airtableGetById('Customers',  custId) : Promise.resolve(null),
+          propId ? airtableGetById('Properties', propId) : Promise.resolve(null),
+        ]);
+        const custName = custRec?.fields?.['Customer Name'] || '';
+        const propName = propRec?.fields?.['Property Name'] || '';
+        const propAddr = propRec?.fields?.['Service Address'] || '';
         const planName   = cf['Plan Name']  || 'Annual Maintenance Agreement';
         const annual     = cf['Annual Value'] != null ? '$' + Number(cf['Annual Value']).toLocaleString('en-US', {minimumFractionDigits:2}) : '';
         const startDate  = cf['Start Date']  ? new Date(cf['Start Date']  + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : '';
