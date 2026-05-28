@@ -2975,11 +2975,7 @@ async function logCommunication(env, { type, trigger, sentTo, subject, customerI
     };
     if (customerId)  fields['Customer']   = [customerId];
     if (workOrderId) fields['Work Order'] = [workOrderId];
-    await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Communication%20Log`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ fields }),
-    });
+    await airtablePost('Communication Log', fields);
   } catch (e) {
     console.error('logCommunication failed:', e.message);
   }
