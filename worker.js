@@ -1864,7 +1864,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (workOrderId) invParams['metadata[airtable_wo_id]'] = workOrderId;
         inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
-        // 7. Attach line items directly to the new invoice
+        // Compute subtotal and discount BEFORE attaching line items to Stripe
+        const subtotal    = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
+        const discountAmt = discountValue > 0
+          ? (discountType === 'pct' ? Math.round(subtotal * (discountValue / 100) * 100) / 100 : discountValue)
+          : 0;
+        if (discountAmt > 0) {
+          const discLabel = discountReason
+            ? `Discount — ${discountReason}`
+            : discountType === 'pct' ? `Discount (${discountValue}%)` : 'Discount';
+          lineItems = [...lineItems, { productName: discLabel, quantity: 1, unitPrice: -discountAmt }];
+        }
+
+        // 7. Attach line items directly to the new invoice (includes discount if any)
         await attachLineItems(inv.id);
 
         // 8. Before finalizing: purge any floating pending invoice items for this customer.
@@ -1885,19 +1897,6 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               }
             }
           } catch (e) { /* best effort — don't block send */ }
-        }
-
-        // Compute subtotal and dueDate here — needed by both the email (step 9) and Airtable (step 10)
-        const subtotal     = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
-        const discountAmt  = discountValue > 0
-          ? (discountType === 'pct' ? Math.round(subtotal * (discountValue / 100) * 100) / 100 : discountValue)
-          : 0;
-        // Add discount as a labeled negative line item so it shows on the customer's invoice
-        if (discountAmt > 0) {
-          const discLabel = discountReason
-            ? `Discount — ${discountReason}`
-            : discountType === 'pct' ? `Discount (${discountValue}%)` : 'Discount';
-          lineItems = [...lineItems, { productName: discLabel, quantity: 1, unitPrice: -discountAmt }];
         }
         const today   = new Date().toISOString().split('T')[0];
         const dueDate = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
