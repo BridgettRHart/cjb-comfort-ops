@@ -1032,9 +1032,35 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 
     <button class="btn btn-gray btn-sm" onclick="addLineItem()" style="margin-bottom:16px;">+ Add Line Item</button>
 
+    <!-- Subtotal row — only visible when a discount is active -->
+    <div id="inv-subtotal-row" style="display:none;justify-content:space-between;align-items:center;padding:4px 0;color:#6b7280;font-size:13px;">
+      <span>Subtotal</span>
+      <span id="inv-subtotal">$0.00</span>
+    </div>
+
+    <!-- Discount section — hidden until "+ Add discount" is clicked -->
+    <div id="inv-discount-section" style="display:none;background:#fef9f0;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:4px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400e;flex:1;">Discount</span>
+        <div style="display:flex;border:1px solid #d97706;border-radius:6px;overflow:hidden;">
+          <button id="disc-pct-btn" onclick="setDiscountType('pct')" style="padding:3px 10px;border:none;background:#d97706;color:white;font-size:12px;font-weight:700;cursor:pointer;">%</button>
+          <button id="disc-dollar-btn" onclick="setDiscountType('dollar')" style="padding:3px 10px;border:none;background:transparent;color:#92400e;font-size:12px;font-weight:700;cursor:pointer;">$</button>
+        </div>
+        <input type="number" id="inv-discount-val" min="0" step="0.01" placeholder="0" oninput="updateTotal()"
+          style="width:65px;padding:4px 6px;border:1px solid #d97706;border-radius:6px;font-size:13px;text-align:right;">
+        <span id="inv-discount-display" style="min-width:55px;text-align:right;font-size:13px;font-weight:600;color:#dc2626;">-$0.00</span>
+        <button onclick="clearDiscount()" style="background:none;border:none;color:#9ca3af;font-size:16px;cursor:pointer;padding:0 2px;line-height:1;" title="Remove discount">✕</button>
+      </div>
+      <input type="text" id="inv-discount-reason" class="form-inp" placeholder="Reason (e.g. LD12 — 10% repair discount)" style="font-size:13px;">
+    </div>
+
     <div class="total-row">
       <span class="total-lbl">Total</span>
       <span class="total-amt" id="inv-total">$0.00</span>
+    </div>
+
+    <div style="text-align:right;margin:-4px 0 8px;">
+      <button id="add-discount-btn" onclick="showDiscountSection()" style="background:none;border:none;font-size:12px;color:#6b7280;cursor:pointer;text-decoration:underline;padding:0;">+ Add discount</button>
     </div>
 
     <!-- Invoice type selector (hidden for final-balance flow, shown for standard/deposit) -->
@@ -2761,6 +2787,9 @@ async function openInvoiceModal(workOrderId, customerId) {
   document.getElementById('send-btn').disabled    = true;
   document.getElementById('send-btn').textContent = 'Loading…';
 
+  // Reset discount section
+  clearDiscount();
+
   // Reset invoice type selector to standard
   const typeSelect = document.getElementById('inv-type-select');
   if (typeSelect) { typeSelect.value = 'standard'; handleInvTypeChange(); }
@@ -3470,16 +3499,63 @@ function liCalc(idx) {
   updateTotal();
 }
 
+let _discountType = 'pct'; // 'pct' or 'dollar'
+
 function updateTotal() {
-  let t = 0;
+  let subtotal = 0;
   document.querySelectorAll('[id^="li-"]').forEach(row => {
     if (!row.id.match(/^li-\d+$/)) return;
     const idx = row.id.slice(3);
     const qty   = parseFloat(document.getElementById('liq-' + idx)?.value) || 0;
     const price = parseFloat(document.getElementById('lip-' + idx)?.value) || 0;
-    t += qty * price;
+    subtotal += qty * price;
   });
-  document.getElementById('inv-total').textContent = '$' + t.toFixed(2);
+
+  const discVal  = parseFloat(document.getElementById('inv-discount-val')?.value) || 0;
+  const discAmt  = _discountType === 'pct' ? subtotal * (discVal / 100) : discVal;
+  const discActive = document.getElementById('inv-discount-section')?.style.display !== 'none';
+  const total    = discActive ? Math.max(0, subtotal - discAmt) : subtotal;
+
+  document.getElementById('inv-total').textContent = '$' + total.toFixed(2);
+
+  if (discActive) {
+    const subtotalRow = document.getElementById('inv-subtotal-row');
+    if (subtotalRow) { subtotalRow.style.display = 'flex'; }
+    const subtotalEl = document.getElementById('inv-subtotal');
+    if (subtotalEl) subtotalEl.textContent = '$' + subtotal.toFixed(2);
+    const discDisplay = document.getElementById('inv-discount-display');
+    if (discDisplay) discDisplay.textContent = '-$' + discAmt.toFixed(2);
+  }
+}
+
+function showDiscountSection() {
+  document.getElementById('inv-discount-section').style.display = '';
+  document.getElementById('inv-subtotal-row').style.display = 'flex';
+  document.getElementById('add-discount-btn').style.display = 'none';
+  updateTotal();
+}
+
+function setDiscountType(type) {
+  _discountType = type;
+  document.getElementById('disc-pct-btn').style.background    = type === 'pct'    ? '#d97706' : 'transparent';
+  document.getElementById('disc-pct-btn').style.color         = type === 'pct'    ? 'white'   : '#92400e';
+  document.getElementById('disc-dollar-btn').style.background = type === 'dollar' ? '#d97706' : 'transparent';
+  document.getElementById('disc-dollar-btn').style.color      = type === 'dollar' ? 'white'   : '#92400e';
+  updateTotal();
+}
+
+function clearDiscount() {
+  document.getElementById('inv-discount-section').style.display = 'none';
+  document.getElementById('inv-subtotal-row').style.display = 'none';
+  document.getElementById('add-discount-btn').style.display = '';
+  document.getElementById('inv-discount-val').value = '';
+  document.getElementById('inv-discount-reason').value = '';
+  _discountType = 'pct';
+  document.getElementById('disc-pct-btn').style.background    = '#d97706';
+  document.getElementById('disc-pct-btn').style.color         = 'white';
+  document.getElementById('disc-dollar-btn').style.background = 'transparent';
+  document.getElementById('disc-dollar-btn').style.color      = '#92400e';
+  updateTotal();
 }
 
 function handleInvTypeChange() {
@@ -3538,6 +3614,12 @@ async function submitInvoice(sendNow) {
   }
 
   const notes = document.getElementById('inv-notes').value.trim();
+
+  // Discount
+  const discActive = document.getElementById('inv-discount-section')?.style.display !== 'none';
+  const discVal    = discActive ? (parseFloat(document.getElementById('inv-discount-val')?.value) || 0) : 0;
+  const discReason = discActive ? (document.getElementById('inv-discount-reason')?.value.trim() || '') : '';
+
   const draftBtn = document.getElementById('draft-btn');
   const sendBtn  = document.getElementById('send-btn');
   draftBtn.disabled = true;
@@ -3556,6 +3638,9 @@ async function submitInvoice(sendNow) {
         sendNow,
         invoiceType:   invType,
         depositAmount: depositAmount || undefined,
+        discountType:  discActive ? _discountType : undefined,
+        discountValue: discActive && discVal > 0 ? discVal : undefined,
+        discountReason: discActive && discReason ? discReason : undefined,
       })
     });
     const data = await res.json();

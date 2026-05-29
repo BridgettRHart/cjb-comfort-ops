@@ -1725,8 +1725,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       try {
         const body = await request.json();
         const { workOrderId, customerId, notes, sendNow } = body;
-        const invoiceType   = body.invoiceType   || 'standard'; // 'standard' | 'deposit' | 'final_balance'
-        const depositAmount = body.depositAmount || 0;          // dollar amount for deposit invoices
+        const invoiceType    = body.invoiceType   || 'standard'; // 'standard' | 'deposit' | 'final_balance'
+        const depositAmount  = body.depositAmount || 0;          // dollar amount for deposit invoices
+        const discountType   = body.discountType  || 'pct';      // 'pct' | 'dollar'
+        const discountValue  = Number(body.discountValue) || 0;  // percent (0-100) or dollar amount
+        const discountReason = body.discountReason || '';
 
         if (!customerId) throw new Error('customerId is required');
 
@@ -1884,7 +1887,17 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // Compute subtotal and dueDate here — needed by both the email (step 9) and Airtable (step 10)
-        const subtotal = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
+        const subtotal     = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (li.quantity || 1)), 0);
+        const discountAmt  = discountValue > 0
+          ? (discountType === 'pct' ? Math.round(subtotal * (discountValue / 100) * 100) / 100 : discountValue)
+          : 0;
+        // Add discount as a labeled negative line item so it shows on the customer's invoice
+        if (discountAmt > 0) {
+          const discLabel = discountReason
+            ? `Discount — ${discountReason}`
+            : discountType === 'pct' ? `Discount (${discountValue}%)` : 'Discount';
+          lineItems = [...lineItems, { productName: discLabel, quantity: 1, unitPrice: -discountAmt }];
+        }
         const today   = new Date().toISOString().split('T')[0];
         const dueDate = new Date(Date.now() + (isCommercial ? 30 : 0) * 86400000).toISOString().split('T')[0];
 
@@ -2000,6 +2013,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           ...(invoiceType === 'deposit' ? {
             'Deposit Required': true,
             'Deposit Amount':   depositAmount,
+          } : {}),
+          // Discount fields
+          ...(discountAmt > 0 ? {
+            'Discount Amount': discountAmt,
+            'Discount Reason': discountReason || (discountType === 'pct' ? `${discountValue}%` : `$${discountAmt.toFixed(2)}`),
           } : {}),
         };
         if (workOrderId) atFields['Work Orders'] = [workOrderId];
