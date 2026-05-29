@@ -1809,14 +1809,15 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             const stripeDesc = isWhole
               ? (item.productName || 'Service')
               : `${item.productName || 'Service'} (${qty}x)`;
-            await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
-              customer:            stripeCustId,
-              invoice:             invoiceId,
-              unit_amount_decimal: String(stripeAmt),
-              quantity:            isWhole ? String(Math.max(1, qty)) : '1',
-              currency:            'usd',
-              description:         stripeDesc
-            });
+            // Stripe rejects negative unit_amount_decimal — use 'amount' for credits/discounts
+            const itemParams = { customer: stripeCustId, invoice: invoiceId, currency: 'usd', description: stripeDesc };
+            if (stripeAmt < 0) {
+              itemParams.amount = String(stripeAmt);
+            } else {
+              itemParams.unit_amount_decimal = String(stripeAmt);
+              itemParams.quantity = isWhole ? String(Math.max(1, qty)) : '1';
+            }
+            await stripePost(STRIPE_KEY, '/v1/invoiceitems', itemParams);
           }
         };
 

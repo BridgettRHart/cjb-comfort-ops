@@ -2858,12 +2858,23 @@ async function openInvoiceModal(workOrderId, customerId) {
         }
         if (savedNotes) document.getElementById('inv-notes').value = savedNotes;
 
-        // Restore line items — unfold fractional quantities stored as "(Nx)" in description
+        // Restore line items — unfold fractional quantities; route discount items to discount section
+        let regularLines = 0;
         for (const line of (draft.lines || [])) {
           const { name, qty, unitPrice } = unfoldLineItem(line.description, line.quantity, line.unitPrice);
+          // Discount items: negative price or description starting with "Discount"
+          if (unitPrice < 0 || /^discount/i.test(name)) {
+            const reason = name.replace(/^discount\s*[-—]?\s*/i, '').replace(/^\(\d+(\.\d+)?%\)\s*/i, '').trim();
+            showDiscountSection();
+            setDiscountType('dollar');
+            document.getElementById('inv-discount-val').value = Math.abs(unitPrice).toFixed(2);
+            if (reason) document.getElementById('inv-discount-reason').value = reason;
+            continue;
+          }
           fillLineItem(name, qty, unitPrice, null);
+          regularLines++;
         }
-        if (!draft.lines?.length) addLineItem();
+        if (!regularLines) addLineItem();
       } else {
         // Draft no longer exists in Stripe — fall back to fresh invoice
         existingStripeId = null;
