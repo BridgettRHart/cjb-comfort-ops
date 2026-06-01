@@ -2358,6 +2358,11 @@ function renderDetail(customer, props, wos, contacts) {
             : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">Send Estimate</button>`;
         }
 
+        // Verbal approval override — appears when estimate was approved offline
+        const approveOverrideBtn = status === 'Estimate Sent'
+          ? `<button class="btn btn-sm" style="background:#d97706;color:#fff;" onclick="markEstimateApproved('${wo.id}')">✓ Mark Approved</button>`
+          : '';
+
         // Invoice button
         const depositPaid = !!(wf['Deposit Paid']);
         let invoiceBtn = '';
@@ -2409,6 +2414,7 @@ function renderDetail(customer, props, wos, contacts) {
           <span class="badge ${cls}">${esc(status)}</span>
           <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
           ${quoteBtn}
+          ${approveOverrideBtn}
           ${invoiceBtn}
         </div>`;
       }).join('')
@@ -3401,6 +3407,23 @@ async function submitQuote(sendNow) {
     alert('Error: ' + err.message);
     if (draftBtn) draftBtn.disabled = false;
     if (sendBtn)  { sendBtn.disabled = false; sendBtn.textContent = sendNow ? 'Send to Customer' : 'Save Draft'; }
+  }
+}
+
+async function markEstimateApproved(woId) {
+  if (!confirm('Mark this estimate as approved?\n\nThis records the verbal approval, updates the Work Order to Estimate Approved, and unlocks the invoice button. A confirmation email will be sent to the customer.')) return;
+  try {
+    const res  = await fetch(`${PROXY}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ woId, decision: 'approved' })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Failed');
+    showToast('Estimate marked approved ✓');
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch (err) {
+    alert('Error: ' + err.message);
   }
 }
 
