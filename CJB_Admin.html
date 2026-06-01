@@ -6935,7 +6935,7 @@ async function loadEAProjects() {
   const listEl = document.getElementById('ea-list');
   listEl.innerHTML = '<div style="padding:20px;text-align:center;"><span class="spinner"></span></div>';
   try {
-    const records = await fetchAll('EA%20Projects',
+    const records = await fetchAll('EA Projects',
       'filterByFormula={Active}=1&sort[0][field]=Project%20Name&sort[0][direction]=asc');
     _eaProjectsCache = records;
     document.getElementById('ea-count').textContent = '(' + records.length + ')';
