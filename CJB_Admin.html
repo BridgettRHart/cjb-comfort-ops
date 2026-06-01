@@ -1307,6 +1307,25 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <input class="form-inp" id="ea-f-coordinator" type="text" placeholder="Coordinator name">
     </div>
 
+    <div class="form-section-hd">Linked Records</div>
+    <div class="form-group">
+      <label class="form-label">Customer</label>
+      <div id="ea-cust-chip" style="display:none;align-items:center;gap:6px;padding:7px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;font-size:13px;margin-bottom:6px;">
+        <span style="flex:1;" id="ea-cust-chip-name"></span>
+        <button onclick="eaClearCustomer()" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:16px;line-height:1;padding:0;">✕</button>
+      </div>
+      <input class="form-inp" id="ea-cust-search" type="text" placeholder="Type to search customers…" oninput="eaSearchCustomers()" autocomplete="off">
+      <div class="est-cust-results-wrap" id="ea-cust-results-wrap" style="display:none;"><div id="ea-cust-results"></div></div>
+    </div>
+    <div class="form-group" id="ea-prop-group" style="display:none;">
+      <label class="form-label">Property / Site Address</label>
+      <div id="ea-prop-chip" style="display:none;align-items:center;gap:6px;padding:7px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;font-size:13px;margin-bottom:6px;">
+        <span style="flex:1;" id="ea-prop-chip-name"></span>
+        <button onclick="eaClearProperty()" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:16px;line-height:1;padding:0;">✕</button>
+      </div>
+      <div id="ea-prop-list"></div>
+    </div>
+
     <div class="form-section-hd">Rebate Amounts</div>
     <div class="form-row-2">
       <div class="form-group">
@@ -1411,6 +1430,8 @@ let _selectedContract = null;
 let _eaProjectsCache  = []; // all active EA project records (populated by loadEAProjects)
 let _selectedEAId     = null;
 let _eaModalRecordId  = null; // null = new, string = editing
+let _eaModalCustId    = null; // selected customer ID in EA modal
+let _eaModalPropId    = null; // selected property ID in EA modal
 
 // ── Estimates state ──────────────────────────────────────────────────────────
 let _allEstimates  = [];
@@ -2550,7 +2571,10 @@ function renderDetail(customer, props, wos, contacts) {
               ${totalRebate ? `<span style="font-size:12px;font-weight:700;color:#1a6b35;">${totalRebate} rebate</span>` : ''}
               <button class="btn btn-sm" style="background:#1a6b35;color:#fff;margin-left:auto;" onclick="switchTab('ea');_selectedEAId='${linkedEA.id}';selectEAProject('${linkedEA.id}');">View EA Project →</button>
             </div>`;
-          })() : '';
+          })() : `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #c3dfc9;">
+              <button class="btn btn-sm" style="background:#1a6b35;color:#fff;" onclick="linkEAProject('${wo.id}')">🔗 Link EA Project</button>
+              <span style="font-size:11px;color:#6b7280;margin-left:8px;">No EA project linked yet</span>
+            </div>`;
           eaPanel = `<div style="border:1.5px solid #1a6b35;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#f4faf6;">
             <div style="font-size:11px;font-weight:700;color:#1a6b35;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">⚡ Efficiency Arizona</div>
             ${eaProjContext}
@@ -7136,12 +7160,175 @@ function openEAModal(project = null) {
   document.getElementById('ea-f-notes').value        = f['Notes'] || '';
   document.getElementById('ea-f-active').checked     = f['Active'] !== false;
 
+  // Reset customer/property linking UI
+  _eaModalCustId = (f['Customer'] || [])[0] || null;
+  _eaModalPropId = (f['Property'] || [])[0] || null;
+  document.getElementById('ea-cust-chip').style.display = 'none';
+  document.getElementById('ea-cust-search').style.display = '';
+  document.getElementById('ea-cust-search').value = '';
+  document.getElementById('ea-cust-results-wrap').style.display = 'none';
+  document.getElementById('ea-prop-group').style.display = 'none';
+  document.getElementById('ea-prop-chip').style.display = 'none';
+  if (document.getElementById('ea-prop-list')) document.getElementById('ea-prop-list').style.display = '';
+
+  if (_eaModalCustId) {
+    const cust = allCustomers.find(c => c.id === _eaModalCustId);
+    if (cust) {
+      document.getElementById('ea-cust-chip-name').textContent = cust.fields['Customer Name'] || _eaModalCustId;
+      document.getElementById('ea-cust-chip').style.display = 'flex';
+      document.getElementById('ea-cust-search').style.display = 'none';
+      document.getElementById('ea-prop-group').style.display = '';
+      eaRenderProperties(_eaModalCustId);
+    }
+  }
+  if (_eaModalPropId) {
+    const prop = allProperties.find(p => p.id === _eaModalPropId);
+    if (prop) {
+      const addr = [prop.fields['Service Address'], prop.fields['City'], prop.fields['State']].filter(Boolean).join(', ');
+      eaSelectProperty(_eaModalPropId, addr || prop.fields['Property Name'] || '');
+    }
+  }
+
   document.getElementById('ea-modal').classList.remove('hidden');
 }
 
 function closeEAModal() {
   document.getElementById('ea-modal').classList.add('hidden');
   _eaModalRecordId = null;
+  _eaModalCustId   = null;
+  _eaModalPropId   = null;
+}
+
+// ── EA Modal — customer/property search ──────────────────────────────────────
+function eaSearchCustomers() {
+  const q = (document.getElementById('ea-cust-search')?.value || '').toLowerCase().trim();
+  const wrap = document.getElementById('ea-cust-results-wrap');
+  if (!q) { wrap.style.display = 'none'; return; }
+  const matches = allCustomers.filter(c =>
+    (c.fields['Customer Name'] || '').toLowerCase().includes(q) ||
+    (c.fields['Email'] || '').toLowerCase().includes(q)
+  ).slice(0, 10);
+  const el = document.getElementById('ea-cust-results');
+  el.innerHTML = matches.length
+    ? matches.map(c => {
+        const f = c.fields;
+        return `<div class="est-cust-result-item" onclick="eaSelectCustomer('${c.id}')">
+          <div style="font-weight:600;">${esc(f['Customer Name'] || '')}</div>
+          ${f['Email'] ? `<div style="font-size:11px;color:#888;">${esc(f['Email'])}</div>` : ''}
+        </div>`;
+      }).join('')
+    : '<div style="padding:10px;color:#bbb;font-size:13px;">No customers found</div>';
+  wrap.style.display = '';
+}
+
+function eaSelectCustomer(custId) {
+  _eaModalCustId = custId;
+  _eaModalPropId = null;
+  const cust = allCustomers.find(c => c.id === custId);
+  document.getElementById('ea-cust-chip-name').textContent = cust?.fields['Customer Name'] || custId;
+  document.getElementById('ea-cust-chip').style.display = 'flex';
+  document.getElementById('ea-cust-search').style.display = 'none';
+  document.getElementById('ea-cust-results-wrap').style.display = 'none';
+  document.getElementById('ea-prop-group').style.display = '';
+  document.getElementById('ea-prop-chip').style.display = 'none';
+  eaRenderProperties(custId);
+}
+
+function eaClearCustomer() {
+  _eaModalCustId = null;
+  _eaModalPropId = null;
+  document.getElementById('ea-cust-chip').style.display = 'none';
+  document.getElementById('ea-cust-search').style.display = '';
+  document.getElementById('ea-cust-search').value = '';
+  document.getElementById('ea-cust-results-wrap').style.display = 'none';
+  document.getElementById('ea-prop-group').style.display = 'none';
+}
+
+function eaRenderProperties(custId) {
+  const props = allProperties.filter(p => (p.fields['Customer'] || []).includes(custId));
+  const el = document.getElementById('ea-prop-list');
+  document.getElementById('ea-prop-chip').style.display = 'none';
+  if (el) el.style.display = '';
+  if (!props.length) {
+    el.innerHTML = '<div style="font-size:12px;color:#9ca3af;padding:4px 0;">No properties on file for this customer</div>';
+    return;
+  }
+  el.innerHTML = props.map(p => {
+    const addr = [p.fields['Service Address'], p.fields['City'], p.fields['State']].filter(Boolean).join(', ');
+    const label = addr || p.fields['Property Name'] || '(unnamed)';
+    return `<div class="est-cust-result-item" onclick="eaSelectProperty('${p.id}','${escAttr(label)}')">
+      <div style="font-weight:600;">${esc(p.fields['Property Name'] || addr || '(unnamed)')}</div>
+      ${addr ? `<div style="font-size:11px;color:#888;">${esc(addr)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function eaSelectProperty(propId, label) {
+  _eaModalPropId = propId;
+  document.getElementById('ea-prop-chip-name').textContent = label;
+  document.getElementById('ea-prop-chip').style.display = 'flex';
+  const listEl = document.getElementById('ea-prop-list');
+  if (listEl) listEl.style.display = 'none';
+}
+
+function eaClearProperty() {
+  _eaModalPropId = null;
+  document.getElementById('ea-prop-chip').style.display = 'none';
+  const listEl = document.getElementById('ea-prop-list');
+  if (listEl) listEl.style.display = '';
+}
+
+// ── WO card — Link EA Project picker ─────────────────────────────────────────
+function linkEAProject(woId) {
+  if (!_eaProjectsCache.length) {
+    alert('No active EA projects found. Create one first in the ⚡ EA tab.');
+    return;
+  }
+  const pickerId = 'ea-link-picker-modal';
+  let picker = document.getElementById(pickerId);
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = pickerId;
+    picker.className = 'modal-bg';
+    picker.onclick = e => { if (e.target === picker) picker.classList.add('hidden'); };
+    document.body.appendChild(picker);
+  }
+  picker.innerHTML = `<div class="modal" style="max-width:420px;">
+    <div class="modal-title" style="font-size:16px;">Link EA Project</div>
+    <div class="modal-sub" style="margin-bottom:12px;">Select the EA project for this work order</div>
+    <div class="est-cust-results-wrap">
+      ${_eaProjectsCache.map(r => {
+        const f = r.fields;
+        const sc = EA_STATUS_COLOR[f['EA Status'] || ''] || { bg:'#f0f0f0', color:'#666' };
+        return `<div class="est-cust-result-item" onclick="confirmLinkEA('${woId}','${r.id}')">
+          <div style="font-weight:600;">${esc(f['Project Name'] || '')}</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:2px;">
+            ${f['EA Project Number'] ? `<span style="font-size:10px;font-weight:700;background:#c3dfc9;color:#0d4a1f;border-radius:3px;padding:1px 6px;">${esc(f['EA Project Number'])}</span>` : ''}
+            <span style="font-size:11px;padding:1px 6px;border-radius:3px;background:${sc.bg};color:${sc.color};">${esc(f['EA Status'] || '')}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="modal-actions"><button class="btn btn-gray" onclick="document.getElementById('${pickerId}').classList.add('hidden')">Cancel</button></div>
+  </div>`;
+  picker.classList.remove('hidden');
+}
+
+async function confirmLinkEA(woId, eaProjectId) {
+  const picker = document.getElementById('ea-link-picker-modal');
+  if (picker) picker.classList.add('hidden');
+  try {
+    const res = await fetch(`${PROXY}/Work%20Orders/${woId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'EA Projects': [eaProjectId] } })
+    });
+    if (!res.ok) throw new Error((await res.json()).error?.message || 'Link failed');
+    showToast('✓ EA Project linked');
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch(err) {
+    alert('Error: ' + err.message);
+  }
 }
 
 async function saveEAProject() {
@@ -7180,6 +7367,8 @@ async function saveEAProject() {
     'Electrical Panel Rebate': num(document.getElementById('ea-f-rebate-panel').value),
   };
   Object.entries(rebateFields).forEach(([k,v]) => { if (v !== undefined) fields[k] = v; });
+  if (_eaModalCustId) fields['Customer'] = [_eaModalCustId];
+  if (_eaModalPropId) fields['Property'] = [_eaModalPropId];
   // Remove undefined keys
   Object.keys(fields).forEach(k => { if (fields[k] === undefined) delete fields[k]; });
 
