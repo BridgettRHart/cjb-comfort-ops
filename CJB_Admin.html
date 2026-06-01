@@ -710,6 +710,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   <button class="tab-btn" id="tab-estimates" onclick="switchTab('estimates')">Estimates</button>
   <button class="tab-btn" id="tab-contracts" onclick="switchTab('contracts')">Contracts</button>
   <button class="tab-btn" id="tab-followup" onclick="switchTab('followup')">Follow-Up <span id="fu-badge" class="fu-badge-count" style="display:none">0</span></button>
+  <button class="tab-btn" id="tab-ea" onclick="switchTab('ea')">⚡ EA</button>
 </div>
 
 <!-- Dashboard view -->
@@ -793,6 +794,20 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <button class="fu-refresh-btn" onclick="loadFollowUpQueue(true)">↻ Refresh</button>
     </div>
     <div id="fu-content" style="padding:60px 0;text-align:center;"><span class="spinner"></span></div>
+  </div>
+</div>
+
+<!-- EA Projects view -->
+<div class="app" id="app-ea" style="display:none;">
+  <div class="sidebar">
+    <div class="sidebar-hd">
+      <h2>EA Projects <span id="ea-count" style="font-size:10px;color:#aaa;font-weight:400;"></span></h2>
+      <button class="sidebar-add-btn" onclick="openEAModal()">+ New EA Project</button>
+    </div>
+    <div id="ea-list" style="overflow-y:auto;flex:1;padding:8px 0;"></div>
+  </div>
+  <div class="detail" id="ea-detail">
+    <div style="color:#bbb;font-size:14px;padding:40px 24px;text-align:center;">Select a project to view details</div>
   </div>
 </div>
 
@@ -1244,6 +1259,129 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   <div class="sp-foot" id="sp-foot"></div>
 </div>
 
+<!-- EA Project Modal -->
+<div class="modal-bg hidden" id="ea-modal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-title" id="ea-modal-title">New EA Project</div>
+    <div class="modal-sub" id="ea-modal-sub">Efficiency Arizona project details</div>
+
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Project Name <span style="color:#c81f25;">*</span></label>
+        <input class="form-inp" id="ea-f-name" type="text" placeholder="e.g. Smith Family — Heat Pump">
+      </div>
+      <div class="form-group">
+        <label class="form-label">EA Project Number <span style="color:#c81f25;">*</span></label>
+        <input class="form-inp" id="ea-f-number" type="text" placeholder="e.g. EA-2025-00123">
+      </div>
+    </div>
+
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">EA Status</label>
+        <select class="form-inp" id="ea-f-status">
+          <option value="">— Select —</option>
+          <option>Assigned</option>
+          <option>Site Visit Scheduled</option>
+          <option>SOW Draft</option>
+          <option>SOW Submitted</option>
+          <option>SOW Approved</option>
+          <option>Customer Signed</option>
+          <option>Installation Approved</option>
+          <option>In Progress</option>
+          <option>Complete</option>
+          <option>Closed</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Customer AMI</label>
+        <select class="form-inp" id="ea-f-ami">
+          <option value="">&lt;80%</option>
+          <option>80-150%</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Project Coordinator</label>
+      <input class="form-inp" id="ea-f-coordinator" type="text" placeholder="Coordinator name">
+    </div>
+
+    <div class="form-section-hd">Rebate Amounts</div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Total Rebate Available</label>
+        <input class="form-inp" id="ea-f-rebate-total" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">HVAC Heat Pump Rebate</label>
+        <input class="form-inp" id="ea-f-rebate-hvac" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Water Heater Rebate</label>
+        <input class="form-inp" id="ea-f-rebate-wh" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dryer Rebate</label>
+        <input class="form-inp" id="ea-f-rebate-dryer" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Home Efficiency Rebate</label>
+        <input class="form-inp" id="ea-f-rebate-home" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Electrical Wiring Rebate</label>
+        <input class="form-inp" id="ea-f-rebate-wiring" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">Electrical Panel Rebate</label>
+        <input class="form-inp" id="ea-f-rebate-panel" type="number" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group"></div>
+    </div>
+
+    <div class="form-section-hd">Details</div>
+    <div class="form-group">
+      <label class="form-label">Recommended Measures</label>
+      <textarea class="form-inp" id="ea-f-measures" rows="3" placeholder="Describe the recommended measures…"></textarea>
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">SOW Form URL</label>
+        <input class="form-inp" id="ea-f-sow-url" type="url" placeholder="https://…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Project Update Form URL</label>
+        <input class="form-inp" id="ea-f-update-url" type="url" placeholder="https://…">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Documents URL</label>
+      <input class="form-inp" id="ea-f-docs-url" type="url" placeholder="https://…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-inp" id="ea-f-notes" rows="3" placeholder="Internal notes…"></textarea>
+    </div>
+    <div class="same-addr-row" style="margin-bottom:14px;">
+      <input type="checkbox" id="ea-f-active" checked>
+      <label for="ea-f-active">Active</label>
+    </div>
+
+    <div id="ea-modal-error" style="display:none;background:#fef2f2;color:#c81f25;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-gray" onclick="closeEAModal()">Cancel</button>
+      <button class="btn btn-green" id="ea-save-btn" onclick="saveEAProject()">Save Project</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const PROXY  = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
 
@@ -1268,6 +1406,11 @@ let _allContracts     = [];
 let _selectedContractJobs = []; // jobs loaded for the currently-open contract detail
 let _filteredContracts = [];
 let _selectedContract = null;
+
+// ── EA Projects state ────────────────────────────────────────────────────────
+let _eaProjectsCache  = []; // all active EA project records (populated by loadEAProjects)
+let _selectedEAId     = null;
+let _eaModalRecordId  = null; // null = new, string = editing
 
 // ── Estimates state ──────────────────────────────────────────────────────────
 let _allEstimates  = [];
@@ -1337,15 +1480,18 @@ function switchTab(tab, skipMobileReset = false, scrollFuId = null) {
   document.getElementById('tab-estimates').classList.toggle('active', tab === 'estimates');
   document.getElementById('tab-contracts').classList.toggle('active', tab === 'contracts');
   document.getElementById('tab-followup').classList.toggle('active', tab === 'followup');
+  document.getElementById('tab-ea').classList.toggle('active', tab === 'ea');
   document.getElementById('dash-view').style.display       = tab === 'dash'      ? '' : 'none';
   document.getElementById('app-customers').style.display   = tab === 'customers' ? '' : 'none';
   document.getElementById('app-estimates').style.display   = tab === 'estimates' ? '' : 'none';
   document.getElementById('app-contracts').style.display   = tab === 'contracts' ? '' : 'none';
   document.getElementById('app-followup').style.display    = tab === 'followup'  ? '' : 'none';
+  document.getElementById('app-ea').style.display          = tab === 'ea'        ? '' : 'none';
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
   if (tab === 'contracts') loadContracts();
   if (tab === 'followup') loadFollowUpQueue(false, scrollFuId);
+  if (tab === 'ea') loadEAProjects();
   if (tab === 'customers' && isMobile() && !skipMobileReset) {
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
@@ -2385,9 +2531,29 @@ function renderDetail(customer, props, wos, contacts) {
         const eqChipsHtml = eqChips.length
           ? `<div class="wo-eq-chips">${eqChips.slice(0,4).map(e => `<span class="wo-eq-chip">${e.name}</span>`).join('')}${eqChips.length > 4 ? `<span class="wo-eq-chip">+${eqChips.length - 4}</span>` : ''}</div>`
           : '';
-        const eaPanel = wf['Efficiency Arizona Job'] ? `
-          <div style="border:1.5px solid #1a6b35;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#f4faf6;">
-            <div style="font-size:11px;font-weight:700;color:#1a6b35;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">⚡ Efficiency Arizona Forms</div>
+        let eaPanel = '';
+        if (wf['Efficiency Arizona Job']) {
+          // Look up linked EA project from cache
+          const linkedEAIds = wf['EA Projects'] || [];
+          const linkedEA = linkedEAIds.length ? _eaProjectsCache.find(r => r.id === linkedEAIds[0]) : null;
+          const eaProjContext = linkedEA ? (() => {
+            const ef = linkedEA.fields;
+            const eaStatus = ef['EA Status'] || '';
+            const sc = EA_STATUS_COLOR[eaStatus] || { bg:'#f0f0f0', color:'#666' };
+            const totalRebate = ef['Total Rebate Available'] != null
+              ? '$' + Number(ef['Total Rebate Available']).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})
+              : '';
+            return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #c3dfc9;">
+              ${ef['EA Project Number'] ? `<span style="font-size:11px;font-weight:700;background:#c3dfc9;color:#0d4a1f;border-radius:4px;padding:2px 8px;">${esc(ef['EA Project Number'])}</span>` : ''}
+              ${eaStatus ? `<span class="badge" style="background:${sc.bg};color:${sc.color};">${esc(eaStatus)}</span>` : ''}
+              ${ef['Project Coordinator'] ? `<span style="font-size:11px;color:#2a5a35;">👤 ${esc(ef['Project Coordinator'])}</span>` : ''}
+              ${totalRebate ? `<span style="font-size:12px;font-weight:700;color:#1a6b35;">${totalRebate} rebate</span>` : ''}
+              <button class="btn btn-sm" style="background:#1a6b35;color:#fff;margin-left:auto;" onclick="switchTab('ea');_selectedEAId='${linkedEA.id}';selectEAProject('${linkedEA.id}');">View EA Project →</button>
+            </div>`;
+          })() : '';
+          eaPanel = `<div style="border:1.5px solid #1a6b35;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#f4faf6;">
+            <div style="font-size:11px;font-weight:700;color:#1a6b35;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">⚡ Efficiency Arizona</div>
+            ${eaProjContext}
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
               <a href="https://airtable.com/appi09WiT6MFsy9zo/pag1tpv6rV2VG5MJ8/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Scope of Work</a>
               <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Project Updates</a>
@@ -2401,7 +2567,8 @@ function renderDetail(customer, props, wos, contacts) {
               <a href="https://airtable.com/appi09WiT6MFsy9zo/pag2FJ4z2iMo9sddP/form" target="_blank" rel="noopener"
                  style="display:block;margin-top:4px;color:#7a5a00;font-weight:700;text-decoration:underline;">→ Urgent HVAC Request</a>
             </div>
-          </div>` : '';
+          </div>`;
+        }
         const reschedBadge = wf['Reschedule Requested']
           ? `<span style="display:inline-block;background:#fff3cd;color:#7a5a00;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle;">🔄 Reschedule Requested</span>`
           : '';
@@ -6743,6 +6910,301 @@ async function submitKeyInPayment() {
     btn.textContent = 'Charge Card';
   }
 }
+
+// ── EA Projects ───────────────────────────────────────────────────────────────
+
+const EA_STATUS_COLOR = {
+  'Assigned':             { bg:'#f0f0f0', color:'#666' },
+  'Site Visit Scheduled': { bg:'#e3f0ff', color:'#1a4f8a' },
+  'SOW Draft':            { bg:'#e3f0ff', color:'#1a4f8a' },
+  'SOW Submitted':        { bg:'#e3f0ff', color:'#1a4f8a' },
+  'SOW Approved':         { bg:'#fff8e0', color:'#7a5500' },
+  'Customer Signed':      { bg:'#fff8e0', color:'#7a5500' },
+  'Installation Approved':{ bg:'#d4edda', color:'#155724' },
+  'In Progress':          { bg:'#d4edda', color:'#155724' },
+  'Complete':             { bg:'#c3e6cb', color:'#0d4a1f' },
+  'Closed':               { bg:'#f0f0f0', color:'#777' },
+};
+
+function _eaStatusBadge(status) {
+  const c = EA_STATUS_COLOR[status] || { bg:'#f0f0f0', color:'#666' };
+  return `<span class="badge" style="background:${c.bg};color:${c.color};">${esc(status || '—')}</span>`;
+}
+
+async function loadEAProjects() {
+  const listEl = document.getElementById('ea-list');
+  listEl.innerHTML = '<div style="padding:20px;text-align:center;"><span class="spinner"></span></div>';
+  try {
+    const records = await fetchAll('EA%20Projects',
+      'filterByFormula={Active}=1&sort[0][field]=Project%20Name&sort[0][direction]=asc');
+    _eaProjectsCache = records;
+    document.getElementById('ea-count').textContent = '(' + records.length + ')';
+    if (!records.length) {
+      listEl.innerHTML = '<div class="empty-list">No active EA projects</div>';
+      return;
+    }
+    listEl.innerHTML = records.map(r => {
+      const f = r.fields;
+      const status  = f['EA Status'] || '';
+      const total   = f['Total Rebate Available'] != null
+        ? '$' + Number(f['Total Rebate Available']).toLocaleString('en-US', {minimumFractionDigits:0,maximumFractionDigits:0})
+        : '';
+      const active = _selectedEAId === r.id ? ' active' : '';
+      return `<div class="cust-item${active}" onclick="selectEAProject('${r.id}')">
+        <div class="ci-name">${esc(f['Project Name'] || '(unnamed)')}</div>
+        <div class="ci-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">
+          ${f['EA Project Number'] ? `<span style="font-size:10px;font-weight:700;background:#e8f5e9;color:#1a6b35;border-radius:4px;padding:1px 6px;">${esc(f['EA Project Number'])}</span>` : ''}
+          ${status ? _eaStatusBadge(status) : ''}
+          ${total ? `<span style="font-size:11px;color:#555;">${total}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(err) {
+    listEl.innerHTML = `<div class="empty-list" style="color:#c81f25;">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+function selectEAProject(id) {
+  _selectedEAId = id;
+  // Re-highlight sidebar
+  document.querySelectorAll('#ea-list .cust-item').forEach(el => {
+    el.classList.toggle('active', el.getAttribute('onclick') === `selectEAProject('${id}')`);
+  });
+  const record = _eaProjectsCache.find(r => r.id === id);
+  if (record) renderEADetail(record);
+}
+
+function renderEADetail(record) {
+  const f = record.fields;
+  const status = f['EA Status'] || '';
+
+  // Rebate rows (only show measures > $0)
+  const rebateRows = [
+    { label:'HVAC Heat Pump',    val: f['HVAC Heat Pump Rebate'] },
+    { label:'Water Heater',      val: f['Water Heater Rebate'] },
+    { label:'Dryer',             val: f['Dryer Rebate'] },
+    { label:'Home Efficiency',   val: f['Home Efficiency Rebate'] },
+    { label:'Electrical Wiring', val: f['Electrical Wiring Rebate'] },
+    { label:'Electrical Panel',  val: f['Electrical Panel Rebate'] },
+  ].filter(row => row.val > 0);
+
+  const rebateTable = rebateRows.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
+      <tr style="border-bottom:2px solid #e8e8e8;">
+        <td style="padding:6px 0;font-weight:700;font-size:14px;">Total Rebate Available</td>
+        <td style="text-align:right;font-weight:700;font-size:16px;color:#1a6b35;">${f['Total Rebate Available'] != null ? '$' + Number(f['Total Rebate Available']).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+      </tr>
+      ${rebateRows.map(row => `<tr>
+        <td style="padding:5px 0;color:#555;">${esc(row.label)}</td>
+        <td style="text-align:right;color:#333;font-weight:600;">$${Number(row.val).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      </tr>`).join('')}
+    </table>` : (f['Total Rebate Available'] != null
+      ? `<div style="font-size:20px;font-weight:700;color:#1a6b35;">$${Number(f['Total Rebate Available']).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`
+      : '<div style="color:#bbb;font-size:13px;">No rebate amounts on file</div>');
+
+  // EA Actions
+  const actionBtns = [
+    f['SOW Form URL']           ? `<a class="btn btn-gray btn-sm" href="${escAttr(f['SOW Form URL'])}" target="_blank" rel="noopener">Open SOW Form ↗</a>` : '',
+    f['Project Update Form URL']? `<a class="btn btn-gray btn-sm" href="${escAttr(f['Project Update Form URL'])}" target="_blank" rel="noopener">Submit Project Update ↗</a>` : '',
+    f['Documents URL']          ? `<a class="btn btn-gray btn-sm" href="${escAttr(f['Documents URL'])}" target="_blank" rel="noopener">Open Documents ↗</a>` : '',
+  ].filter(Boolean).join(' ');
+
+  const woIds = f['Work Orders'] || [];
+
+  document.getElementById('ea-detail').innerHTML = `
+    <div class="cust-card" style="border-left:4px solid #1a6b35;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px;">
+        <div>
+          <div class="cust-card-name" style="margin-bottom:6px;">${esc(f['Project Name'] || '(unnamed)')}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            ${f['EA Project Number'] ? `<span style="font-size:12px;font-weight:700;background:#e8f5e9;color:#1a6b35;border-radius:5px;padding:2px 9px;">${esc(f['EA Project Number'])}</span>` : ''}
+            ${status ? _eaStatusBadge(status) : ''}
+          </div>
+        </div>
+        <button class="btn-edit" style="margin-top:4px;flex-shrink:0;" onclick="openEAModal(_eaProjectsCache.find(r=>r.id==='${record.id}'))">Edit</button>
+      </div>
+      <div class="cust-card-meta">
+        ${f['Project Coordinator'] ? `<span>👤 ${esc(f['Project Coordinator'])}</span>` : ''}
+        ${f['Customer AMI'] ? `<span>AMI: ${esc(f['Customer AMI'])}</span>` : ''}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Rebate Summary</div>
+      ${rebateTable}
+    </div>
+
+    ${f['Recommended Measures'] ? `<div class="section">
+      <div class="section-title">Recommended Measures</div>
+      <div style="font-size:13px;color:#333;line-height:1.6;white-space:pre-wrap;">${esc(f['Recommended Measures'])}</div>
+    </div>` : ''}
+
+    ${actionBtns ? `<div class="section">
+      <div class="section-title">EA Actions</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">${actionBtns}</div>
+    </div>` : ''}
+
+    <div class="section">
+      <div class="section-title">Update EA Status</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select class="form-inp" id="ea-status-sel" style="max-width:260px;">
+          ${['Assigned','Site Visit Scheduled','SOW Draft','SOW Submitted','SOW Approved','Customer Signed','Installation Approved','In Progress','Complete','Closed'].map(s => `<option${s===status?' selected':''}>${s}</option>`).join('')}
+        </select>
+        <button class="btn btn-green btn-sm" onclick="updateEAStatus('${record.id}')">Update Status</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Notes</div>
+      <textarea class="form-inp" id="ea-notes-inp" rows="4" placeholder="Internal notes…">${esc(f['Notes'] || '')}</textarea>
+      <div style="margin-top:8px;text-align:right;">
+        <button class="btn btn-gray btn-sm" onclick="saveEANotes('${record.id}')">Save Notes</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Linked Work Orders (${woIds.length})</div>
+      ${woIds.length ? `<div style="font-size:13px;color:#555;">${woIds.length} work order${woIds.length!==1?'s':''} linked</div>` : '<div style="color:#bbb;font-size:13px;">No work orders linked</div>'}
+    </div>`;
+}
+
+async function updateEAStatus(recordId) {
+  const newStatus = document.getElementById('ea-status-sel').value;
+  try {
+    const res = await fetch(`${PROXY}/EA%20Projects/${recordId}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ fields:{ 'EA Status': newStatus } })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    // Update cache
+    const idx = _eaProjectsCache.findIndex(r => r.id === recordId);
+    if (idx >= 0) {
+      _eaProjectsCache[idx].fields['EA Status'] = newStatus;
+      renderEADetail(_eaProjectsCache[idx]);
+    }
+    showToast('✓ EA Status updated to ' + newStatus);
+    // Re-render sidebar item
+    loadEAProjects();
+  } catch(err) {
+    showToast('Error: ' + err.message);
+  }
+}
+
+async function saveEANotes(recordId) {
+  const notes = document.getElementById('ea-notes-inp').value;
+  try {
+    const res = await fetch(`${PROXY}/EA%20Projects/${recordId}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ fields:{ 'Notes': notes } })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    const idx = _eaProjectsCache.findIndex(r => r.id === recordId);
+    if (idx >= 0) _eaProjectsCache[idx].fields['Notes'] = notes;
+    showToast('✓ Notes saved');
+  } catch(err) {
+    showToast('Error: ' + err.message);
+  }
+}
+
+function openEAModal(project = null) {
+  _eaModalRecordId = project?.id || null;
+  document.getElementById('ea-modal-title').textContent = project ? 'Edit EA Project' : 'New EA Project';
+  document.getElementById('ea-modal-sub').textContent = project ? (project.fields['Project Name'] || '') : 'Efficiency Arizona project details';
+  document.getElementById('ea-modal-error').style.display = 'none';
+
+  const f = project?.fields || {};
+  document.getElementById('ea-f-name').value         = f['Project Name'] || '';
+  document.getElementById('ea-f-number').value       = f['EA Project Number'] || '';
+  document.getElementById('ea-f-status').value       = f['EA Status'] || '';
+  document.getElementById('ea-f-coordinator').value  = f['Project Coordinator'] || '';
+  document.getElementById('ea-f-ami').value          = f['Customer AMI'] || '<80%';
+  document.getElementById('ea-f-rebate-total').value = f['Total Rebate Available'] != null ? f['Total Rebate Available'] : '';
+  document.getElementById('ea-f-rebate-hvac').value  = f['HVAC Heat Pump Rebate'] != null ? f['HVAC Heat Pump Rebate'] : '';
+  document.getElementById('ea-f-rebate-wh').value    = f['Water Heater Rebate'] != null ? f['Water Heater Rebate'] : '';
+  document.getElementById('ea-f-rebate-dryer').value = f['Dryer Rebate'] != null ? f['Dryer Rebate'] : '';
+  document.getElementById('ea-f-rebate-home').value  = f['Home Efficiency Rebate'] != null ? f['Home Efficiency Rebate'] : '';
+  document.getElementById('ea-f-rebate-wiring').value= f['Electrical Wiring Rebate'] != null ? f['Electrical Wiring Rebate'] : '';
+  document.getElementById('ea-f-rebate-panel').value = f['Electrical Panel Rebate'] != null ? f['Electrical Panel Rebate'] : '';
+  document.getElementById('ea-f-measures').value     = f['Recommended Measures'] || '';
+  document.getElementById('ea-f-sow-url').value      = f['SOW Form URL'] || '';
+  document.getElementById('ea-f-update-url').value   = f['Project Update Form URL'] || '';
+  document.getElementById('ea-f-docs-url').value     = f['Documents URL'] || '';
+  document.getElementById('ea-f-notes').value        = f['Notes'] || '';
+  document.getElementById('ea-f-active').checked     = f['Active'] !== false;
+
+  document.getElementById('ea-modal').classList.remove('hidden');
+}
+
+function closeEAModal() {
+  document.getElementById('ea-modal').classList.add('hidden');
+  _eaModalRecordId = null;
+}
+
+async function saveEAProject() {
+  const name   = (document.getElementById('ea-f-name').value || '').trim();
+  const number = (document.getElementById('ea-f-number').value || '').trim();
+  const errEl  = document.getElementById('ea-modal-error');
+  errEl.style.display = 'none';
+
+  if (!name)   { errEl.textContent = 'Project Name is required.';       errEl.style.display = ''; return; }
+  if (!number) { errEl.textContent = 'EA Project Number is required.';  errEl.style.display = ''; return; }
+
+  const btn = document.getElementById('ea-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const num = v => { const n = parseFloat(v); return isNaN(n) ? undefined : n; };
+  const fields = {
+    'Project Name':           name,
+    'EA Project Number':      number,
+    'EA Status':              document.getElementById('ea-f-status').value || undefined,
+    'Project Coordinator':    document.getElementById('ea-f-coordinator').value.trim() || undefined,
+    'Customer AMI':           document.getElementById('ea-f-ami').value || undefined,
+    'Recommended Measures':   document.getElementById('ea-f-measures').value.trim() || undefined,
+    'SOW Form URL':           document.getElementById('ea-f-sow-url').value.trim() || undefined,
+    'Project Update Form URL':document.getElementById('ea-f-update-url').value.trim() || undefined,
+    'Documents URL':          document.getElementById('ea-f-docs-url').value.trim() || undefined,
+    'Notes':                  document.getElementById('ea-f-notes').value.trim() || undefined,
+    'Active':                 document.getElementById('ea-f-active').checked,
+  };
+  const rebateFields = {
+    'Total Rebate Available':  num(document.getElementById('ea-f-rebate-total').value),
+    'HVAC Heat Pump Rebate':   num(document.getElementById('ea-f-rebate-hvac').value),
+    'Water Heater Rebate':     num(document.getElementById('ea-f-rebate-wh').value),
+    'Dryer Rebate':            num(document.getElementById('ea-f-rebate-dryer').value),
+    'Home Efficiency Rebate':  num(document.getElementById('ea-f-rebate-home').value),
+    'Electrical Wiring Rebate':num(document.getElementById('ea-f-rebate-wiring').value),
+    'Electrical Panel Rebate': num(document.getElementById('ea-f-rebate-panel').value),
+  };
+  Object.entries(rebateFields).forEach(([k,v]) => { if (v !== undefined) fields[k] = v; });
+  // Remove undefined keys
+  Object.keys(fields).forEach(k => { if (fields[k] === undefined) delete fields[k]; });
+
+  try {
+    const url    = _eaModalRecordId ? `${PROXY}/EA%20Projects/${_eaModalRecordId}` : `${PROXY}/EA%20Projects`;
+    const method = _eaModalRecordId ? 'PATCH' : 'POST';
+    const res    = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    const data   = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+
+    const savedId = data.id || _eaModalRecordId;
+    closeEAModal();
+    await loadEAProjects();
+    _selectedEAId = savedId;
+    const record = _eaProjectsCache.find(r => r.id === savedId);
+    if (record) renderEADetail(record);
+    showToast('✓ EA Project saved');
+  } catch(err) {
+    errEl.textContent = err.message; errEl.style.display = '';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Project';
+  }
+}
+
+// ── EA Projects — end ─────────────────────────────────────────────────────────
 
 init().then(() => {
   // Silently refresh dashboard data every 3 minutes

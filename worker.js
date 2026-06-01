@@ -44,7 +44,8 @@ let CALENDLY_TOKEN   = '';
 const ALLOWED_TABLES = [
   'Customers','Contacts','Properties','Equipment','Jobs',
   'Work Orders','Technicians','Product List',
-  'Maintenance Contracts','Invoices','Companies','Quotes','Follow-Ups'
+  'Maintenance Contracts','Invoices','Companies','Quotes','Follow-Ups',
+  'EA Projects'
 ];
 
 const EVENT_TYPE_MAP = {
