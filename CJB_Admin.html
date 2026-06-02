@@ -83,6 +83,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .btn-red   { background: #c81f25; color: #fff; }
 .btn-green { background: #1a6b35; color: #fff; }
 .btn-blue  { background: #1e40af; color: #fff; }
+.addon-pill { background:#f3f4f6;border:1px solid #e5e7eb;border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit;transition:all 0.1s; }
+.addon-pill.active { background:#1a6b35;color:#fff;border-color:#1a6b35; }
 .btn-gray  { background: #888; color: #fff; }
 .btn-sm    { padding: 6px 13px; font-size: 12px; }
 
@@ -1203,6 +1205,27 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div style="margin-bottom:14px;">
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#aaa;display:block;margin-bottom:6px;">Findings &amp; Recommendation</label>
       <textarea id="quote-description" class="notes-inp" rows="4" placeholder="Describe what the technician found and what work is recommended. This appears in the customer email and on their approval page."></textarea>
+    </div>
+
+    <!-- Install estimate templates -->
+    <div id="quote-template-section" style="margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#aaa;margin-bottom:8px;">Load Install Template</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="btn btn-gray btn-sm" onclick="loadEstimateTemplate('package')">📦 Package Unit</button>
+        <button class="btn btn-gray btn-sm" onclick="loadEstimateTemplate('split')">🌡️ Split System</button>
+        <button class="btn btn-gray btn-sm" style="color:#9ca3af;" onclick="document.getElementById('quote-template-section').style.display='none'">✕ Hide</button>
+      </div>
+      <div id="quote-addons" style="display:none;">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:600;">Optional Add-ons — tap to include:</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="addon-pill" data-label="Crane service" onclick="toggleAddon(this)">🏗️ Crane</button>
+          <button class="addon-pill" data-label="Scuttle / attic access" onclick="toggleAddon(this)">🪜 Scuttle access</button>
+          <button class="addon-pill" data-label="Electrical upgrade (100V → 230V)" onclick="toggleAddon(this)">⚡ Electrical upgrade</button>
+          <button class="addon-pill" data-label="Extended warranty" onclick="toggleAddon(this)">🛡️ Extended warranty</button>
+          <button class="addon-pill" data-label="Smart thermostat upgrade" onclick="toggleAddon(this)">🌡️ Smart thermostat upgrade</button>
+          <button class="addon-pill" data-label="Distance adjustment" onclick="toggleAddon(this)">📍 Distance adjustment</button>
+        </div>
+      </div>
     </div>
 
     <div class="li-table-wrap">
@@ -3297,6 +3320,11 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   document.getElementById('quote-notes').value = '';
   document.getElementById('quote-description').value = '';
   document.getElementById('quote-url-section').classList.add('hidden');
+  // Reset template section
+  document.getElementById('quote-template-section').style.display = '';
+  document.getElementById('quote-addons').style.display = 'none';
+  document.querySelectorAll('.addon-pill').forEach(p => { p.classList.remove('active'); });
+  Object.keys(_addonLineIdx).forEach(k => delete _addonLineIdx[k]);
   renderQuoteActions('loading');
 
   const wo = currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId);
@@ -3440,6 +3468,74 @@ function resetQuoteModal() {
   document.getElementById('quote-url-section').classList.add('hidden');
   addQuoteLi();
   renderQuoteActions('new');
+}
+
+// ── Install estimate templates ───────────────────────────────────────────────
+const ESTIMATE_TEMPLATES = {
+  package: [
+    { name: 'Package unit — equipment',       qty: 1, price: null },
+    { name: 'Disconnect box',                 qty: 1, price: null },
+    { name: 'Thermostat',                     qty: 1, price: null },
+    { name: 'Condenser pad / stand',          qty: 1, price: null },
+    { name: 'Refrigerant charge',             qty: 1, price: null },
+    { name: 'Installation labor (crew)',      qty: 1, price: 2500  },
+    { name: 'Permit',                         qty: 1, price: null },
+    { name: 'Old system removal & disposal',  qty: 1, price: null },
+    { name: 'Startup & commissioning',        qty: 1, price: null },
+  ],
+  split: [
+    { name: 'Outdoor unit / condenser',       qty: 1, price: null },
+    { name: 'Indoor unit / air handler',      qty: 1, price: null },
+    { name: 'Refrigerant line set',           qty: 1, price: null },
+    { name: 'Thermostat',                     qty: 1, price: null },
+    { name: 'Condenser pad',                  qty: 1, price: null },
+    { name: 'Refrigerant charge',             qty: 1, price: null },
+    { name: 'Installation labor (crew)',      qty: 1, price: 2500  },
+    { name: 'Permit',                         qty: 1, price: null },
+    { name: 'Old system removal & disposal',  qty: 1, price: null },
+    { name: 'Startup & commissioning',        qty: 1, price: null },
+  ]
+};
+
+// Track which addon line item indices are active so toggling removes the right row
+const _addonLineIdx = {};
+
+function loadEstimateTemplate(type) {
+  // Clear existing line items
+  document.getElementById('qli-body').innerHTML = '';
+  qliCount = 0;
+  // Reset addons
+  document.querySelectorAll('.addon-pill').forEach(p => {
+    p.classList.remove('active');
+    delete _addonLineIdx[p.dataset.label];
+  });
+  // Load template items
+  (ESTIMATE_TEMPLATES[type] || []).forEach(item => {
+    addQuoteLi(item.name, item.qty, item.price);
+  });
+  updateQuoteTotal();
+  // Show addons section
+  document.getElementById('quote-addons').style.display = '';
+}
+
+function toggleAddon(btn) {
+  const label = btn.dataset.label;
+  if (btn.classList.contains('active')) {
+    // Remove the line item for this addon
+    const idx = _addonLineIdx[label];
+    if (idx != null) {
+      const row = document.getElementById(`qli-${idx}`);
+      if (row) row.remove();
+      delete _addonLineIdx[label];
+    }
+    btn.classList.remove('active');
+  } else {
+    // Add a blank line item for this addon
+    addQuoteLi(label, 1, null);
+    _addonLineIdx[label] = qliCount - 1;
+    btn.classList.add('active');
+  }
+  updateQuoteTotal();
 }
 
 function addQuoteLi(name = '', qty = 1, price = null) {
