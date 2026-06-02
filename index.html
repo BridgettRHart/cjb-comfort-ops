@@ -2895,7 +2895,7 @@ async function activateJobScreen(record) {
     const count = currentWorkOrderEquipment.length;
     document.getElementById('active-unit-badge').textContent =
       count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
-    await renderActiveEquipmentList();
+    await renderActiveEquipmentList(true); // initial load — fetch jobs
     return;
   }
 
@@ -2931,7 +2931,7 @@ async function activateJobScreen(record) {
   const badgeText = count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
   document.getElementById('active-unit-badge').textContent = badgeText;
 
-  await renderActiveEquipmentList();
+  await renderActiveEquipmentList(true); // initial load — fetch jobs
 }
 
 async function resumeActiveJob() {
@@ -2944,22 +2944,18 @@ async function resumeActiveJob() {
 // Reads Job records from Airtable to determine unit status
 // No in-memory state — always reflects Airtable truth
 // ═══════════════════════════════════════════════════════════
-async function renderActiveEquipmentList() {
+async function renderActiveEquipmentList(refreshJobs = false) {
   const listEl = document.getElementById('active-equipment-list');
   if (!listEl) return;
 
   const woId = currentJob ? currentJob.id : null;
   const totalUnits = currentWorkOrderEquipment.length;
 
-  // Load existing Jobs for this Work Order from Airtable.
-  // Combines two sources of job IDs:
-  //   1. currentJob.fields['Jobs'] — linked job IDs as of when the WO was last fetched
-  //      (covers all jobs created in previous sessions, e.g. yesterday's completions)
-  //   2. _sessionJobIds — IDs of jobs created/patched in THIS session before currentJob
-  //      was refreshed (ensures just-completed units immediately show their checkmark)
-  // Fetches by RECORD_ID() so there's no dependency on field name matching.
-  let jobsByEquipment = {}; // equipmentId -> job record
-  if (woId && currentJob) {
+  // Only fetch jobs from Airtable when something job-related changed.
+  // Equipment adds and renames don't change job status — reuse the cache
+  // so those renders are instant with no network round-trip.
+  let jobsByEquipment = currentJobsByEquipment || {};
+  if (refreshJobs && woId && currentJob) {
     try {
       const knownIds = new Set([
         ...(currentJob.fields['Jobs'] || []),
@@ -2983,7 +2979,7 @@ async function renderActiveEquipmentList() {
         } while (offset);
         woJobs = all.filter(j => j.fields['Active'] !== false);
       }
-      // Map by equipment ID
+      jobsByEquipment = {};
       woJobs.forEach(j => {
         const eqLinks = j.fields['Equipment'];
         if (eqLinks && eqLinks.length > 0) {
@@ -3093,7 +3089,7 @@ async function renderActiveEquipmentList() {
 // ═══════════════════════
 function backToActive() {
   showScreen('active');
-  renderActiveEquipmentList().catch(() => {});
+  renderActiveEquipmentList(true).catch(() => {}); // job status may have changed
 }
 
 // WO Type options include values not valid for Jobs.Job Type (e.g. "Estimate Only", "Install Estimate").
@@ -3231,7 +3227,7 @@ async function executeSkip(eqId, eqName, reason) {
     const skippedJob = await apiPost('Jobs', jobFields);
     if (skippedJob && skippedJob.id) _sessionJobIds.add(skippedJob.id);
     showToast('Unit skipped', 'success');
-    await renderActiveEquipmentList();
+    await renderActiveEquipmentList(true); // job created — refresh
   } catch(err) {
     showToast('⚠ Could not skip unit', 'error');
   }
@@ -3243,7 +3239,7 @@ async function unskipUnit(eqId, jobId) {
     // Soft-delete: worker blocks DELETE, so mark the job inactive instead
     await apiPatch('Jobs', jobId, { Active: false });
     showToast('✓ Unskipped', 'success');
-    await renderActiveEquipmentList();
+    await renderActiveEquipmentList(true); // job deactivated — refresh
   } catch(err) {
     showToast('⚠ Could not undo skip', 'error');
   }
@@ -4102,7 +4098,7 @@ async function submitComplete() {
     btn.textContent = 'Save & Complete Unit';
     btn.disabled = false;
     btn.setAttribute('aria-busy', 'false');
-    await renderActiveEquipmentList();
+    await renderActiveEquipmentList(true); // job completed — refresh
 
   } catch (err) {
     console.error(err);
