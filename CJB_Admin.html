@@ -2630,6 +2630,9 @@ function renderDetail(customer, props, wos, contacts) {
           ${quoteBtn}
           ${approveOverrideBtn}
           ${invoiceBtn}
+          ${status === 'Inspection' || (wf['Work Order Type'] === 'Inspection' && !['Invoiced','Paid','Cancelled'].includes(status))
+            ? `<button class="btn btn-sm" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;" onclick="createInstallEstimate('${wo.id}')">→ Install Estimate</button>`
+            : ''}
         </div>`;
       }).join('')
     : '<div style="color:#bbb;font-size:13px;">No work orders found</div>';
@@ -3696,6 +3699,46 @@ async function submitQuote(sendNow) {
     alert('Error: ' + err.message);
     if (draftBtn) draftBtn.disabled = false;
     if (sendBtn)  { sendBtn.disabled = false; sendBtn.textContent = sendNow ? 'Send to Customer' : 'Save Draft'; }
+  }
+}
+
+async function createInstallEstimate(inspectionWoId) {
+  const inspWO = currentWorkOrders.find(w => w.id === inspectionWoId);
+  if (!inspWO) return;
+  const f = inspWO.fields;
+  const custIds = f['Customer'] || [];
+  const propIds = f['Property']  || [];
+  const custId  = custIds[0] || null;
+  if (!custId) { alert('No customer linked to this work order.'); return; }
+
+  try {
+    // Create a new Install Estimate WO linked to same customer + property
+    const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || 'Customer');
+    const newFields = {
+      'Work Order Name': `${custName} — Install Estimate`,
+      'Work Order Type': 'Install Estimate',
+      'Status':          'Scheduled',
+      'Active':           true,
+    };
+    if (custIds.length) newFields['Customer']  = custIds;
+    if (propIds.length) newFields['Property']  = propIds;
+    // Note the source inspection
+    newFields['Internal Notes'] = `From Inspection WO: ${f['Work Order ID'] || inspectionWoId}`;
+
+    const res  = await fetch(`${PROXY}/Work%20Orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: newFields })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || 'Failed to create WO');
+
+    showToast('✓ Install Estimate WO created');
+    // Refresh customer to show the new WO, then open quote modal
+    await selectCustomer(selectedCustomer.id);
+    openQuoteModal(data.id, custId);
+  } catch(err) {
+    alert('Error: ' + err.message);
   }
 }
 
