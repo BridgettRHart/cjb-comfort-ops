@@ -3151,6 +3151,9 @@ function openRenameOverlay(eqId, currentName) {
   _renameEqId = eqId;
   const inp = document.getElementById('rename-input');
   inp.value = currentName;
+  // Always reset button state — may be stuck from a previous save
+  const saveBtn = document.querySelector('#rename-overlay .btn.btn-dark');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
   const overlay = document.getElementById('rename-overlay');
   overlay.style.display = 'flex';
   setTimeout(() => inp.focus(), 80);
@@ -3179,6 +3182,7 @@ async function saveRename() {
     const idx = currentWorkOrderEquipment.findIndex(e => e.id === _renameEqId);
     if (idx !== -1) currentWorkOrderEquipment[idx].fields['Equipment Name'] = newName;
     if (selectedEquipmentId === _renameEqId) selectedEquipmentName = newName;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
     document.getElementById('rename-overlay').style.display = 'none';
     _renameEqId = null;
     await renderActiveEquipmentList().catch(() => {});
