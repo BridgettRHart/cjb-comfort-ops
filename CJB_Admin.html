@@ -3320,8 +3320,10 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   document.getElementById('quote-notes').value = '';
   document.getElementById('quote-description').value = '';
   document.getElementById('quote-url-section').classList.add('hidden');
-  // Reset template section
-  document.getElementById('quote-template-section').style.display = '';
+  // Show install templates only for Install Estimate or Estimate Only WO types
+  const woType = (currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId))?.fields?.['Work Order Type'] || '';
+  const showTemplates = ['Install Estimate', 'Estimate Only'].includes(woType);
+  document.getElementById('quote-template-section').style.display = showTemplates ? '' : 'none';
   document.getElementById('quote-addons').style.display = 'none';
   document.querySelectorAll('.addon-pill').forEach(p => { p.classList.remove('active'); });
   Object.keys(_addonLineIdx).forEach(k => delete _addonLineIdx[k]);
