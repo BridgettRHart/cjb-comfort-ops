@@ -5028,21 +5028,26 @@ async function showInstallEstimateScreen(record) {
   try {
     const woId = record.id;
 
-    // Fetch existing job and Stripe quote in parallel
-    const formula = encodeURIComponent(`AND({Work Order}="${woId}",OR({Status}="Complete",{Status}="In Progress"))`);
-    const [jobRes, woRefreshRes] = await Promise.all([
-      fetch(`${PROXY}/Jobs?filterByFormula=${formula}&maxRecords=1&sort[0][field]=Actual%20End&sort[0][direction]=desc`),
-      apiGet(`Work Orders/${woId}`)
-    ]);
+    // Fetch WO refresh first — its Jobs array gives us direct job record IDs
+    // (Airtable formula filters on linked fields match against the linked record's
+    //  display name, not its record ID, so filtering by record ID never works)
+    const woRefreshRes = await apiGet(`Work Orders/${woId}`);
+    const wf0 = woRefreshRes.fields || {};
 
-    const jobData = jobRes.ok ? await jobRes.json() : null;
-    const job = jobData && jobData.records && jobData.records[0];
+    // Walk the WO's linked Jobs from newest to oldest, find the first Complete/In Progress
+    const jobLinks = wf0['Jobs'] || [];
+    let job = null;
+    for (let i = jobLinks.length - 1; i >= 0; i--) {
+      try {
+        const j = await apiGet(`Jobs/${jobLinks[i]}`);
+        if (['Complete', 'In Progress'].includes(j.fields['Status'])) { job = j; break; }
+      } catch(e) { /* skip bad record */ }
+    }
     if (job) restoreIestFromJob(job);
 
     // Capture existing quote IDs for PATCH on re-save
-    const wf = woRefreshRes.fields || {};
-    const stripeQuoteId = wf['Stripe Quote ID'] || '';
-    const atQuoteLinks  = wf['Quotes'] || [];
+    const stripeQuoteId = wf0['Stripe Quote ID'] || '';
+    const atQuoteLinks  = wf0['Quotes'] || [];
     if (stripeQuoteId) {
       iestExistingStripeQuoteId    = stripeQuoteId;
       iestExistingAirtableQuoteId  = atQuoteLinks[0] || '';
