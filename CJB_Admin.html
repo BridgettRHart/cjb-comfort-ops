@@ -1213,6 +1213,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
         <button class="btn btn-gray btn-sm" onclick="loadEstimateTemplate('package')">📦 Package Unit</button>
         <button class="btn btn-gray btn-sm" onclick="loadEstimateTemplate('split')">🌡️ Split System</button>
+        <button class="btn btn-gray btn-sm" id="ea-template-btn" style="display:none;background:#1a6b35;color:#fff;border-color:#1a6b35;" onclick="loadEstimateTemplate('ea_hvac')">⚡ EA HVAC (Scope A)</button>
         <button class="btn btn-gray btn-sm" style="color:#9ca3af;" onclick="document.getElementById('quote-template-section').style.display='none'">✕ Hide</button>
       </div>
       <div id="quote-addons" style="display:none;">
@@ -1248,6 +1249,48 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="total-row">
       <span class="total-lbl">Estimated Total</span>
       <span class="total-amt" id="quote-total">$0.00</span>
+    </div>
+
+    <!-- EA Cash Flow Panel — only visible when EA template is loaded -->
+    <div id="quote-ea-cashflow" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:14px 16px;margin:12px 0;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#166534;margin-bottom:10px;">⚡ EA Cash Flow Analysis</div>
+      <div style="font-size:12px;color:#166534;margin-bottom:6px;" id="ea-cf-tier-label"></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #bbf7d0;">
+        <span style="color:#374151;">Total project cost</span>
+        <span id="ea-cf-total" style="font-weight:600;">$0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid #bbf7d0;">
+        <span style="color:#166534;">HEAR rebate</span>
+        <span id="ea-cf-rebate" style="font-weight:600;color:#166534;">-$0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;font-weight:700;border-bottom:2px solid #86efac;">
+        <span>Customer net cost</span>
+        <span id="ea-cf-net">$0.00</span>
+      </div>
+      <div style="background:#dcfce7;border-radius:6px;padding:10px 12px;margin-top:10px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#166534;margin-bottom:8px;">CJB Internal — Not Shown to Customer</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:3px 0;">
+          <span>Deposit % (of customer net cost)</span>
+          <span style="display:flex;align-items:center;gap:4px;">
+            <input type="number" id="ea-cf-deposit-pct" min="0" max="100" step="5" value="50"
+              style="width:46px;padding:2px 6px;border:1px solid #86efac;border-radius:4px;font-size:12px;text-align:right;"
+              oninput="updateEACashFlow()">%
+          </span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+          <span>Deposit collected upfront</span>
+          <span id="ea-cf-deposit" style="font-weight:600;">$0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+          <span>CJB upfront cash needed (day 1)</span>
+          <span id="ea-cf-upfront" style="font-weight:600;">$0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0 3px;border-top:1px solid #86efac;margin-top:6px;font-weight:700;">
+          <span style="color:#c81f25;">⚠ CJB floats until EA pays</span>
+          <span id="ea-cf-exposure" style="color:#c81f25;">$0.00</span>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px;">EA reimburses ~4–6 weeks after final paperwork approval</div>
+      </div>
     </div>
 
     <textarea class="notes-inp" id="quote-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
@@ -3311,6 +3354,7 @@ function closeModal() {
 // ── Quote / Estimate modal ────────────────────────────────────────────────
 let quoteWOId = null, quoteCustId = null, quoteStripeId = null;
 let quoteAirtableId = null, quoteStatus = 'new', qliCount = 0;
+let _eaProjectForQuote = null; // EA project linked to the WO being estimated
 let quoteApproveUrl = null;
 
 async function openQuoteModal(woId, custId, readOnly = false) {
@@ -3324,15 +3368,33 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   document.getElementById('quote-description').value = '';
   document.getElementById('quote-url-section').classList.add('hidden');
   // Show install templates only for Install Estimate or Estimate Only WO types
-  const woType = (currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId))?.fields?.['Work Order Type'] || '';
+  const wo = currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId);
+  const woType = wo?.fields?.['Work Order Type'] || '';
   const showTemplates = ['Install Estimate', 'Estimate Only'].includes(woType);
   document.getElementById('quote-template-section').style.display = showTemplates ? '' : 'none';
   document.getElementById('quote-addons').style.display = 'none';
+  document.getElementById('quote-ea-cashflow').style.display = 'none';
   document.querySelectorAll('.addon-pill').forEach(p => { p.classList.remove('active'); });
   Object.keys(_addonLineIdx).forEach(k => delete _addonLineIdx[k]);
-  renderQuoteActions('loading');
 
-  const wo = currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId);
+  // Detect linked EA project — show green EA template button if found
+  _eaProjectForQuote = null;
+  document.getElementById('ea-template-btn').style.display = 'none';
+  if (showTemplates && wo) {
+    const linkedEAIds = wo.fields['EA Projects'] || [];
+    if (linkedEAIds.length) {
+      _eaProjectForQuote = _eaProjectsCache.find(r => r.id === linkedEAIds[0]) || null;
+      if (!_eaProjectForQuote) {
+        try {
+          const eaRes = await fetch(`${PROXY}/EA%20Projects/${linkedEAIds[0]}`);
+          if (eaRes.ok) _eaProjectForQuote = await eaRes.json();
+        } catch(e) {}
+      }
+      if (_eaProjectForQuote) document.getElementById('ea-template-btn').style.display = '';
+    }
+  }
+
+  renderQuoteActions('loading');
   document.getElementById('quote-modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
   document.getElementById('quote-modal').classList.remove('hidden');
 
@@ -3499,6 +3561,23 @@ const ESTIMATE_TEMPLATES = {
     { name: 'Permit',                         qty: 1, price: null },
     { name: 'Old system removal & disposal',  qty: 1, price: null },
     { name: 'Startup & commissioning',        qty: 1, price: null },
+  ],
+  ea_hvac: [
+    { name: 'HVAC Heat Pump — Equipment (ENERGY STAR, model TBD)', qty: 1, price: null },
+    { name: 'Air handler / indoor unit',      qty: 1, price: null },
+    { name: 'Refrigerant line set',           qty: 1, price: null },
+    { name: 'Thermostat (ENERGY STAR programmable/smart)',         qty: 1, price: null },
+    { name: 'Condenser pad / riser',          qty: 1, price: null },
+    { name: 'Refrigerant charge',             qty: 1, price: null },
+    { name: 'Filter drier + p-trap',          qty: 1, price: null },
+    { name: 'Disconnect box',                 qty: 1, price: null },
+    { name: 'Installation labor (crew)',      qty: 1, price: 2500  },
+    { name: 'Manual J load calculation',      qty: 1, price: null },
+    { name: 'Gas line cap & seal',            qty: 1, price: null },
+    { name: 'Gas vent cap & seal',            qty: 1, price: null },
+    { name: 'Old system removal & recycling', qty: 1, price: null },
+    { name: 'HVAC permit fees',               qty: 1, price: null },
+    { name: 'Startup, commissioning & testing (nitrogen / vacuum / static / airflow)', qty: 1, price: null },
   ]
 };
 
@@ -3506,21 +3585,64 @@ const ESTIMATE_TEMPLATES = {
 const _addonLineIdx = {};
 
 function loadEstimateTemplate(type) {
-  // Clear existing line items
   document.getElementById('qli-body').innerHTML = '';
   qliCount = 0;
-  // Reset addons
   document.querySelectorAll('.addon-pill').forEach(p => {
     p.classList.remove('active');
     delete _addonLineIdx[p.dataset.label];
   });
-  // Load template items
   (ESTIMATE_TEMPLATES[type] || []).forEach(item => {
     addQuoteLi(item.name, item.qty, item.price);
   });
   updateQuoteTotal();
-  // Show addons section
   document.getElementById('quote-addons').style.display = '';
+  // Show EA cash flow panel only for EA template and when EA project is linked
+  const isEA = type === 'ea_hvac' && _eaProjectForQuote;
+  document.getElementById('quote-ea-cashflow').style.display = isEA ? '' : 'none';
+  if (isEA) updateEACashFlow();
+}
+
+function updateEACashFlow() {
+  if (!_eaProjectForQuote) return;
+  const panel = document.getElementById('quote-ea-cashflow');
+  if (!panel || panel.style.display === 'none') return;
+
+  const ef = _eaProjectForQuote.fields || {};
+  const ami = ef['Customer AMI'] || '<80%';
+  const tierPct = ami === '<80%' ? 1.0 : ami === '80-150%' ? 0.5 : 0;
+  const tierLabel = ami === '<80%'
+    ? 'Income tier: <80% AMI — 100% of cost covered up to rebate cap'
+    : ami === '80-150%'
+    ? 'Income tier: 80–150% AMI — 50% of cost covered up to rebate cap'
+    : 'Income tier: >150% AMI — Not eligible for rebates';
+
+  // Sum current line items
+  let subtotal = 0;
+  document.querySelectorAll('[id^="qli-"]').forEach(row => {
+    if (!row.id.match(/^qli-\d+$/)) return;
+    const idx = row.id.slice(4);
+    subtotal += (parseFloat(document.getElementById('qliq-' + idx)?.value) || 0) *
+                (parseFloat(document.getElementById('qlip-' + idx)?.value) || 0);
+  });
+
+  const rebateCap = Number(ef['HVAC Heat Pump Rebate'] || 8000);
+  const rebate    = tierPct > 0 ? Math.min(subtotal * tierPct, rebateCap) : 0;
+  const netCustomer = Math.max(0, subtotal - rebate);
+
+  const depositPct = parseFloat(document.getElementById('ea-cf-deposit-pct')?.value) || 0;
+  const depositAmt = netCustomer * (depositPct / 100);
+  const upfrontNeeded = Math.max(0, subtotal - depositAmt); // what CJB needs day 1
+  // CJB floats the rebate amount — that's what EA owes them, delayed 4-6+ weeks
+  const floatAmt = rebate;
+
+  const fmt = n => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('ea-cf-tier-label').textContent = tierLabel;
+  document.getElementById('ea-cf-total').textContent    = fmt(subtotal);
+  document.getElementById('ea-cf-rebate').textContent   = tierPct > 0 ? '-' + fmt(rebate) : 'Not eligible';
+  document.getElementById('ea-cf-net').textContent      = fmt(netCustomer);
+  document.getElementById('ea-cf-deposit').textContent  = fmt(depositAmt);
+  document.getElementById('ea-cf-upfront').textContent  = fmt(upfrontNeeded);
+  document.getElementById('ea-cf-exposure').textContent = fmt(floatAmt);
 }
 
 function toggleAddon(btn) {
@@ -3621,6 +3743,7 @@ function updateQuoteTotal() {
          (parseFloat(document.getElementById('qlip-' + idx)?.value) || 0);
   });
   document.getElementById('quote-total').textContent = '$' + t.toFixed(2);
+  updateEACashFlow(); // recalculate EA panel live as prices are entered
 }
 
 async function submitQuote(sendNow) {
