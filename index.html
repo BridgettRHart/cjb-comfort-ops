@@ -2342,7 +2342,7 @@ async function loadTodaysJobs() {
 
     // Fetch from Airtable — status filter only, no date filter in formula
     // (avoids DATETIME_FORMAT timezone complexity; date filtering done client-side below)
-    const formula = `AND(NOT({Status}="Cancelled"),NOT({Status}="Paid"),NOT({Status}="Invoiced"),NOT({Status}="Estimate Sent"),NOT({Status}="Estimate Approved"),NOT({Status}="Estimate Declined"),NOT({Work Order Type}="Estimate Only"))`;
+    const formula = `AND(NOT({Status}="Cancelled"),NOT({Status}="Paid"),NOT({Status}="Invoiced"),NOT({Status}="Estimate Sent"),NOT({Status}="Estimate Approved"),NOT({Status}="Estimate Declined"))`;
     const qs = `filterByFormula=${encodeURIComponent(formula)}&maxRecords=500&sort[0][field]=Scheduled%20Date&sort[0][direction]=asc`;
     // Second fetch: Invoiced WOs from the past 2 days forward so tech can collect payment on-site.
     // Uses DATEADD(TODAY(),-2,'days') as a UTC-safe lower bound; client-side filter narrows to today/week.
@@ -2515,7 +2515,15 @@ async function openJob(recordId) {
   try {
     const data = await apiGet(`Work Orders/${recordId}`);
     currentJob = data;
-    renderJobDetail(data);
+    let eaStatus = '';
+    if (data.fields['Efficiency Arizona Job'] && (data.fields['EA Projects'] || []).length > 0) {
+      try {
+        const eaId = data.fields['EA Projects'][0];
+        const eaData = await apiGet(`EA Projects/${eaId}`);
+        eaStatus = eaData.fields['EA Status'] || '';
+      } catch(e) { /* non-fatal — show panel without status */ }
+    }
+    renderJobDetail(data, eaStatus);
   } catch (err) {
     content.innerHTML = `<div class="empty-state"><h3>Could not load job</h3><p>${escHtml(err.message)}</p></div>`;
   }
@@ -2547,7 +2555,8 @@ async function updateStatus(recordId, newStatus) {
   }
 }
 
-function renderJobDetail(record) {
+function renderJobDetail(record, eaStatus) {
+  eaStatus = eaStatus || '';
   const f = record.fields;
   const content = document.getElementById('detail-content');
   const status = f['Status'] || 'Scheduled';
@@ -2556,6 +2565,7 @@ function renderJobDetail(record) {
   const city = f['City'] || '';
   const addressFull = [address, city].filter(Boolean).join(', ');
   const jobType = f['Work Order Type'] || 'Service';
+  const isEstimateType = ['Install Estimate', 'Estimate Only'].includes(jobType);
   const notes = f['Notes'] || f['Problem Description'] || '';
   const contact = f['Contact Name'] || f['Primary Contact Name'] || '';
   const contactPhone = f['Contact Phone'] || '';
@@ -2578,35 +2588,43 @@ function renderJobDetail(record) {
 
   let statusBtn = '';
   if (status === 'Scheduled') {
-    statusBtn = `<button class="btn btn-red btn-full" onclick="updateStatus('${record.id}', 'In Progress')" aria-label="Start job and mark as In Progress">
-      ▶ Start Job — Mark In Progress
+    const startLabel = isEstimateType ? '▶ Start Site Visit — Mark In Progress' : '▶ Start Job — Mark In Progress';
+    statusBtn = `<button class="btn btn-red btn-full" onclick="updateStatus('${record.id}', 'In Progress')" aria-label="${startLabel}">
+      ${startLabel}
     </button>`;
   } else if (['In Progress','Estimate Sent','Estimate Approved','Estimate Declined'].includes(status)) {
-    statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="Continue working on this job">
-      ▶ Continue Job — View Units
+    const continueLabel = isEstimateType ? '▶ Continue Site Visit — Enter Findings' : '▶ Continue Job — View Units';
+    statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="${continueLabel}">
+      ${continueLabel}
     </button>`;
   } else if (['Complete','Invoiced','Paid'].includes(status)) {
-    const invoiceUrl = extractInvoiceUrl(f['Internal Notes'] || '');
-    const totalAmt   = f['Total Amount'] ? `$${Number(f['Total Amount']).toFixed(2)}` : '';
-    const custName   = f['Customer Name'] || 'Customer';
-    if (status === 'Paid') {
-      statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
-        ✅ Paid — Thank you!
-      </div>`;
-    } else if (invoiceUrl) {
-      statusBtn = `<div style="text-align:center;padding:10px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Visit Complete</div>
-        <button class="btn-collect-payment" onclick="openPaymentOverlay('${escAttr(invoiceUrl)}','${escAttr(custName)}','${escAttr(totalAmt)}','${record.id}')">
-          💳 &nbsp;Collect Payment
-        </button>`;
+    if (isEstimateType) {
+      statusBtn = `<div style="text-align:center;padding:12px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Notes Saved — Office reviewing</div>
+        <button class="btn btn-red btn-full" style="margin-top:8px;" onclick="resumeActiveJob()">Edit Findings</button>`;
     } else {
-      statusBtn = `<div style="text-align:center;padding:10px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Visit Complete</div>
-        <button class="btn-check-invoice" onclick="checkForInvoice('${record.id}','${escAttr(custName)}','${escAttr(totalAmt)}')">
-          ↻ &nbsp;Check for Invoice
-        </button>`;}
-
+      const invoiceUrl = extractInvoiceUrl(f['Internal Notes'] || '');
+      const totalAmt   = f['Total Amount'] ? `$${Number(f['Total Amount']).toFixed(2)}` : '';
+      const custName   = f['Customer Name'] || 'Customer';
+      if (status === 'Paid') {
+        statusBtn = `<div style="text-align:center;padding:14px;color:var(--success);font-weight:700;font-size:15px;" role="status">
+          ✅ Paid — Thank you!
+        </div>`;
+      } else if (invoiceUrl) {
+        statusBtn = `<div style="text-align:center;padding:10px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Visit Complete</div>
+          <button class="btn-collect-payment" onclick="openPaymentOverlay('${escAttr(invoiceUrl)}','${escAttr(custName)}','${escAttr(totalAmt)}','${record.id}')">
+            💳 &nbsp;Collect Payment
+          </button>`;
+      } else {
+        statusBtn = `<div style="text-align:center;padding:10px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Visit Complete</div>
+          <button class="btn-check-invoice" onclick="checkForInvoice('${record.id}','${escAttr(custName)}','${escAttr(totalAmt)}')">
+            ↻ &nbsp;Check for Invoice
+          </button>`;
+      }
+    }
   } else {
-    statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="Continue working on this job">
-      ▶ Continue Job — View Units
+    const continueLabel = isEstimateType ? '▶ Continue Site Visit — Enter Findings' : '▶ Continue Job — View Units';
+    statusBtn = `<button class="btn btn-red btn-full" onclick="resumeActiveJob()" aria-label="${continueLabel}">
+      ${continueLabel}
     </button>`;
   }
 
@@ -2688,20 +2706,24 @@ function renderJobDetail(record) {
       </div>
     </div>
 
-    ${f['Efficiency Arizona Job'] ? `
-    <div class="detail-section" style="border:1.5px solid #1a6b35;padding:12px 16px;margin:0 0 12px;">
-      <div class="detail-section-header" style="color:#1a6b35;margin-bottom:10px;">⚡ Efficiency Arizona</div>
-      <a href="https://airtable.com/appi09WiT6MFsy9zo/pagVVSoydYr6mRK1X/form" target="_blank" rel="noopener"
-         class="btn btn-outline btn-full"
-         style="margin-bottom:8px;border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
-        📋 Quality Install Report
-      </a>
-      <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener"
-         class="btn btn-outline btn-full"
-         style="border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
-        📝 Project Updates
-      </a>
-    </div>` : ''}
+    ${f['Efficiency Arizona Job'] ? (() => {
+      const eaInstallStatuses = ['Installation Approved','In Progress','Complete','Closed'];
+      const showEAForms = eaInstallStatuses.includes(eaStatus);
+      return `<div class="detail-section" style="border:1.5px solid #1a6b35;padding:12px 16px;margin:0 0 12px;">
+        <div class="detail-section-header" style="color:#1a6b35;margin-bottom:10px;">⚡ Efficiency Arizona${eaStatus ? ' — ' + eaStatus : ''}</div>
+        ${showEAForms ? `
+        <a href="https://airtable.com/appi09WiT6MFsy9zo/pagVVSoydYr6mRK1X/form" target="_blank" rel="noopener"
+           class="btn btn-outline btn-full"
+           style="margin-bottom:8px;border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
+          📋 Quality Install Report
+        </a>
+        <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener"
+           class="btn btn-outline btn-full"
+           style="border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
+          📝 Project Updates
+        </a>` : `<div style="font-size:12px;color:#555;padding:2px 0;">Site visit / estimate stage — install forms available after Installation Approved.</div>`}
+      </div>`;
+    })() : ''}
 
     <div class="bottom-pad"></div>
   `;
@@ -2847,7 +2869,7 @@ async function sendOnMyWay() {
 async function activateJobScreen(record) {
   _sessionJobIds = new Set(); // reset for new job context
   const woType = record.fields['Work Order Type'] || '';
-  if (woType === 'Install Estimate') {
+  if (woType === 'Install Estimate' || woType === 'Estimate Only') {
     await showInstallEstimateScreen(record);
     return;
   }
@@ -2919,9 +2941,12 @@ async function activateJobScreen(record) {
   const merged = [...allPropertyEquipment, ...custNoProperty.filter(e => !seen.has(e.id))];
 
   // Specific Unit mode: show only the linked unit if one is set
+  // Property-Wide mode: hide equipment list entirely — complete visit as one action
   const serviceMode = (f['Service Mode'] || '').toLowerCase().trim();
   const specificEqLinks = f['Specific Equipment'];
-  if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
+  if (serviceMode === 'property-wide') {
+    currentWorkOrderEquipment = [];
+  } else if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
     currentWorkOrderEquipment = merged.filter(eq => specificEqLinks.includes(eq.id));
   } else {
     currentWorkOrderEquipment = merged;
@@ -4959,8 +4984,14 @@ async function showInstallEstimateScreen(record) {
   currentJob = record;
   const f = record.fields;
   const customer = f['Customer Name'] || 'Customer';
+  const woTypeLabel = f['Work Order Type'] === 'Estimate Only' ? 'Estimate Only' : 'Install Estimate';
 
   document.getElementById('iest-customer-name').textContent = customer;
+  // Update screen title badge to reflect actual WO type
+  const titleEl = document.querySelector('#screen-install-estimate span[style*="Barlow Condensed"]');
+  if (titleEl) titleEl.textContent = woTypeLabel;
+  const subtitleEl = document.querySelector('#screen-install-estimate div[style*="rgba(255,255,255,0.85)"]');
+  if (subtitleEl) subtitleEl.textContent = woTypeLabel;
 
   // Clear form fields
   document.getElementById('iest-notes').value = '';
@@ -5160,8 +5191,9 @@ async function submitInstallEstimate() {
     // Create Job record
     const f = currentJob.fields;
     const customer = f['Customer Name'] || 'Customer';
+    const woTypeForJob = f['Work Order Type'] || 'Install Estimate';
     const jobFields = {
-      'Job Name': `${customer} — Install Estimate`,
+      'Job Name': `${customer} — ${woTypeForJob}`,
       'Work Order': [currentJob.id],
       'Job Type': 'Inspection',
       'Status': 'Complete',
