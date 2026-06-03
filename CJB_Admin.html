@@ -1909,7 +1909,7 @@ function renderDashboard(wos, fuRecords, contracts) {
           const isEstimateType = estimateTypes.includes(f['Work Order Type'] || '');
           const invBtn = status === 'Complete'
             ? (isEstimateType
-                ? `<button class="btn btn-blue btn-sm" onclick="dashGoCustomer('${w.id}')">Build Estimate</button>`
+                ? `<button class="btn btn-blue btn-sm" onclick="dashBuildEstimate('${w.id}')">Build Estimate</button>`
                 : hasDraftId(w)
                   ? `<button class="btn btn-gray btn-sm" onclick="dashInvoice('${w.id}')">Edit Draft</button>`
                   : `<button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>`)
@@ -1941,7 +1941,7 @@ function renderDashboard(wos, fuRecords, contracts) {
             <div class="inv-name">${esc(f['Customer Name'] || f['Work Order Name'] || '(unnamed)')}</div>
             <div class="inv-meta">${esc(fmtDate(f['Scheduled Date']))}${f['Work Order Type'] ? ' · ' + f['Work Order Type'] : ''}</div>
           </div>
-          <button class="btn btn-blue btn-sm" onclick="dashGoCustomer('${w.id}')">Build Estimate</button>
+          <button class="btn btn-blue btn-sm" onclick="dashBuildEstimate('${w.id}')">Build Estimate</button>
         </div>`;
       }).join('')}
   </div>` : '';
@@ -2060,6 +2060,22 @@ async function dashInvoice(woId) {
   selectedCustomer  = cust;
   currentWorkOrders = [wo];
   openInvoiceModal(woId, cust.id);
+}
+
+// Open quote modal directly from dashboard (handles existing or new estimate)
+async function dashBuildEstimate(woId) {
+  const wo = _dashWOs?.find(w => w.id === woId);
+  if (!wo) return;
+  const custName = Array.isArray(wo.fields['Customer Name'])
+    ? wo.fields['Customer Name'][0] : wo.fields['Customer Name'];
+  const cust = allCustomers.find(c => c.fields['Customer Name'] === custName);
+  if (!cust) {
+    alert('Customer record not found. Open from the Customers tab instead.');
+    return;
+  }
+  selectedCustomer  = cust;
+  currentWorkOrders = [wo];
+  openQuoteModal(woId, cust.id);
 }
 
 // Jump to customer record from dashboard
