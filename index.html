@@ -2034,9 +2034,53 @@
       <div id="iest-total-row" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--charcoal);margin-top:10px;">Estimated Total: $0.00</div>
     </div>
 
-    <!-- Submit -->
-    <button id="iest-submit-btn" class="btn btn-red" style="width:100%;font-size:17px;padding:14px;" onclick="submitInstallEstimate()">💾 Save Draft</button>
-    <div style="text-align:center;font-size:12px;color:var(--gray-text);margin-top:8px;">Saves as Stripe Quote draft — office reviews and sends from admin.</div>
+    <!-- Action section — state managed by showIestState() -->
+    <div id="iest-action-section" style="margin-top:4px;">
+
+      <!-- State: initial -->
+      <div id="iest-state-initial">
+        <div style="display:flex;gap:10px;margin-bottom:8px;">
+          <button id="iest-save-btn" class="btn btn-outline" style="flex:1;font-size:15px;padding:14px;" onclick="saveIestDraft()">💾 Save Draft</button>
+          <button id="iest-send-btn" class="btn btn-red" style="flex:1;font-size:15px;padding:14px;" onclick="sendIestToCustomer()">📋 Send to Customer</button>
+        </div>
+        <div style="text-align:center;font-size:12px;color:var(--gray-text);">Draft saves for office review · Send emails estimate to customer</div>
+      </div>
+
+      <!-- State: awaiting approval -->
+      <div id="iest-state-awaiting" style="display:none;background:white;border-radius:var(--radius);padding:20px;text-align:center;">
+        <div style="font-size:15px;font-weight:700;color:var(--charcoal);margin-bottom:4px;">⏳ Awaiting customer approval…</div>
+        <div style="font-size:12px;color:var(--gray-text);margin-bottom:16px;">Show the QR code or share the link</div>
+        <img id="iest-qr" src="" alt="QR code" style="width:180px;height:180px;border-radius:8px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">
+        <a id="iest-link" href="#" target="_blank" style="display:block;font-size:11px;color:var(--red);word-break:break-all;margin-bottom:12px;"></a>
+        <button class="btn btn-outline" style="width:100%;font-size:14px;" onclick="iestCopyLink()">📋 Copy Link</button>
+      </div>
+
+      <!-- State: approved — Install Estimate (schedule install) -->
+      <div id="iest-state-approved-install" style="display:none;background:var(--success-bg);border-radius:var(--radius);padding:20px;text-align:center;">
+        <div style="font-size:28px;margin-bottom:8px;">✅</div>
+        <div style="font-size:16px;font-weight:700;color:var(--success);margin-bottom:6px;">Customer Approved!</div>
+        <div style="font-size:13px;color:var(--gray-text);margin-bottom:20px;">Bridgett will schedule the installation.</div>
+        <button class="btn btn-red" style="width:100%;font-size:16px;padding:14px;" onclick="iestFinishVisit()">✓ Finish Visit</button>
+      </div>
+
+      <!-- State: approved — Estimate Only (start repair or schedule later) -->
+      <div id="iest-state-approved-repair" style="display:none;background:var(--success-bg);border-radius:var(--radius);padding:20px;text-align:center;">
+        <div style="font-size:28px;margin-bottom:8px;">✅</div>
+        <div style="font-size:16px;font-weight:700;color:var(--success);margin-bottom:6px;">Customer Approved!</div>
+        <div style="font-size:13px;color:var(--gray-text);margin-bottom:20px;">Do the repair now or schedule for later?</div>
+        <button class="btn btn-red" style="width:100%;font-size:16px;padding:14px;margin-bottom:10px;" onclick="iestStartRepair()">🔧 Start Repair Now</button>
+        <button class="btn btn-outline" style="width:100%;font-size:15px;padding:12px;" onclick="iestScheduleLater()">📅 Schedule for Later</button>
+      </div>
+
+      <!-- State: declined -->
+      <div id="iest-state-declined" style="display:none;background:#fef2f2;border-radius:var(--radius);padding:20px;text-align:center;">
+        <div style="font-size:28px;margin-bottom:8px;">❌</div>
+        <div style="font-size:15px;font-weight:700;color:var(--red);margin-bottom:6px;">Estimate Declined</div>
+        <div style="font-size:13px;color:var(--gray-text);margin-bottom:20px;">Note any feedback and close out the visit.</div>
+        <button class="btn btn-outline" style="width:100%;font-size:15px;padding:12px;" onclick="iestFinishVisit()">Close Visit</button>
+      </div>
+
+    </div><!-- /iest-action-section -->
   </div>
 </div>
 
@@ -2106,6 +2150,9 @@ let iestPhotoUrls = [];      // Already-uploaded R2 URLs
 let iestUrgency = '';
 let iestExistingStripeQuoteId = '';   // set when editing an existing quote
 let iestExistingAirtableQuoteId = ''; // set when editing an existing quote
+let iestEstimateUrl = '';             // approve URL shown as QR after sending
+let iestPollInterval = null;          // approval polling timer
+let _estimateApprovedRepair = false;  // true when Estimate Only → Start Repair tapped
 
 // ═══════════════════════
 // STATE
@@ -2510,6 +2557,7 @@ function buildJobCard(record) {
 // JOB DETAIL
 // ═══════════════════════
 async function openJob(recordId) {
+  _estimateApprovedRepair = false; // reset any prior repair-from-estimate session
   showScreen('detail');
   const content = document.getElementById('detail-content');
   content.innerHTML = '<div class="loading-state" role="status"><div class="spinner" aria-hidden="true"></div><div>Loading job...</div></div>';
@@ -3673,9 +3721,9 @@ function openCompleteForm() {
   // Reset repairs toggle to No
   repairsNeeded = false;
   stopApprovalPolling();
-  // Show/hide estimate panel based on contract visit status
+  // Show/hide estimate panel based on contract visit status or prior estimate approval
   const estimateSec = document.getElementById('estimate-unit-section');
-  if (estimateSec) estimateSec.style.display = isContractVisit ? 'none' : '';
+  if (estimateSec) estimateSec.style.display = (isContractVisit || _estimateApprovedRepair) ? 'none' : '';
   unitEstimateUrl = '';
   document.getElementById('repairs-no-btn').classList.add('active');
   document.getElementById('repairs-yes-btn').classList.remove('active');
@@ -5010,9 +5058,10 @@ async function showInstallEstimateScreen(record) {
   document.getElementById('iest-line-items').innerHTML = '';
   document.getElementById('iest-total-row').textContent = 'Estimated Total: $0.00';
   document.querySelectorAll('#iest-urgency-selector .urgency-btn').forEach(b => b.classList.remove('active'));
-  const submitBtn = document.getElementById('iest-submit-btn');
-  submitBtn.textContent = '💾 Save Draft';
-  submitBtn.disabled = false;
+  const saveBtn = document.getElementById('iest-save-btn');
+  const sendBtnEl = document.getElementById('iest-send-btn');
+  if (saveBtn)   { saveBtn.textContent = '💾 Save Draft'; saveBtn.disabled = false; }
+  if (sendBtnEl) { sendBtnEl.textContent = '📋 Send to Customer'; sendBtnEl.disabled = false; }
 
   // Reset state
   iestLineItems = [];
@@ -5021,8 +5070,16 @@ async function showInstallEstimateScreen(record) {
   iestUrgency = '';
   iestExistingStripeQuoteId = '';
   iestExistingAirtableQuoteId = '';
+  iestEstimateUrl = '';
+  stopIestPolling();
+
+  // Hide "Send to Customer" for EA-linked WOs — office handles sending after adding EA scope
+  const isEAJob = !!(f['Efficiency Arizona Job']);
+  const sendBtn = document.getElementById('iest-send-btn');
+  if (sendBtn) sendBtn.style.display = isEAJob ? 'none' : '';
 
   showScreen('install-estimate');
+  showIestState('initial');
 
   // Restore existing job data + line items if a prior estimate exists for this WO
   try {
@@ -5068,7 +5125,25 @@ async function showInstallEstimateScreen(record) {
       } catch(e) { /* non-fatal — show blank line items */ }
     }
 
-    if (job || stripeQuoteId) submitBtn.textContent = '💾 Update Draft';
+    if (job || stripeQuoteId) {
+      const saveBtn2 = document.getElementById('iest-save-btn');
+      if (saveBtn2) saveBtn2.textContent = '💾 Update Draft';
+    }
+
+    // Restore send/approval state if WO is already mid-flow
+    const woStatus = wf0['Status'] || '';
+    const quoteUrl = wf0['Stripe Quote URL'] || '';
+    if (woStatus === 'Estimate Sent' && quoteUrl) {
+      iestEstimateUrl = quoteUrl;
+      _iestSetQR(quoteUrl);
+      showIestState('awaiting');
+      startIestPolling(woId);
+    } else if (woStatus === 'Estimate Approved') {
+      const woType = f['Work Order Type'] || '';
+      showIestState(woType === 'Estimate Only' ? 'approved-repair' : 'approved-install');
+    } else if (woStatus === 'Estimate Declined') {
+      showIestState('declined');
+    }
   } catch(e) { /* non-fatal — fresh form is fine */ }
 }
 
@@ -5259,74 +5334,148 @@ function closeIestPicker() {
   document.getElementById('iest-picker-overlay').style.display = 'none';
 }
 
-async function submitInstallEstimate() {
-  const btn = document.getElementById('iest-submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
+// ── Shared helper: build description string from current form values ──────────
+function _iestBuildDesc() {
+  const notes   = document.getElementById('iest-notes').value.trim();
+  const sqft    = document.getElementById('iest-sqft').value.trim();
+  const zones   = document.getElementById('iest-zones').value.trim();
+  const ceiling = document.getElementById('iest-ceiling').value.trim();
+  const access  = document.getElementById('iest-access').value.trim();
+  const eqType  = document.getElementById('iest-eq-type').value.trim();
+  const eqAge   = document.getElementById('iest-eq-age').value.trim();
+  const cond    = (document.querySelector('input[name="iest-condition"]:checked') || {}).value || '';
+  const issues  = document.getElementById('iest-issues').value.trim();
+
+  let desc = '';
+  if (iestUrgency)  desc += `Urgency: ${iestUrgency}\n\n`;
+  if (notes)        desc += `Site Notes: ${notes}\n\n`;
+  const meas = [];
+  if (sqft)    meas.push(`${sqft} sq ft`);
+  if (zones)   meas.push(`${zones} zones`);
+  if (ceiling) meas.push(`${ceiling}ft ceilings`);
+  if (access)  meas.push(`Access: ${access}`);
+  if (meas.length) desc += `Measurements: ${meas.join(' | ')}\n\n`;
+  const sys = [];
+  if (eqType) sys.push(eqType);
+  if (eqAge)  sys.push(`${eqAge} yrs`);
+  if (cond)   sys.push(cond);
+  if (sys.length) desc += `Existing System: ${sys.join(' · ')}\n`;
+  if (issues) desc += `Issues: ${issues}\n`;
+  return desc.trim();
+}
+
+// ── Set QR code + link for the awaiting state ─────────────────────────────────
+function _iestSetQR(url) {
+  const qr   = document.getElementById('iest-qr');
+  const link = document.getElementById('iest-link');
+  if (qr)   { qr.src = url ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}` : ''; }
+  if (link) { link.href = url; link.textContent = url; }
+}
+
+// ── State switcher ────────────────────────────────────────────────────────────
+function showIestState(state) {
+  ['initial','awaiting','approved-install','approved-repair','declined'].forEach(s => {
+    const el = document.getElementById('iest-state-' + s);
+    if (el) el.style.display = (s === state) ? '' : 'none';
+  });
+}
+
+// ── Approval polling ──────────────────────────────────────────────────────────
+function startIestPolling(woId) {
+  stopIestPolling();
+  let polls = 0;
+  iestPollInterval = setInterval(async () => {
+    polls++;
+    if (polls > 72) { stopIestPolling(); return; } // 6-min max
+    try {
+      const data   = await apiGet(`Work Orders/${woId}`);
+      const status = data.fields['Status'];
+      if (status === 'Estimate Approved') {
+        stopIestPolling();
+        const woType = (currentJob?.fields['Work Order Type'] || '');
+        showIestState(woType === 'Estimate Only' ? 'approved-repair' : 'approved-install');
+        showToast('✅ Customer approved!', 'success');
+      } else if (status === 'Estimate Declined') {
+        stopIestPolling();
+        showIestState('declined');
+        showToast('Estimate declined', '');
+      }
+    } catch(e) { /* ignore poll errors */ }
+  }, 5000);
+}
+
+function stopIestPolling() {
+  if (iestPollInterval) { clearInterval(iestPollInterval); iestPollInterval = null; }
+}
+
+// ── Copy approve link to clipboard ───────────────────────────────────────────
+function iestCopyLink() {
+  if (!iestEstimateUrl) return;
+  navigator.clipboard.writeText(iestEstimateUrl)
+    .then(() => showToast('✓ Link copied', 'success'))
+    .catch(() => showToast('Select and copy the link manually', 'error'));
+}
+
+// ── Save Draft ────────────────────────────────────────────────────────────────
+async function saveIestDraft() {
+  const btn = document.getElementById('iest-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   try {
-    // Gather field values
-    const notes = document.getElementById('iest-notes').value.trim();
-    const sqft = document.getElementById('iest-sqft').value.trim();
-    const zones = document.getElementById('iest-zones').value.trim();
-    const ceiling = document.getElementById('iest-ceiling').value.trim();
-    const access = document.getElementById('iest-access').value.trim();
-    const eqType = document.getElementById('iest-eq-type').value.trim();
-    const eqAge = document.getElementById('iest-eq-age').value.trim();
-    const conditionRadio = document.querySelector('input[name="iest-condition"]:checked');
-    const condition = conditionRadio ? conditionRadio.value : '';
-    const issues = document.getElementById('iest-issues').value.trim();
+    const desc = _iestBuildDesc();
 
-    // Build description
-    let desc = '';
-    if (iestUrgency) desc += `Urgency: ${iestUrgency}\n\n`;
-    if (notes) desc += `Site Notes: ${notes}\n\n`;
-    const measParts = [];
-    if (sqft) measParts.push(`${sqft} sq ft`);
-    if (zones) measParts.push(`${zones} zones`);
-    if (ceiling) measParts.push(`${ceiling}ft ceilings`);
-    if (access) measParts.push(`Access: ${access}`);
-    if (measParts.length) desc += `Measurements: ${measParts.join(' | ')}\n\n`;
-    const sysParts = [];
-    if (eqType) sysParts.push(eqType);
-    if (eqAge) sysParts.push(`${eqAge} yrs`);
-    if (condition) sysParts.push(condition);
-    if (sysParts.length) desc += `Existing System: ${sysParts.join(' · ')}\n`;
-    if (issues) desc += `Issues: ${issues}\n`;
-
-    // Upload photos
-    let photoUrlStr = '';
+    // Upload any new photos
+    let photoUrlStr = iestPhotoUrls.join('\n'); // already-uploaded from prior save
     if (iestPhotoFiles.length) {
       const allUrls = [];
       for (const file of iestPhotoFiles) {
-        const fd = new FormData();
-        fd.append('image', file);
+        const fd  = new FormData(); fd.append('image', file);
         const res = await fetch(`${PROXY}/upload-photo`, { method: 'POST', body: fd });
-        const data = await res.json();
-        if (data.urls) allUrls.push(...data.urls);
+        const d   = await res.json();
+        if (d.urls) allUrls.push(...d.urls);
       }
-      iestPhotoUrls = allUrls;
-      photoUrlStr = allUrls.join('\n');
+      iestPhotoUrls = [...iestPhotoUrls, ...allUrls];
+      iestPhotoFiles = [];
+      photoUrlStr = iestPhotoUrls.join('\n');
     }
 
-    // Create Job record
-    const f = currentJob.fields;
-    const customer = f['Customer Name'] || 'Customer';
+    const f           = currentJob.fields;
+    const customer    = f['Customer Name'] || 'Customer';
     const woTypeForJob = f['Work Order Type'] || 'Install Estimate';
-    const jobFields = {
-      'Job Name': `${customer} — ${woTypeForJob}`,
-      'Work Order': [currentJob.id],
-      'Job Type': 'Inspection',
-      'Status': 'Complete',
-      'Problem Description': desc.trim(),
+    const jobFields   = {
+      'Job Name':          `${customer} — ${woTypeForJob}`,
+      'Work Order':        [currentJob.id],
+      'Job Type':          'Inspection',
+      'Status':            'Complete',
+      'Problem Description': desc,
     };
-    if (f['Customer']) jobFields['Customer'] = f['Customer'];
-    if (f['Property']) jobFields['Property'] = f['Property'];
-    if (iestUrgency) jobFields['Repair Urgency'] = iestUrgency;
-    if (photoUrlStr) jobFields['Photo URLs'] = photoUrlStr;
-    await apiPost('Jobs', jobFields);
+    if (f['Customer'])      jobFields['Customer']       = f['Customer'];
+    if (f['Property'])      jobFields['Property']       = f['Property'];
+    if (iestUrgency)        jobFields['Repair Urgency'] = iestUrgency;
+    if (photoUrlStr)        jobFields['Photo URLs']     = photoUrlStr;
 
-    // Create or update Stripe quote draft
+    // Patch existing job or create new
+    const jobLinks  = (currentJob.fields['Jobs'] || []);
+    let   savedJobId = null;
+    if (jobLinks.length) {
+      // Find the most recent job to patch
+      for (let i = jobLinks.length - 1; i >= 0; i--) {
+        try {
+          const j = await apiGet(`Jobs/${jobLinks[i]}`);
+          if (['Complete','In Progress'].includes(j.fields['Status'])) {
+            await apiPatch('Jobs', j.id, jobFields);
+            savedJobId = j.id;
+            break;
+          }
+        } catch(e) {}
+      }
+    }
+    if (!savedJobId) {
+      const newJob = await apiPost('Jobs', jobFields);
+      savedJobId = newJob?.id;
+    }
+
+    // Save/update Stripe quote draft
     if (iestLineItems.length) {
       const mappedItems = iestLineItems.map(li => ({
         productName: li.productName,
@@ -5334,58 +5483,155 @@ async function submitInstallEstimate() {
         unitPrice:   parseFloat(li.unitPrice) || 0,
       }));
       const customerId = Array.isArray(f['Customer']) ? f['Customer'][0] : f['Customer'];
-
       if (iestExistingStripeQuoteId) {
-        // PATCH — replace line items on existing quote
-        await fetch(`${PROXY}/quote`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            stripeQuoteId:     iestExistingStripeQuoteId,
-            airtableQuoteId:   iestExistingAirtableQuoteId,
-            workOrderId:       currentJob.id,
-            customerId,
-            lineItems:         mappedItems,
-            notes:             desc.trim(),
-            finalize:          false,
-          }),
+        const pr = await fetch(`${PROXY}/quote`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stripeQuoteId: iestExistingStripeQuoteId, airtableQuoteId: iestExistingAirtableQuoteId, workOrderId: currentJob.id, customerId, lineItems: mappedItems, notes: desc, finalize: false }),
         });
+        const pd = pr.ok ? await pr.json() : null;
+        if (pd?.stripeQuoteId) iestExistingStripeQuoteId = pd.stripeQuoteId;
+        if (pd?.airtableQuoteId) iestExistingAirtableQuoteId = pd.airtableQuoteId;
       } else {
-        // POST — create new quote
-        await fetch(`${PROXY}/quote`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workOrderId: currentJob.id,
-            customerId,
-            lineItems:   mappedItems,
-            description: desc.trim(),
-            notes:       '',
-            finalize:    false,
-          }),
+        const pr = await fetch(`${PROXY}/quote`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workOrderId: currentJob.id, customerId, lineItems: mappedItems, description: desc, notes: '', finalize: false }),
         });
+        const pd = pr.ok ? await pr.json() : null;
+        if (pd?.stripeQuoteId)    iestExistingStripeQuoteId    = pd.stripeQuoteId;
+        if (pd?.airtableQuoteId)  iestExistingAirtableQuoteId  = pd.airtableQuoteId;
       }
     }
 
-    // PATCH WO status to Complete
+    // Update WO to Complete (draft save = visit done, office reviews)
     await apiPatch('Work Orders', currentJob.id, { 'Status': 'Complete' });
 
-    showToast('✓ Estimate draft saved', 'success');
-    setTimeout(() => {
-      showScreen('home');
-      // Reset state for good measure
-      iestLineItems = [];
-      iestPhotoFiles = [];
-      iestPhotoUrls = [];
-      iestUrgency = '';
-    }, 1500);
+    showToast('✓ Draft saved', 'success');
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Update Draft'; }
   } catch (err) {
-    console.error('submitInstallEstimate error', err);
-    showToast('Error saving estimate. Please try again.', 'error');
-    btn.disabled = false;
-    btn.textContent = '💾 Save Draft';
+    console.error('saveIestDraft error', err);
+    showToast('Error saving draft. Please try again.', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Save Draft'; }
   }
 }
+
+// ── Send Estimate to Customer ─────────────────────────────────────────────────
+async function sendIestToCustomer() {
+  if (!iestLineItems.length) {
+    showToast('Add at least one line item before sending.', 'error');
+    return;
+  }
+  const sendBtn = document.getElementById('iest-send-btn');
+  const saveBtn = document.getElementById('iest-save-btn');
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    const desc       = _iestBuildDesc();
+    const f          = currentJob.fields;
+    const customerId = Array.isArray(f['Customer']) ? f['Customer'][0] : f['Customer'];
+    if (!customerId) throw new Error('No customer linked to this work order');
+
+    const mappedItems = iestLineItems.map(li => ({
+      productName: li.productName,
+      quantity:    parseFloat(li.qty)       || 1,
+      unitPrice:   parseFloat(li.unitPrice) || 0,
+    }));
+
+    let result;
+    if (iestExistingStripeQuoteId) {
+      // PATCH existing draft → finalize + send
+      const res = await fetch(`${PROXY}/quote`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripeQuoteId: iestExistingStripeQuoteId, airtableQuoteId: iestExistingAirtableQuoteId, workOrderId: currentJob.id, customerId, lineItems: mappedItems, notes: desc, finalize: true }),
+      });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Error ${res.status}`); }
+      result = await res.json();
+    } else {
+      // POST new quote → finalize + send
+      const res = await fetch(`${PROXY}/quote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workOrderId: currentJob.id, customerId, lineItems: mappedItems, description: desc, notes: '', finalize: true }),
+      });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Error ${res.status}`); }
+      result = await res.json();
+    }
+
+    iestEstimateUrl = result.approveUrl || `https://app.cjbcomfort.com/approve.html?wo=${currentJob.id}`;
+    if (result.stripeQuoteId)    iestExistingStripeQuoteId    = result.stripeQuoteId;
+    if (result.airtableQuoteId)  iestExistingAirtableQuoteId  = result.airtableQuoteId || iestExistingAirtableQuoteId;
+
+    // Update local WO state
+    currentJob.fields['Status']          = 'Estimate Sent';
+    currentJob.fields['Stripe Quote URL'] = iestEstimateUrl;
+
+    _iestSetQR(iestEstimateUrl);
+    showIestState('awaiting');
+    showToast('✓ Estimate sent!', 'success');
+    startIestPolling(currentJob.id);
+
+  } catch (err) {
+    console.error('sendIestToCustomer error', err);
+    showToast('⚠ ' + (err.message || 'Could not send estimate. Try again.'), 'error');
+    if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📋 Send to Customer'; }
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+// ── Post-approval actions ─────────────────────────────────────────────────────
+async function iestFinishVisit() {
+  stopIestPolling();
+  try {
+    await apiPatch('Work Orders', currentJob.id, { 'Status': 'Complete' });
+    showToast('✓ Visit complete', 'success');
+  } catch(e) { showToast('Could not update status — check connection', 'error'); }
+  setTimeout(() => { showScreen('home'); loadTodaysJobs(); }, 1200);
+}
+
+async function iestStartRepair() {
+  stopIestPolling();
+  showToast('Starting repair…', '');
+  try {
+    const f        = currentJob.fields;
+    const customer = f['Customer Name'] || 'Customer';
+
+    // Create a Repair job linked to this WO
+    const repairJob = {
+      'Job Name':   `${customer} — Repair`,
+      'Work Order': [currentJob.id],
+      'Job Type':   'Repair',
+      'Status':     'In Progress',
+      'Actual Start': new Date().toISOString(),
+    };
+    if (f['Customer']?.length)   repairJob['Customer']   = f['Customer'];
+    if (f['Property']?.length)   repairJob['Property']   = f['Property'];
+    if (f['Technician']?.length) repairJob['Technician'] = f['Technician'];
+    await apiPost('Jobs', repairJob);
+
+    // Flip WO type to Repair and status to In Progress
+    await apiPatch('Work Orders', currentJob.id, { 'Work Order Type': 'Repair', 'Status': 'In Progress' });
+    currentJob.fields['Work Order Type'] = 'Repair';
+    currentJob.fields['Status']          = 'In Progress';
+
+    // Flag so complete form skips the estimate section
+    _estimateApprovedRepair = true;
+
+    // Route to unit-complete flow (WO type is now Repair → activateJobScreen goes to regular flow)
+    await activateJobScreen(currentJob);
+  } catch(err) {
+    console.error('iestStartRepair error', err);
+    showToast('⚠ Could not start repair. Try again.', 'error');
+  }
+}
+
+async function iestScheduleLater() {
+  stopIestPolling();
+  try {
+    await apiPatch('Work Orders', currentJob.id, { 'Status': 'Estimate Approved' });
+    showToast('✓ Scheduled for later', 'success');
+  } catch(e) { /* non-fatal */ }
+  setTimeout(() => { showScreen('home'); loadTodaysJobs(); }, 1200);
+}
+
 </script>
 </body>
 </html>
