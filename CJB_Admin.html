@@ -3447,7 +3447,18 @@ async function openQuoteModal(woId, custId, readOnly = false) {
           if (eaRes.ok) _eaProjectForQuote = await eaRes.json();
         } catch(e) {}
       }
-      if (_eaProjectForQuote) document.getElementById('ea-template-btn').style.display = '';
+      if (_eaProjectForQuote) {
+        document.getElementById('ea-template-btn').style.display = '';
+        // Show EA cash flow panel immediately — stays visible for life of this estimate
+        document.getElementById('quote-ea-cashflow').style.display = '';
+        // Restore saved deposit % from EA project if available
+        const savedDepositPct = _eaProjectForQuote.fields?.['EA Deposit Pct'];
+        if (savedDepositPct != null) {
+          const pctEl = document.getElementById('ea-cf-deposit-pct');
+          if (pctEl) pctEl.value = savedDepositPct;
+        }
+        updateEACashFlow();
+      }
     }
   }
 
@@ -3658,9 +3669,8 @@ function loadEstimateTemplate(type) {
     });
     updateQuoteTotal();
     document.getElementById('quote-addons').style.display = '';
-    const isEA = type === 'ea_hvac' && _eaProjectForQuote;
-    document.getElementById('quote-ea-cashflow').style.display = isEA ? '' : 'none';
-    if (isEA) updateEACashFlow();
+    // Panel is shown whenever EA project is linked — not just on EA template
+    if (_eaProjectForQuote) updateEACashFlow();
   };
 
   if (!hasExisting) {
@@ -3718,6 +3728,16 @@ function updateEACashFlow() {
   document.getElementById('ea-cf-deposit').textContent  = fmt(depositAmt);
   document.getElementById('ea-cf-upfront').textContent  = fmt(upfrontNeeded);
   document.getElementById('ea-cf-exposure').textContent = fmt(floatAmt);
+
+  // Save deposit % to EA project record so it persists across sessions
+  if (_eaProjectForQuote?.id && depositPct !== (_eaProjectForQuote.fields?.['EA Deposit Pct'] ?? 50)) {
+    _eaProjectForQuote.fields['EA Deposit Pct'] = depositPct;
+    fetch(`${PROXY}/EA%20Projects/${_eaProjectForQuote.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'EA Deposit Pct': depositPct } })
+    }).catch(() => {});
+  }
 }
 
 function toggleAddon(btn) {
