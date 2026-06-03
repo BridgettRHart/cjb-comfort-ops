@@ -2607,6 +2607,9 @@ function renderDetail(customer, props, wos, contacts) {
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
+        } else if (['Scheduled','In Progress'].includes(status) && !depositPaid && !hasDraftInvoice) {
+          // Active WO with no invoice yet — offer deposit option for direct installs
+          invoiceBtn = `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
         } else if (status === 'Invoiced') {
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
           if (stripeUrl) invoiceBtn += ` <a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View ↗</a>`;
@@ -3349,6 +3352,11 @@ function closeModal() {
   delete m.dataset.invType;
   const sb = document.getElementById('send-btn');
   if (sb) sb.textContent = 'Send Invoice Now';
+  // Reset type selector visibility (may have been hidden by deposit/final modal)
+  const typeSelect = document.getElementById('inv-type-select');
+  if (typeSelect) typeSelect.style.display = '';
+  const typeLabel = document.querySelector('#inv-type-section > .form-label');
+  if (typeLabel) typeLabel.style.display = '';
 }
 
 // ── Quote / Estimate modal ────────────────────────────────────────────────
@@ -4055,6 +4063,18 @@ function handleInvTypeChange() {
 }
 
 // Opens the invoice modal pre-configured for a final balance invoice
+async function openDepositInvoiceModal(workOrderId, customerId) {
+  await openInvoiceModal(workOrderId, customerId);
+  // Lock to deposit type — hide the selector, keep the amount field visible
+  const typeSelect = document.getElementById('inv-type-select');
+  if (typeSelect) { typeSelect.value = 'deposit'; typeSelect.style.display = 'none'; }
+  const typeLabel = document.querySelector('#inv-type-section > .form-label');
+  if (typeLabel) typeLabel.style.display = 'none';
+  handleInvTypeChange(); // shows deposit amount input
+  document.getElementById('send-btn').textContent = 'Send Deposit Invoice';
+  document.getElementById('invoice-modal').dataset.invType = 'deposit';
+}
+
 async function openFinalInvoiceModal(workOrderId, customerId) {
   await openInvoiceModal(workOrderId, customerId);
   // After modal is open and initialized, switch to final_balance mode
