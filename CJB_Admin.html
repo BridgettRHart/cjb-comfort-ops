@@ -3642,21 +3642,39 @@ const ESTIMATE_TEMPLATES = {
 const _addonLineIdx = {};
 
 function loadEstimateTemplate(type) {
-  document.getElementById('qli-body').innerHTML = '';
-  qliCount = 0;
-  document.querySelectorAll('.addon-pill').forEach(p => {
-    p.classList.remove('active');
-    delete _addonLineIdx[p.dataset.label];
-  });
-  (ESTIMATE_TEMPLATES[type] || []).forEach(item => {
-    addQuoteLi(item.name, item.qty, item.price);
-  });
-  updateQuoteTotal();
-  document.getElementById('quote-addons').style.display = '';
-  // Show EA cash flow panel only for EA template and when EA project is linked
-  const isEA = type === 'ea_hvac' && _eaProjectForQuote;
-  document.getElementById('quote-ea-cashflow').style.display = isEA ? '' : 'none';
-  if (isEA) updateEACashFlow();
+  const hasExisting = document.querySelectorAll('[id^="qli-"]').length > 0;
+
+  const applyTemplate = (replace) => {
+    if (replace) {
+      document.getElementById('qli-body').innerHTML = '';
+      qliCount = 0;
+      document.querySelectorAll('.addon-pill').forEach(p => {
+        p.classList.remove('active');
+        delete _addonLineIdx[p.dataset.label];
+      });
+    }
+    (ESTIMATE_TEMPLATES[type] || []).forEach(item => {
+      addQuoteLi(item.name, item.qty, item.price);
+    });
+    updateQuoteTotal();
+    document.getElementById('quote-addons').style.display = '';
+    const isEA = type === 'ea_hvac' && _eaProjectForQuote;
+    document.getElementById('quote-ea-cashflow').style.display = isEA ? '' : 'none';
+    if (isEA) updateEACashFlow();
+  };
+
+  if (!hasExisting) {
+    applyTemplate(true);
+    return;
+  }
+
+  // Existing line items — ask rather than silently destroying Cornell's work
+  const choice = confirm(
+    'This estimate already has line items.\n\n' +
+    'OK → Add template items below existing ones\n' +
+    'Cancel → Replace everything with the template'
+  );
+  applyTemplate(!choice); // OK = add below (replace=false), Cancel = replace
 }
 
 function updateEACashFlow() {
