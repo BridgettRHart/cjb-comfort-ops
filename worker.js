@@ -2052,7 +2052,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // For $0 invoices Stripe auto-pays immediately on send (status='paid').
         const zeroDollarAutoPaid = sendNow && finalInv.status === 'paid';
         if (workOrderId) {
-          const woUpdate = { 'Stripe Invoice ID': finalInv.id };
+          // Deposit invoices write to a dedicated field so the main Stripe Invoice ID
+          // stays clean for the standard / final balance invoice.
+          const stripeIdField = invoiceType === 'deposit' ? 'Deposit Invoice Stripe ID' : 'Stripe Invoice ID';
+          const woUpdate = { [stripeIdField]: finalInv.id };
           // Only set Total Amount on standard / final invoices (not deposit alone)
           if (invoiceType !== 'deposit') woUpdate['Total Amount'] = subtotal;
           if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;

@@ -4164,12 +4164,74 @@ async function openDepositInvoiceModal(workOrderId, customerId) {
 
 async function openFinalInvoiceModal(workOrderId, customerId) {
   await openInvoiceModal(workOrderId, customerId);
-  // After modal is open and initialized, switch to final_balance mode
-  // Hide the type selector (type is locked to final_balance for this flow)
+
+  // Lock to final_balance — hide type selector, update button
   document.getElementById('inv-type-section').style.display = 'none';
   document.getElementById('send-btn').textContent = 'Send Final Balance';
-  // Store the invoice type on the modal element so submitInvoice can read it
   document.getElementById('invoice-modal').dataset.invType = 'final_balance';
+
+  // Clear whatever openInvoiceModal may have pre-filled from the deposit invoice
+  // (before the Deposit Invoice Stripe ID field existed, the deposit ID lived in
+  //  Stripe Invoice ID and would load the wrong line items here)
+  document.getElementById('li-body').innerHTML = '';
+  liCount = 0;
+  document.getElementById('inv-total').textContent = '$0.00';
+
+  const wo          = currentWorkOrders.find(w => w.id === workOrderId);
+  const stripeQId   = wo?.fields?.['Stripe Quote ID'] || '';
+  const depositPaid = !!(wo?.fields?.['Deposit Paid']);
+
+  // ── 1. Pre-fill line items from the approved Stripe Quote (the estimate) ──
+  if (stripeQId) {
+    try {
+      const qRes  = await fetch(`${PROXY}/quote/${encodeURIComponent(stripeQId)}`);
+      const qData = qRes.ok ? await qRes.json() : null;
+      if (qData?.lines?.length) {
+        for (const line of qData.lines) {
+          fillLineItem(line.description || 'Service', line.quantity || 1, line.unitPrice || 0, null);
+        }
+      }
+    } catch(e) { /* non-fatal — Bridgett can fill manually */ }
+  }
+
+  // ── 2. Add deposit credit line if deposit was paid ──
+  if (depositPaid) {
+    let depAmount = 0;
+    try {
+      // Try Deposit Invoice Stripe ID first (new field), fall back to fetching Airtable Invoice records
+      const depStripeId = wo?.fields?.['Deposit Invoice Stripe ID'] || '';
+      if (depStripeId) {
+        const dRes  = await fetch(`${PROXY}/invoice/${encodeURIComponent(depStripeId)}`);
+        const dData = dRes.ok ? await dRes.json() : null;
+        // Deposit invoice has one positive line — sum it for the paid amount
+        depAmount = (dData?.lines || []).reduce((s, l) => s + Math.max(0, (l.unitPrice || 0) * (l.quantity || 1)), 0);
+      }
+      // Fallback: look through linked Airtable Invoice records for one typed "Deposit"
+      if (!depAmount) {
+        const invLinks = wo?.fields?.['Invoice'] || [];
+        for (const invId of invLinks) {
+          const ir = await fetch(`${PROXY}/Invoices/${invId}`);
+          if (!ir.ok) continue;
+          const id = await ir.json();
+          if (id.fields?.['Invoice Type'] === 'Deposit') {
+            depAmount = id.fields?.['Deposit Amount'] || 0;
+            if (depAmount) break;
+          }
+        }
+      }
+    } catch(e) { /* non-fatal */ }
+
+    if (depAmount > 0) {
+      const paidDateStr = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      fillLineItem(`Deposit Paid — ${paidDateStr}`, 1, -depAmount, null);
+    }
+  }
+
+  // Recalc total display after all lines are populated
+  document.querySelectorAll('[id^="li-"]').forEach(row => {
+    if (!row.id.match(/^li-\d+$/)) return;
+    liCalc(parseInt(row.id.slice(3)));
+  });
 }
 
 async function submitInvoice(sendNow) {
