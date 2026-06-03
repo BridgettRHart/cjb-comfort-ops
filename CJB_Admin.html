@@ -2607,9 +2607,11 @@ function renderDetail(customer, props, wos, contacts) {
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
-        } else if (['Scheduled','In Progress'].includes(status) && !depositPaid && !hasDraftInvoice) {
-          // Active WO with no invoice yet — offer deposit option for direct installs
-          invoiceBtn = `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
+        } else if (['Scheduled','In Progress'].includes(status) && !depositPaid) {
+          // Active WO — deposit not yet collected
+          invoiceBtn = hasDraftInvoice
+            ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
+            : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
         } else if (status === 'Invoiced') {
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
           if (stripeUrl) invoiceBtn += ` <a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View ↗</a>`;
