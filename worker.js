@@ -40,6 +40,7 @@ const BRAND_LOGO_URL = 'https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev/CJBC
 let AIRTABLE_BASE_ID = '';
 let AIRTABLE_API_KEY = '';
 let CALENDLY_TOKEN   = '';
+let _ctx = null; // Cloudflare execution context — set per request so logCommunication can use ctx.waitUntil()
 
 const ALLOWED_TABLES = [
   'Customers','Contacts','Properties','Equipment','Jobs',
@@ -69,11 +70,12 @@ export default {
     ]));
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // Load secrets from Cloudflare environment on every request
     AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID || AIRTABLE_BASE_ID;
     AIRTABLE_API_KEY = env.AIRTABLE_API_KEY || AIRTABLE_API_KEY;
     CALENDLY_TOKEN   = env.CALENDLY_TOKEN   || CALENDLY_TOKEN;
+    _ctx = ctx; // make ctx available to logCommunication for ctx.waitUntil()
 
     const url  = new URL(request.url);
     const path = url.pathname;
@@ -418,6 +420,12 @@ export default {
         const tech      = techName || 'Your technician';
         const text = `${custGreet} — ${tech} is on the way${loc} and will be there soon. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
         await sendSms(env.Telnyx_API, phone, text);
+        logCommunication(env, {
+          type:    'SMS',
+          trigger: 'On My Way',
+          sentTo:  phone,
+          subject: 'On my way SMS',
+        });
         return new Response(JSON.stringify({ ok: true }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
@@ -2987,25 +2995,31 @@ async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL }
 }
 
 // ── Communication log — fire-and-forget, never blocks main flow ───────────────
-async function logCommunication(env, { type, trigger, sentTo, subject, customerId, workOrderId, status = 'Sent' }) {
-  try {
-    const now     = new Date().toISOString();
-    const logName = `${type} · ${trigger} · ${sentTo || ''} · ${now.substring(0, 10)}`;
-    const fields  = {
-      'Log Name': logName,
-      'Type':     type,
-      'Trigger':  trigger,
-      'Sent To':  sentTo  || '',
-      'Subject':  subject || '',
-      'Status':   status,
-      'Sent At':  now,
-    };
-    if (customerId)  fields['Customer']   = [customerId];
-    if (workOrderId) fields['Work Order'] = [workOrderId];
-    await airtablePost('Communication Log', fields);
-  } catch (e) {
-    console.error('logCommunication failed:', e.message);
-  }
+function logCommunication(env, { type, trigger, sentTo, subject, customerId, workOrderId, status = 'Sent' }) {
+  const promise = (async () => {
+    try {
+      const now     = new Date().toISOString();
+      const logName = `${type} · ${trigger} · ${sentTo || ''} · ${now.substring(0, 10)}`;
+      const fields  = {
+        'Log Name': logName,
+        'Type':     type,
+        'Trigger':  trigger,
+        'Sent To':  sentTo  || '',
+        'Subject':  subject || '',
+        'Status':   status,
+        'Sent At':  now,
+      };
+      if (customerId)  fields['Customer']   = [customerId];
+      if (workOrderId) fields['Work Order'] = [workOrderId];
+      await airtablePost('Communication Log', fields);
+    } catch (e) {
+      console.error('logCommunication failed:', e.message);
+    }
+  })();
+  // Register with ctx.waitUntil() so Cloudflare keeps the worker alive
+  // long enough to complete the Airtable write, even after the response is sent.
+  if (_ctx) _ctx.waitUntil(promise);
+  return promise;
 }
 
 function emailEstimateHtml({ customerName, approveUrl, description, lineItems, total }) {
