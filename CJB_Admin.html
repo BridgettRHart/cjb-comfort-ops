@@ -1693,7 +1693,16 @@ function renderDashboard(wos, fuRecords, contracts) {
   wos.forEach(w => { const d = _azDate(w.fields['Scheduled Date']); if (d in weekCounts) weekCounts[d]++; });
 
   const thisMonthWOs = wos.filter(w => _azDate(w.fields['Scheduled Date']).startsWith(monthStr));
-  const needsInvoice = wos.filter(w => w.fields['Status'] === 'Complete');
+  const estimateTypes = ['Install Estimate', 'Estimate Only'];
+  const needsInvoice = wos.filter(w =>
+    w.fields['Status'] === 'Complete' &&
+    !estimateTypes.includes(w.fields['Work Order Type'] || '')
+  );
+  const needsEstimate = wos.filter(w =>
+    w.fields['Status'] === 'Complete' &&
+    estimateTypes.includes(w.fields['Work Order Type'] || '') &&
+    !w.fields['Stripe Quote ID']
+  );
   const hasDraftId   = w => !!(w.fields['Stripe Invoice ID']);
 
   // Build WO lookup map for joining Follow-Up records to WO/customer/date info
@@ -1897,10 +1906,13 @@ function renderDashboard(wos, fuRecords, contracts) {
           const time   = _azTime(f['Scheduled Date']);
           const addr   = [f['Service Address'], f['City']].filter(Boolean).join(', ');
           const tech   = Array.isArray(f['Technician Name']) ? f['Technician Name'][0] : (f['Technician Name'] || '');
+          const isEstimateType = estimateTypes.includes(f['Work Order Type'] || '');
           const invBtn = status === 'Complete'
-            ? (hasDraftId(w)
-                ? `<button class="btn btn-gray btn-sm" onclick="dashInvoice('${w.id}')">Edit Draft</button>`
-                : `<button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>`)
+            ? (isEstimateType
+                ? `<button class="btn btn-blue btn-sm" onclick="dashGoCustomer('${w.id}')">Build Estimate</button>`
+                : hasDraftId(w)
+                  ? `<button class="btn btn-gray btn-sm" onclick="dashInvoice('${w.id}')">Edit Draft</button>`
+                  : `<button class="btn btn-green btn-sm" onclick="dashInvoice('${w.id}')">Invoice</button>`)
             : '';
           return `<div class="sched-row">
             <div class="sched-time">${esc(time)}</div>
@@ -1915,6 +1927,24 @@ function renderDashboard(wos, fuRecords, contracts) {
           </div>`;
         }).join('')}
   </div>`;
+
+  // ── Needs estimate ──
+  const estNeedHtml = needsEstimate.length ? `<div class="widget">
+    <div class="widget-hd">
+      <div class="widget-title">Needs Estimate</div>
+      <span class="widget-count${needsEstimate.length ? ' red' : ''}">${needsEstimate.length}</span>
+    </div>
+    ${needsEstimate.map(w => {
+        const f = w.fields;
+        return `<div class="inv-row">
+          <div class="inv-info dash-link" onclick="dashGoCustomer('${w.id}')">
+            <div class="inv-name">${esc(f['Customer Name'] || f['Work Order Name'] || '(unnamed)')}</div>
+            <div class="inv-meta">${esc(fmtDate(f['Scheduled Date']))}${f['Work Order Type'] ? ' · ' + f['Work Order Type'] : ''}</div>
+          </div>
+          <button class="btn btn-blue btn-sm" onclick="dashGoCustomer('${w.id}')">Build Estimate</button>
+        </div>`;
+      }).join('')}
+  </div>` : '';
 
   // ── Needs invoice ──
   const invHtml = `<div class="widget">
@@ -1996,6 +2026,7 @@ function renderDashboard(wos, fuRecords, contracts) {
   document.getElementById('dash-content').innerHTML =
     statsHtml + weekHtml +
     `<div class="dash-row">${schedHtml}${invHtml}</div>` +
+    (estNeedHtml ? `<div class="dash-row">${estNeedHtml}</div>` : '') +
     `<div class="dash-row">${arHtml}${flaggedHtml}</div>`;
 }
 
