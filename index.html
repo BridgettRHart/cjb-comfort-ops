@@ -5019,6 +5019,90 @@ async function showInstallEstimateScreen(record) {
   iestUrgency = '';
 
   showScreen('install-estimate');
+
+  // Restore existing job data if a completed or in-progress job exists for this WO
+  try {
+    const woId = record.id;
+    const formula = encodeURIComponent(`AND({Work Order}="${woId}",OR({Status}="Complete",{Status}="In Progress"))`);
+    const res = await fetch(`${PROXY}/Jobs?filterByFormula=${formula}&maxRecords=1&sort[0][field]=Actual%20End&sort[0][direction]=desc`);
+    if (!res.ok) throw new Error('job fetch failed');
+    const data = await res.json();
+    const job = data.records && data.records[0];
+    if (job) {
+      restoreIestFromJob(job);
+      submitBtn.textContent = '💾 Update Draft';
+    }
+  } catch(e) { /* non-fatal — fresh form is fine */ }
+}
+
+function _parseIestDesc(desc) {
+  const r = {};
+  const urgencyM = desc.match(/^Urgency: (.+)/m);
+  if (urgencyM) r.urgency = urgencyM[1].trim();
+  const notesM = desc.match(/Site Notes: ([\s\S]+?)(?=\n\nMeasurements:|\n\nExisting System:|\n\nIssues:|$)/);
+  if (notesM) r.notes = notesM[1].trim();
+  const measM = desc.match(/Measurements: (.+)/);
+  if (measM) {
+    const m = measM[1];
+    const sqftM = m.match(/(\d[\d.]*)[ ]sq ft/); if (sqftM) r.sqft = sqftM[1];
+    const zonesM = m.match(/(\d+) zones/);        if (zonesM) r.zones = zonesM[1];
+    const ceilM  = m.match(/(\d[\d.]*)ft ceilings/); if (ceilM) r.ceiling = ceilM[1];
+    const accM   = m.match(/Access: ([^|]+)/);   if (accM) r.access = accM[1].trim();
+  }
+  const sysM = desc.match(/Existing System: (.+)/);
+  if (sysM) {
+    const parts = sysM[1].split(' · ');
+    const eqTypes = ['WSHP','Split System','Package Unit','Mini Split','RTU','Air Handler','Condenser','Furnace','Heat Pump','Boiler','Chiller','Evaporative Cooler','Other'];
+    r.eqType    = parts.find(p => eqTypes.includes(p)) || '';
+    const ageP  = parts.find(p => /^\d+ yrs$/.test(p));  if (ageP) r.eqAge = ageP.replace(' yrs','');
+    const conds = ['Excellent','Good','Fair','Poor','End of Life'];
+    r.condition = parts.find(p => conds.includes(p)) || '';
+  }
+  const issM = desc.match(/Issues: ([\s\S]+?)(?=\n\n|$)/);
+  if (issM) r.issues = issM[1].trim();
+  return r;
+}
+
+function restoreIestFromJob(job) {
+  const jf = job.fields;
+  const desc = jf['Problem Description'] || '';
+  const parsed = _parseIestDesc(desc);
+
+  if (parsed.notes)    document.getElementById('iest-notes').value    = parsed.notes;
+  if (parsed.sqft)     document.getElementById('iest-sqft').value     = parsed.sqft;
+  if (parsed.zones)    document.getElementById('iest-zones').value    = parsed.zones;
+  if (parsed.ceiling)  document.getElementById('iest-ceiling').value  = parsed.ceiling;
+  if (parsed.access)   document.getElementById('iest-access').value   = parsed.access;
+  if (parsed.eqType)   document.getElementById('iest-eq-type').value  = parsed.eqType;
+  if (parsed.eqAge)    document.getElementById('iest-eq-age').value   = parsed.eqAge;
+  if (parsed.issues)   document.getElementById('iest-issues').value   = parsed.issues;
+  if (parsed.condition) {
+    document.querySelectorAll('input[name="iest-condition"]').forEach(r => {
+      r.checked = (r.value === parsed.condition);
+    });
+  }
+
+  // Urgency — prefer the separate Repair Urgency field; fall back to parsed
+  const urgency = jf['Repair Urgency'] || parsed.urgency || '';
+  if (urgency) {
+    document.querySelectorAll('#iest-urgency-selector .urgency-btn').forEach(b => {
+      if ((b.dataset.value || '') === urgency) { b.classList.add('active'); iestUrgency = urgency; }
+    });
+  }
+
+  // Photos — already uploaded; show as thumbnails (read-only, no re-upload needed)
+  const photoStr = jf['Photo URLs'] || '';
+  if (photoStr) {
+    iestPhotoUrls = photoStr.split('\n').filter(Boolean);
+    const row = document.getElementById('iest-photos-row');
+    iestPhotoUrls.forEach(url => {
+      const img = document.createElement('img');
+      img.className = 'iest-photo-thumb';
+      img.src = url;
+      img.style.opacity = '0.8';
+      row.appendChild(img);
+    });
+  }
 }
 
 function selectIestUrgency(btn) {
