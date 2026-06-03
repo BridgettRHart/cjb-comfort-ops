@@ -2104,6 +2104,8 @@ let iestLineItems = [];      // [{productName, qty, unitPrice, productId}]
 let iestPhotoFiles = [];     // File objects pending upload
 let iestPhotoUrls = [];      // Already-uploaded R2 URLs
 let iestUrgency = '';
+let iestExistingStripeQuoteId = '';   // set when editing an existing quote
+let iestExistingAirtableQuoteId = ''; // set when editing an existing quote
 
 // ═══════════════════════
 // STATE
@@ -5017,21 +5019,51 @@ async function showInstallEstimateScreen(record) {
   iestPhotoFiles = [];
   iestPhotoUrls = [];
   iestUrgency = '';
+  iestExistingStripeQuoteId = '';
+  iestExistingAirtableQuoteId = '';
 
   showScreen('install-estimate');
 
-  // Restore existing job data if a completed or in-progress job exists for this WO
+  // Restore existing job data + line items if a prior estimate exists for this WO
   try {
     const woId = record.id;
+
+    // Fetch existing job and Stripe quote in parallel
     const formula = encodeURIComponent(`AND({Work Order}="${woId}",OR({Status}="Complete",{Status}="In Progress"))`);
-    const res = await fetch(`${PROXY}/Jobs?filterByFormula=${formula}&maxRecords=1&sort[0][field]=Actual%20End&sort[0][direction]=desc`);
-    if (!res.ok) throw new Error('job fetch failed');
-    const data = await res.json();
-    const job = data.records && data.records[0];
-    if (job) {
-      restoreIestFromJob(job);
-      submitBtn.textContent = '💾 Update Draft';
+    const [jobRes, woRefreshRes] = await Promise.all([
+      fetch(`${PROXY}/Jobs?filterByFormula=${formula}&maxRecords=1&sort[0][field]=Actual%20End&sort[0][direction]=desc`),
+      apiGet(`Work Orders/${woId}`)
+    ]);
+
+    const jobData = jobRes.ok ? await jobRes.json() : null;
+    const job = jobData && jobData.records && jobData.records[0];
+    if (job) restoreIestFromJob(job);
+
+    // Capture existing quote IDs for PATCH on re-save
+    const wf = woRefreshRes.fields || {};
+    const stripeQuoteId = wf['Stripe Quote ID'] || '';
+    const atQuoteLinks  = wf['Quotes'] || [];
+    if (stripeQuoteId) {
+      iestExistingStripeQuoteId    = stripeQuoteId;
+      iestExistingAirtableQuoteId  = atQuoteLinks[0] || '';
+
+      // Fetch existing line items from Stripe and populate the list
+      try {
+        const qRes  = await fetch(`${PROXY}/quote/${encodeURIComponent(stripeQuoteId)}`);
+        const qData = qRes.ok ? await qRes.json() : null;
+        if (qData && qData.lines && qData.lines.length) {
+          iestLineItems = qData.lines.map(l => ({
+            productName: l.description || 'Service',
+            qty:         l.quantity    || 1,
+            unitPrice:   l.unitPrice   || 0,
+            productId:   null,
+          }));
+          renderIestLineItems();
+        }
+      } catch(e) { /* non-fatal — show blank line items */ }
     }
+
+    if (job || stripeQuoteId) submitBtn.textContent = '💾 Update Draft';
   } catch(e) { /* non-fatal — fresh form is fine */ }
 }
 
@@ -5289,24 +5321,45 @@ async function submitInstallEstimate() {
     if (photoUrlStr) jobFields['Photo URLs'] = photoUrlStr;
     await apiPost('Jobs', jobFields);
 
-    // Create Stripe quote draft
+    // Create or update Stripe quote draft
     if (iestLineItems.length) {
-      await fetch(`${PROXY}/quote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workOrderId: currentJob.id,
-          customerId: Array.isArray(f['Customer']) ? f['Customer'][0] : f['Customer'],
-          lineItems: iestLineItems.map(li => ({
-            productName: li.productName,
-            quantity: parseFloat(li.qty) || 1,
-            unitPrice: parseFloat(li.unitPrice) || 0,
-          })),
-          description: desc.trim(),
-          notes: '',
-          finalize: false,
-        }),
-      });
+      const mappedItems = iestLineItems.map(li => ({
+        productName: li.productName,
+        quantity:    parseFloat(li.qty)       || 1,
+        unitPrice:   parseFloat(li.unitPrice) || 0,
+      }));
+      const customerId = Array.isArray(f['Customer']) ? f['Customer'][0] : f['Customer'];
+
+      if (iestExistingStripeQuoteId) {
+        // PATCH — replace line items on existing quote
+        await fetch(`${PROXY}/quote`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stripeQuoteId:     iestExistingStripeQuoteId,
+            airtableQuoteId:   iestExistingAirtableQuoteId,
+            workOrderId:       currentJob.id,
+            customerId,
+            lineItems:         mappedItems,
+            notes:             desc.trim(),
+            finalize:          false,
+          }),
+        });
+      } else {
+        // POST — create new quote
+        await fetch(`${PROXY}/quote`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workOrderId: currentJob.id,
+            customerId,
+            lineItems:   mappedItems,
+            description: desc.trim(),
+            notes:       '',
+            finalize:    false,
+          }),
+        });
+      }
     }
 
     // PATCH WO status to Complete
