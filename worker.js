@@ -651,7 +651,7 @@ export default {
           try {
             const quote = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}`);
             description = quote.description || '';
-            const liRes = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items`);
+            const liRes = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items?limit=100`);
             lineItems = (liRes.data || []).map(li => ({
               name:      li.description || 'Service',
               qty:       li.quantity    || 1,
