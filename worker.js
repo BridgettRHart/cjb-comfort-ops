@@ -1739,6 +1739,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const discountType   = body.discountType  || 'pct';      // 'pct' | 'dollar'
         const discountValue  = Number(body.discountValue) || 0;  // percent (0-100) or dollar amount
         const discountReason = body.discountReason || '';
+        const ccEmails       = (body.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
 
         if (!customerId) throw new Error('customerId is required');
 
@@ -1929,6 +1930,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             await sendEmail(env.RESEND_API_KEY, {
               to:      custEmail,
               subject: invoiceSubject,
+              cc:      ccEmails,
               html:    emailInvoiceHtml({
                 customerName:  firstName,
                 invoiceNumber: finalInv.number || null,
@@ -2204,6 +2206,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const customerId  = body.customerId;
         const notes       = body.notes || '';
         const description = body.description || '';
+        const ccEmails    = (body.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
         const lineItems   = body.lineItems || [];
         const finalize    = body.finalize === true; // if true: create draft + finalize in one step
         if (!customerId)        throw new Error('customerId is required');
@@ -2335,6 +2338,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             const estSubject = 'Your CJB Comfort Estimate is Ready to Review';
             await sendEmail(env.RESEND_API_KEY, {
               to:      custEmail,
+              cc:      ccEmails,
               subject: estSubject,
               html:    emailEstimateHtml({
                 customerName: custName,
@@ -2397,6 +2401,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const body2 = await request.json();
         const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = body2;
         const finalizePatch = body2.finalize === true;
+        const ccEmailsPatch = (body2.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
         if (!stripeQuoteId) throw new Error('stripeQuoteId is required');
 
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
@@ -2496,7 +2501,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 const emailLineItems = lineItems.map(li => ({ name: li.productName||'Service', amount: (li.unitPrice||0)*(Number(li.quantity)||1) }));
                 const patchEstSubject = 'Your CJB Comfort Estimate is Ready to Review';
                 await sendEmail(env.RESEND_API_KEY, {
-                  to: cEmail, subject: patchEstSubject,
+                  to: cEmail, subject: patchEstSubject, cc: ccEmailsPatch,
                   html: emailEstimateHtml({ customerName: cName, approveUrl: patchApproveUrl, description: notes||'', lineItems: emailLineItems, total: emailTotal })
                 });
                 logCommunication(env, {
@@ -2982,10 +2987,11 @@ function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, ad
   return emailBase({ preheader, body });
 }
 
-async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL }) {
+async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL, cc = [] }) {
   if (!apiKey || !to) return; // non-fatal if key not configured or no email on file
   const payload = { from: RESEND_FROM, to: [to], subject, html };
   if (replyTo) payload.reply_to = replyTo;
+  if (cc && cc.length) payload.cc = cc; // Resend accepts cc as an array
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

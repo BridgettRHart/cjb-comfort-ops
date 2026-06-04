@@ -1099,6 +1099,17 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 
     <textarea class="notes-inp" id="inv-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
 
+    <div style="margin:12px 0 4px;">
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Also send to (CC)</div>
+      <div id="inv-cc-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;"></div>
+      <div style="display:flex;gap:8px;">
+        <input type="email" id="inv-cc-input" class="form-input" placeholder="Add email address…"
+          style="flex:1;font-size:13px;"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addCcEmail('inv-cc-input');}">
+        <button type="button" class="btn btn-gray btn-sm" onclick="addCcEmail('inv-cc-input')">+ Add</button>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-gray" onclick="closeModal()">Cancel</button>
       <button class="btn btn-gray" id="draft-btn" onclick="submitInvoice(false)">Save Draft</button>
@@ -1295,6 +1306,17 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 
     <textarea class="notes-inp" id="quote-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
 
+    <div style="margin:12px 0 4px;">
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Also send to (CC)</div>
+      <div id="quote-cc-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;"></div>
+      <div style="display:flex;gap:8px;">
+        <input type="email" id="quote-cc-input" class="form-input" placeholder="Add email address…"
+          style="flex:1;font-size:13px;"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addCcEmail('quote-cc-input');}">
+        <button type="button" class="btn btn-gray btn-sm" onclick="addCcEmail('quote-cc-input')">+ Add</button>
+      </div>
+    </div>
+
     <!-- Shown after quote is sent — customer share link -->
     <div id="quote-url-section" class="hidden" style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;margin-bottom:16px;">
       <div style="font-size:12px;color:#1e40af;font-weight:600;margin-bottom:6px;">📋 Customer acceptance link — share via text or email:</div>
@@ -1484,6 +1506,7 @@ let currentEquipment  = [];
 let currentJobs       = [];
 let liCount = 0;
 let invoiceWOId   = null;
+let _ccEmails     = []; // CC recipients for current invoice or estimate send
 let invoiceCustId = null;
 
 // ── Contracts state ──────────────────────────────────────────────────────────
@@ -3249,6 +3272,9 @@ async function openInvoiceModal(workOrderId, customerId) {
   document.getElementById('draft-btn').disabled   = false;
   document.getElementById('send-btn').disabled    = false;
   document.getElementById('send-btn').textContent = 'Send Invoice Now';
+
+  // Auto-populate CC from Primary Contact (non-blocking)
+  _autoPopulateCc(workOrderId);
 }
 
 function renderJobSummary(jobs) {
@@ -3409,6 +3435,54 @@ function closeModal() {
 }
 
 // ── Quote / Estimate modal ────────────────────────────────────────────────
+// ── CC recipient helpers (shared by invoice + quote modals) ──────────────────
+function renderCcChips(chipsId) {
+  const el = document.getElementById(chipsId);
+  if (!el) return;
+  el.innerHTML = _ccEmails.map(e =>
+    `<span style="display:inline-flex;align-items:center;gap:5px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:5px;padding:3px 8px;font-size:12px;color:#374151;">
+      ${esc(e)}
+      <button onclick="removeCcEmail('${escAttr(e)}','${chipsId}')" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:14px;line-height:1;padding:0;" title="Remove">×</button>
+    </span>`
+  ).join('');
+}
+
+function addCcEmail(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const email = (input.value || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) return;
+  if (!_ccEmails.includes(email)) _ccEmails.push(email);
+  input.value = '';
+  // Re-render whichever chips container is visible
+  renderCcChips('inv-cc-chips');
+  renderCcChips('quote-cc-chips');
+}
+
+function removeCcEmail(email, chipsId) {
+  _ccEmails = _ccEmails.filter(e => e !== email);
+  renderCcChips('inv-cc-chips');
+  renderCcChips('quote-cc-chips');
+}
+
+async function _autoPopulateCc(workOrderId) {
+  // Pre-fill CC from Primary Contact if their email differs from the customer's
+  _ccEmails = [];
+  try {
+    const wo = (currentWorkOrders || []).find(w => w.id === workOrderId);
+    const contactLinks = wo?.fields?.['Primary Contact'] || [];
+    if (!contactLinks.length) return;
+    const cRes     = await fetch(`${PROXY}/Contacts/${contactLinks[0]}`);
+    if (!cRes.ok) return;
+    const contact  = await cRes.json();
+    const cEmail   = (contact.fields?.['Email'] || '').trim().toLowerCase();
+    const custEmail = (selectedCustomer?.fields?.['Email'] || '').trim().toLowerCase();
+    if (cEmail && cEmail !== custEmail) _ccEmails = [cEmail];
+  } catch(e) { /* non-fatal */ }
+  renderCcChips('inv-cc-chips');
+  renderCcChips('quote-cc-chips');
+}
+
 let quoteWOId = null, quoteCustId = null, quoteStripeId = null;
 let quoteAirtableId = null, quoteStatus = 'new', qliCount = 0;
 let _eaProjectForQuote = null; // EA project linked to the WO being estimated
@@ -3465,6 +3539,9 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   renderQuoteActions('loading');
   document.getElementById('quote-modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
   document.getElementById('quote-modal').classList.remove('hidden');
+
+  // Auto-populate CC from Primary Contact (non-blocking)
+  _autoPopulateCc(woId);
 
   // Load products if not already loaded
   if (!allProducts) {
@@ -3871,7 +3948,8 @@ async function submitQuote(sendNow) {
         body: JSON.stringify({
           workOrderId: quoteWOId, customerId: quoteCustId,
           lineItems, description, notes,
-          finalize: sendNow
+          finalize: sendNow,
+          ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,
         })
       });
       data = await res.json();
@@ -3885,7 +3963,8 @@ async function submitQuote(sendNow) {
           stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId,
           workOrderId: quoteWOId, customerId: quoteCustId,
           lineItems, notes: description + (notes ? '\n' + notes : ''),
-          finalize: sendNow
+          finalize: sendNow,
+          ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,
         })
       });
       data = await patchRes.json();
@@ -4299,6 +4378,7 @@ async function submitInvoice(sendNow) {
         discountType:  discActive ? _discountType : undefined,
         discountValue: discActive && discVal > 0 ? discVal : undefined,
         discountReason: discActive && discReason ? discReason : undefined,
+        ccEmails:      sendNow && _ccEmails.length ? _ccEmails : undefined,
       })
     });
     const data = await res.json();
