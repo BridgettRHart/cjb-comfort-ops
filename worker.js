@@ -7,7 +7,7 @@
 //    AIRTABLE_API_KEY, AIRTABLE_BASE_ID, ANTHROPIC_API_KEY,
 //    CALENDLY_TOKEN, RESEND_API_KEY, STRIPE_SECRET_KEY,
 //    STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET,
-//    Telnyx_API, WAVE_API_KEY
+//    QUO_API_KEY, WAVE_API_KEY
 // ═══════════════════════════════════════════════════════════════════════════
 
 const WAVE_BUSINESS_ID       = 'QnVzaW5lc3M6ODQyOTljZjItODAyNy00NzFiLWE1NGUtOWVmYzZlZjRlNDY1';
@@ -24,7 +24,7 @@ const MANAGE_BASE_URL  = 'https://app.cjbcomfort.com/manage.html';
 const ADMIN_EMAIL      = 'bridgett@cjbcomfort.com'; // admin notification destination
 const OFFICE_PHONE     = '(480) 604-8622';
 const OFFICE_PHONE_URL = 'tel:+14806048622';
-const TELNYX_FROM      = '+14808639119';
+const QUO_FROM         = '+14806048622'; // ported main number (formerly Telnyx +14808639119)
 const GOOGLE_REVIEW_URL = 'https://g.page/r/CUypICY_Qj1PEBM/review';
 
 // White-label: swap these for a different company's branding
@@ -258,10 +258,10 @@ export default {
                   }).catch(() => {});
 
                   // Reschedule confirmation SMS
-                  if (inviteePhone && env.Telnyx_API) {
+                  if (inviteePhone && env.QUO_API_KEY) {
                     const { dateStr: rd, timeStr: rt, endTimeStr: ret } = formatAZDateTime(scheduledDate);
                     const rSmsText = `Hi ${firstName || 'there'} — your CJB Comfort appointment has been rescheduled to ${rd}, ${rt}–${ret}. Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`;
-                    sendSms(env.Telnyx_API, inviteePhone, rSmsText)
+                    sendSms(env.QUO_API_KEY, inviteePhone, rSmsText)
                       .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Rescheduled', sentTo: inviteePhone, subject: 'Reschedule confirmation SMS' }))
                       .catch(e => console.error('Reschedule SMS error:', e));
                   }
@@ -317,9 +317,9 @@ export default {
             }).catch(() => {});
 
             // Booking confirmation SMS
-            if (inviteePhone && env.Telnyx_API) {
+            if (inviteePhone && env.QUO_API_KEY) {
               const smsText = `Hi ${firstName || 'there'} — your CJB Comfort ${workOrderType || 'appointment'} is confirmed for ${dateStr}, ${timeStr}–${endTimeStr}. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
-              sendSms(env.Telnyx_API, inviteePhone, smsText)
+              sendSms(env.QUO_API_KEY, inviteePhone, smsText)
                 .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Confirm', sentTo: inviteePhone, subject: 'Booking confirmation SMS' }))
                 .catch(e => console.error('Booking SMS error:', e));
             }
@@ -392,9 +392,9 @@ export default {
         }).catch(() => {});
 
         // Booking confirmation SMS (admin-scheduled)
-        if (phone && env.Telnyx_API) {
+        if (phone && env.QUO_API_KEY) {
           const smsText = `Hi ${firstName || 'there'} — your CJB Comfort ${woType || 'appointment'} is confirmed for ${dateStr}, ${timeStr}–${endTimeStr}. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
-          sendSms(env.Telnyx_API, phone, smsText)
+          sendSms(env.QUO_API_KEY, phone, smsText)
             .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Confirm', sentTo: phone, subject: 'Booking confirmation SMS' }))
             .catch(e => console.error('Admin booking SMS error:', e));
         }
@@ -419,7 +419,7 @@ export default {
         const loc       = address ? ` to ${address}` : '';
         const tech      = techName || 'Your technician';
         const text = `${custGreet} — ${tech} is on the way${loc} and will be there soon. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
-        await sendSms(env.Telnyx_API, phone, text);
+        await sendSms(env.QUO_API_KEY, phone, text);
         logCommunication(env, {
           type:    'SMS',
           trigger: 'On My Way',
@@ -2841,7 +2841,7 @@ async function waveEnsureServiceProduct(apiKey) {
 }
 
 // ── Resend email helper ───────────────────────────────────────────────────────
-// ── SMS via Telnyx ────────────────────────────────────────────────────────
+// ── SMS via OpenPhone (Quo) ───────────────────────────────────────────────
 function normalizePhone(raw) {
   if (!raw) return null;
   const digits = String(raw).replace(/\D/g, '');
@@ -2854,14 +2854,14 @@ async function sendSms(apiKey, toRaw, text) {
   if (!apiKey || !toRaw || !text) return;
   const to = normalizePhone(toRaw);
   if (!to) throw new Error(`sendSms: could not normalize phone: ${toRaw}`);
-  const res = await fetch('https://api.telnyx.com/v2/messages', {
+  const res = await fetch('https://api.openphone.com/v1/messages', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: TELNYX_FROM, to, text })
+    headers: { Authorization: apiKey, 'Content-Type': 'application/json' }, // no "Bearer" for OpenPhone
+    body: JSON.stringify({ from: QUO_FROM, to: [to], content: text }) // "content" not "text", "to" is array
   });
   if (!res.ok) {
     const errBody = await res.text();
-    throw new Error(`Telnyx ${res.status}: ${errBody}`);
+    throw new Error(`OpenPhone ${res.status}: ${errBody}`);
   }
 }
 
@@ -3152,11 +3152,11 @@ async function sendAppointmentReminders(env) {
       }).catch(() => {});
 
       // SMS reminder — 24hr only (day-before is most useful; 48hr is email-only)
-      if (isDay && env.Telnyx_API) {
+      if (isDay && env.QUO_API_KEY) {
         const custPhone = Array.isArray(f['Customer Phone (lookup)']) ? f['Customer Phone (lookup)'][0] : (f['Customer Phone (lookup)'] || '');
         if (custPhone) {
           const smsReminder = `Reminder: your CJB Comfort ${f['Work Order Type'] || 'appointment'} is TOMORROW, ${dateStr} between ${timeStr}–${endTimeStr}. Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`;
-          sendSms(env.Telnyx_API, custPhone, smsReminder)
+          sendSms(env.QUO_API_KEY, custPhone, smsReminder)
             .then(() => logCommunication(env, { type: 'SMS', trigger: 'Appt Reminder 24hr', sentTo: custPhone, subject: '24hr reminder SMS', workOrderId: wo.id }))
             .catch(e => console.error('Reminder SMS error:', e));
         }
@@ -3249,10 +3249,10 @@ async function sendOverdueNotice(env, atInv, todayStr) {
     logCommunication(env, { type: 'Email', trigger: 'Overdue Notice', sentTo: custEmail, subject, customerId: custId }).catch(() => {});
 
     // SMS customer
-    if (custPhone && env.Telnyx_API) {
+    if (custPhone && env.QUO_API_KEY) {
       const amtStr = amountDue > 0 ? ` ($${amountDue.toFixed(2)})` : '';
       const payStr = hostedUrl ? ` Pay here: ${hostedUrl}` : '';
-      sendSms(env.Telnyx_API, custPhone,
+      sendSms(env.QUO_API_KEY, custPhone,
         `Hi ${custFirst} — a friendly reminder that your CJB Comfort invoice${amtStr} is past due.${payStr} Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`
       ).then(() => logCommunication(env, { type: 'SMS', trigger: 'Overdue Notice', sentTo: custPhone, subject: 'Overdue SMS', customerId: custId }))
        .catch(e => console.error('Overdue SMS error:', e));
@@ -3369,8 +3369,8 @@ async function applyLateFee(env, atInv, todayStr) {
     logCommunication(env, { type: 'Email', trigger: 'Late Fee', sentTo: custEmail, subject, customerId: custId }).catch(() => {});
 
     // SMS customer
-    if (custPhone && env.Telnyx_API) {
-      sendSms(env.Telnyx_API, custPhone,
+    if (custPhone && env.QUO_API_KEY) {
+      sendSms(env.QUO_API_KEY, custPhone,
         `Hi ${custFirst} — a 1.5% late fee ($${lateFee.toFixed(2)}) has been added to your CJB Comfort account.${hostedUrl ? ` Original invoice: ${hostedUrl}` : ''}${lateFeeUrl ? ` Late fee: ${lateFeeUrl}` : ''} Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`
       ).then(() => logCommunication(env, { type: 'SMS', trigger: 'Late Fee', sentTo: custPhone, subject: 'Late fee SMS', customerId: custId }))
        .catch(e => console.error('Late fee SMS error:', e));
