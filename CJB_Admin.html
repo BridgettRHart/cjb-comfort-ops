@@ -7044,7 +7044,7 @@ async function convertEstimateToJob(woId) {
   const fields = {
     'Work Order Name':  `${custName} — Job — ${today}`,
     'Work Order Type':  'Repair',
-    'Status':           'Estimate Approved',
+    'Status':           'Scheduled',
     'Active':           true,
     'Internal Notes':   `Converted from estimate: ${wo.fields['Work Order Name'] || woId}`,
   };
