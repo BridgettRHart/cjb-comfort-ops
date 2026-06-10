@@ -5604,14 +5604,14 @@ function spRenderStep2() {
     </div>
     <div id="sp-new-prop-fields" style="${_sp.custProps.length ? 'display:none;' : ''}padding:0;">
       <div class="form-group"><label class="form-label">Street Address <span style="color:#c81f25;">*</span></label>
-        <input class="form-inp" id="sp-np-street" type="text" placeholder="123 Main St" autocomplete="street-address"></div>
+        <input class="form-inp" id="sp-np-street" type="text" placeholder="123 Main St" value="${escAttr(_sp.newServiceStreet)}" autocomplete="street-address"></div>
       <div class="form-row-2">
         <div class="form-group"><label class="form-label">City</label>
-          <input class="form-inp" id="sp-np-city" type="text" placeholder="Mesa" autocomplete="address-level2"></div>
+          <input class="form-inp" id="sp-np-city" type="text" placeholder="Mesa" value="${escAttr(_sp.newServiceCity)}" autocomplete="address-level2"></div>
         <div class="form-group"><label class="form-label">State &amp; Zip</label>
           <div style="display:flex;gap:8px;">
-            <input class="form-inp" id="sp-np-state" type="text" maxlength="2" placeholder="AZ" value="AZ" style="width:62px;flex-shrink:0;">
-            <input class="form-inp" id="sp-np-zip" type="text" placeholder="85201" inputmode="numeric">
+            <input class="form-inp" id="sp-np-state" type="text" maxlength="2" placeholder="AZ" value="${escAttr(_sp.newServiceState || 'AZ')}" style="width:62px;flex-shrink:0;">
+            <input class="form-inp" id="sp-np-zip" type="text" placeholder="85201" value="${escAttr(_sp.newServiceZip)}" inputmode="numeric">
           </div></div>
       </div>
     </div>
