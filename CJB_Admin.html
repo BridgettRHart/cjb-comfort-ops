@@ -2513,7 +2513,8 @@ async function selectCustomer(id) {
     document.querySelector('.sidebar').classList.add('mobile-hidden');
     const det = document.getElementById('detail');
     det.classList.add('mobile-visible');
-    document.getElementById('mobile-back').style.display = 'block';
+    const _mb = document.getElementById('mobile-back');
+    if (_mb) _mb.style.display = 'block'; // only present on first load; subsequent renders inject their own back button
   }
 
   const det = document.getElementById('detail');
