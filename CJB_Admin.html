@@ -2487,13 +2487,24 @@ function isMobile() { return window.innerWidth <= 768; }
 
 function mobileBack() {
   document.getElementById('detail').classList.remove('mobile-visible');
-  document.querySelector('.sidebar').classList.remove('mobile-hidden');
+  const sidebar = document.querySelector('.sidebar');
+  sidebar.classList.remove('mobile-hidden');
   selectedCustomer = null;
   renderCustList();
+  // Ghost-tap guard: iOS fires a synthetic click ~300ms after a touch ends.
+  // Without this, the tap on "← Customers" re-fires on whatever customer list
+  // item is now under that position once the sidebar slides in.
+  const cl = document.getElementById('cust-list');
+  if (cl) {
+    cl.style.pointerEvents = 'none';
+    setTimeout(() => { cl.style.pointerEvents = ''; }, 400);
+  }
 }
 
 // ── Customer detail ─────────────────────────────────────────────────────────
+let _selectSeq = 0; // increments on every selectCustomer call; stale fetches check against it
 async function selectCustomer(id) {
+  const seq = ++_selectSeq;
   selectedCustomer = allCustomers.find(c => c.id === id);
   if (!selectedCustomer) return;
   renderCustList();
@@ -2566,8 +2577,11 @@ async function selectCustomer(id) {
         `filterByFormula=${encodeURIComponent(jobFormula)}&sort[0][field]=Scheduled Start&sort[0][direction]=desc`);
     }
 
+    // If a newer selectCustomer call started while we were fetching, discard this result.
+    if (seq !== _selectSeq) return;
     renderDetail(selectedCustomer, props, currentWorkOrders, contacts);
   } catch (err) {
+    if (seq !== _selectSeq) return;
     det.innerHTML = `<div class="empty-state" style="color:#c81f25;">Error: ${esc(err.message)}</div>`;
   }
 }
