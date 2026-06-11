@@ -3238,9 +3238,12 @@ async function renderActiveEquipmentList(refreshJobs = false) {
         actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit(\'' + eq.id + '\', \'' + escAttr(jobRecord.id) + '\')">Undo Skip</button></div>';
       } else {
         const woServiceMode = (currentJob && currentJob.fields['Service Mode'] || '').toLowerCase().trim();
-        const skipBtn = woServiceMode !== 'specific unit'
-          ? '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\', this)">Not This Visit</button>'
-          : '';
+        // Hide skip only when exactly one unit is designated (specific unit mode with a linked unit).
+        // If specific unit is set but no unit was linked, all units show — skip should be available.
+        const hideSkip = woServiceMode === 'specific unit' && currentWorkOrderEquipment.length === 1;
+        const skipBtn = hideSkip
+          ? ''
+          : '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\', this)">Not This Visit</button>';
         actions = '<div class="unit-card-actions">'
           + '<button class="btn-small btn-small-red" onclick="startUnitComplete(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Complete This Unit</button>'
           + skipBtn
@@ -3885,9 +3888,15 @@ function openCompleteForm() {
   document.getElementById('parts-search').value = '';
   document.getElementById('parts-search-results').style.display = 'none';
 
-  // Restore estimate state if this WO already has an estimate in flight
-  const woStatus = currentJob.fields['Status'] || '';
-  if (woStatus === 'Estimate Sent') {
+  // Restore estimate state if this WO already has an estimate in flight.
+  // For service WOs, status stays In Progress even after estimate sent — detect by Quote ID.
+  const woStatus   = currentJob.fields['Status'] || '';
+  const hasQuoteId = !!(currentJob.fields['Stripe Quote ID']);
+  const estimateSent     = woStatus === 'Estimate Sent'     || (hasQuoteId && woStatus === 'In Progress');
+  const estimateApproved = woStatus === 'Estimate Approved';
+  const estimateDeclined = woStatus === 'Estimate Declined';
+
+  if (estimateSent) {
     // Show repairs section (repairs were needed — that's why an estimate was sent)
     repairsNeeded = true;
     document.getElementById('repairs-yes-btn').classList.add('active');
@@ -3898,13 +3907,13 @@ function openCompleteForm() {
     setEstimateUrl(savedUrl);
     showEstimateState('awaiting');
     startApprovalPolling(currentJob.id);
-  } else if (woStatus === 'Estimate Approved') {
+  } else if (estimateApproved) {
     repairsNeeded = true;
     document.getElementById('repairs-yes-btn').classList.add('active');
     document.getElementById('repairs-no-btn').classList.remove('active');
     document.getElementById('repairs-detail-section').style.display = 'block';
     showEstimateState('approved');
-  } else if (woStatus === 'Estimate Declined') {
+  } else if (estimateDeclined) {
     repairsNeeded = true;
     document.getElementById('repairs-yes-btn').classList.add('active');
     document.getElementById('repairs-no-btn').classList.remove('active');
@@ -4901,8 +4910,12 @@ async function sendUnitEstimate() {
 
     // Update local WO state so save-while-waiting works correctly
     currentJob.fields['Stripe Quote ID']  = result.stripeQuoteId || '';
-    currentJob.fields['Status']           = 'Estimate Sent';
     currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
+    // Only flip WO status for estimate-type WOs — service WOs stay In Progress
+    const _sentWoType = currentJob.fields['Work Order Type'] || '';
+    if (['Install Estimate', 'Estimate Only'].includes(_sentWoType)) {
+      currentJob.fields['Status'] = 'Estimate Sent';
+    }
 
     // Show QR code + link
     setEstimateUrl(unitEstimateUrl);

@@ -976,7 +976,45 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
             const woId   = (atQuote.fields['Work Order'] || [])[0];
             const custId = (atQuote.fields['Customer']   || [])[0];
-            if (woId) await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Approved' });
+
+            // Determine WO type — estimate-type WOs flip status; service WOs get a new Repair WO
+            let acceptedWoType = '', acceptedWoPropIds = [], acceptedWoTechIds = [];
+            if (woId) {
+              try {
+                const awo = await airtableGetById('Work Orders', woId);
+                acceptedWoType    = awo.fields?.['Work Order Type'] || '';
+                acceptedWoPropIds = awo.fields?.['Property']        || [];
+                acceptedWoTechIds = awo.fields?.['Technician']      || [];
+              } catch(e) {}
+            }
+            const isAcceptedEstimateWO = ['Install Estimate', 'Estimate Only'].includes(acceptedWoType) || !acceptedWoType;
+
+            if (isAcceptedEstimateWO) {
+              if (woId) await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Approved' });
+            } else {
+              // Service WO — create a new Repair WO and notify Bridgett
+              const quoteNotes = atQuote.fields?.['Notes'] || '';
+              const newWoFields = {
+                'Work Order Type': 'Repair',
+                'Status':          'Scheduled',
+                'Problem Description': quoteNotes.split('---PHOTOS---')[0].trim() || 'Repair from approved estimate',
+                'Internal Notes': `Auto-created from approved repair estimate — Quote: ${atQuote.fields?.['Quote Number'] || stripeQuoteId}`,
+              };
+              if (custId)                     newWoFields['Customer']   = [custId];
+              if (acceptedWoPropIds.length)   newWoFields['Property']   = acceptedWoPropIds;
+              if (acceptedWoTechIds.length)   newWoFields['Technician'] = acceptedWoTechIds;
+              if (woId)                       newWoFields['Related Work Orders'] = [woId];
+              try { await airtablePost('Work Orders', newWoFields); } catch(e) { console.error('New Repair WO creation failed:', e.message); }
+
+              // SMS Bridgett
+              if (env.OWNER_PHONE && env.QUO_API_KEY) {
+                const custRec = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+                const custName = custRec?.fields?.['Customer Name'] || 'A customer';
+                sendSms(env.QUO_API_KEY, env.OWNER_PHONE,
+                  `✅ Repair estimate approved — ${custName}. New Repair WO created in Airtable, ready to schedule.`
+                ).catch(() => {});
+              }
+            }
 
             // Fetch Stripe line items from the accepted quote
             const liData   = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items?limit=50`);
@@ -1077,7 +1115,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           if (atQuote) {
             await airtablePatch('Quotes', atQuote.id, { 'Status': 'Expired' });
             const woId = (atQuote.fields['Work Order'] || [])[0];
-            if (woId) await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Declined' });
+            if (woId) {
+              let expWoType = '';
+              try { const ewo = await airtableGetById('Work Orders', woId); expWoType = ewo.fields?.['Work Order Type'] || ''; } catch(e) {}
+              if (['Install Estimate', 'Estimate Only'].includes(expWoType) || !expWoType) {
+                await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Declined' });
+              }
+            }
           }
         }
 
@@ -2223,7 +2267,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           await airtablePatch('Quotes', airtableQuoteId, { 'Status': 'Declined', 'Declined Date': today });
         }
         if (workOrderId) {
-          await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Declined' });
+          let declineWoType = '';
+          try { const dwo = await airtableGetById('Work Orders', workOrderId); declineWoType = dwo.fields?.['Work Order Type'] || ''; } catch(e) {}
+          if (['Install Estimate', 'Estimate Only'].includes(declineWoType) || !declineWoType) {
+            await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Declined' });
+          }
         }
 
         return new Response(JSON.stringify({ ok: true }), {
@@ -2325,10 +2373,20 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
         const today      = new Date().toISOString().split('T')[0];
 
-        let woName = '';
+        let woName = '', woType = '', woCustIds = [], woPropIds = [], woTechIds = [];
         if (workOrderId) {
-          try { const wo = await airtableGetById('Work Orders', workOrderId); woName = wo.fields?.['Work Order Name'] || ''; } catch (e) {}
+          try {
+            const wo = await airtableGetById('Work Orders', workOrderId);
+            woName    = wo.fields?.['Work Order Name'] || '';
+            woType    = wo.fields?.['Work Order Type'] || '';
+            woCustIds = wo.fields?.['Customer']        || [];
+            woPropIds = wo.fields?.['Property']        || [];
+            woTechIds = wo.fields?.['Technician']      || [];
+          } catch (e) {}
         }
+        // Only Install Estimate / Estimate Only WOs track estimate status on the WO itself.
+        // Service/repair/maintenance WOs keep their status independent of the estimate.
+        const isEstimateTypeWO = ['Install Estimate', 'Estimate Only'].includes(woType) || !woType;
 
         const photoUrls = Array.isArray(body.photoUrls) ? body.photoUrls : [];
 
@@ -2409,13 +2467,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             quoteStatus = 'open';
             const atFin = { 'Status': 'Open' };
             await airtablePatch('Quotes', atQuote.id, atFin);
-            if (workOrderId) {
+            if (workOrderId && isEstimateTypeWO) {
               await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
             }
           } catch (finErr) {
             console.error('Quote finalize failed (non-fatal):', finErr.message);
-            // Non-fatal — quote stays as draft in Stripe; approval page still works
-            if (workOrderId) {
+            if (workOrderId && isEstimateTypeWO) {
               try { await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' }); } catch(e) {}
             }
           }
