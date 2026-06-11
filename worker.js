@@ -67,6 +67,7 @@ export default {
       sendAppointmentReminders(env),
       checkContractRenewals(env),
       checkOverdueInvoices(env),
+      checkResendDomain(env),
     ]));
   },
 
@@ -3931,6 +3932,29 @@ function emailRenewalConfirmedHtml({ customerName, planName, amountPaid, newStar
     <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 
   return emailBase({ preheader, body });
+}
+
+// ── Resend domain health check — runs hourly, alerts at 8 AM AZ if failed ────
+async function checkResendDomain(env) {
+  if (!env.RESEND_API_KEY || !env.QUO_API_KEY || !env.OWNER_PHONE) return;
+  try {
+    // Only alert once per day — at 8 AM Arizona time
+    const nowAZ = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Phoenix' }));
+    if (nowAZ.getHours() !== 8) return;
+
+    const res = await fetch('https://api.resend.com/domains', {
+      headers: { 'Authorization': 'Bearer ' + env.RESEND_API_KEY }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const failed = (data.data || []).filter(d => d.status !== 'verified');
+    if (failed.length === 0) return;
+
+    const names = failed.map(d => d.name).join(', ');
+    await sendSms(env.QUO_API_KEY, env.OWNER_PHONE,
+      `CJB Comfort alert: Resend email domain FAILED for ${names}. Emails are NOT sending. Log in to resend.com/domains to fix.`
+    );
+  } catch(e) { /* non-fatal */ }
 }
 
 // ── Utility: ArrayBuffer → base64 (chunked to avoid stack overflow) ──────────
