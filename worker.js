@@ -113,7 +113,8 @@ export default {
           let scheduledEnd  = '';
           let eventTypeName = '';
           let calendlyFetchError = '';
-          let address = ''; // declared early so Calendly location field can populate it
+          let address = ''; // full address string (used for WO notes + property name)
+          let addrStreet = '', addrCity = '', addrState = 'AZ', addrZip = '';
 
           if (eventUuid) {
             try {
@@ -125,10 +126,12 @@ export default {
                 scheduledDate = evData.resource?.start_time || '';
                 scheduledEnd  = evData.resource?.end_time   || '';
                 eventTypeName = (evData.resource?.name || '').toLowerCase();
-                // Calendly location field (invitee-provided location or custom location type)
-                // Q&A answer for "address" will override this below if present
+                // Calendly location field may carry a full address — parse all parts
                 const evLocation = evData.resource?.location?.location || '';
-                if (evLocation) address = evLocation;
+                if (evLocation) {
+                  address = evLocation;
+                  ({ street: addrStreet, city: addrCity, state: addrState, zip: addrZip } = parseAddressString(evLocation));
+                }
               } else {
                 calendlyFetchError = `Calendly API ${evRes.status}: ${JSON.stringify(evData)}`;
               }
@@ -156,7 +159,9 @@ export default {
             } else if (q.includes('phone')) {
               phone = a;
             } else if (q.includes('service address') || q.includes('address')) {
-              address = a; // form only asks for street address, no city/state/zip splitting needed
+              // Q&A form collects street only — keep city/state/zip from evLocation if available
+              address = a;
+              addrStreet = a;
             }
           }
 
@@ -175,9 +180,22 @@ export default {
                 'Email':         inviteeEmail,
                 'Phone':         phone,
                 'Type':          'Residential',
+                'Customer Tags': ['Residential'],
+                'Lead Source':   'Calendly',
                 'Active':        true
               });
               customerId = newCust.id;
+              // Auto-create primary contact record for new customer
+              await airtablePost('Contacts', {
+                'Contact Name':       inviteeName,
+                'First Name':         nameParts[0] || '',
+                'Last Name':          nameParts.slice(1).join(' ') || '',
+                'Email':              inviteeEmail,
+                'Phone':              phone,
+                'Customers':          [newCust.id],
+                'Is Primary Contact': true,
+                'Active':             true
+              });
             }
           }
 
@@ -193,8 +211,11 @@ export default {
               propertyId = propRecords[0].id;
             } else if (propRecords.length === 0) {
               const propFields = {
-                'Property Name':   inviteeName + (address ? ' — ' + address : ''),
-                'Service Address': address,
+                'Property Name':   inviteeName + (addrStreet || address ? ' — ' + (addrStreet || address) : ''),
+                'Service Address': addrStreet || address,
+                'City':            addrCity,
+                'State':           addrState || 'AZ',
+                'Zip':             addrZip,
                 'Active':          true
               };
               if (inviteeEmail) propFields['Customer Email'] = inviteeEmail;
@@ -279,6 +300,7 @@ export default {
             'Work Order Name': `${inviteeName} — ${workOrderType}`,
             'Status':          'Scheduled',
             'Work Order Type': workOrderType,
+            'Service Mode':    'All Units',
             'Notes':           noteParts.join(' | '),
             'Active':          true
           };
@@ -2847,6 +2869,19 @@ async function waveEnsureServiceProduct(apiKey) {
 
 // ── Resend email helper ───────────────────────────────────────────────────────
 // ── SMS via OpenPhone (Quo) ───────────────────────────────────────────────
+// Parse a full address string (e.g. "123 Main St, Mesa, AZ 85201") into parts.
+// If no commas (Q&A form returns street only), street = full string, rest empty.
+function parseAddressString(addr) {
+  if (!addr) return { street: '', city: '', state: 'AZ', zip: '' };
+  const parts = addr.split(',').map(s => s.trim());
+  const street = parts[0] || '';
+  const city   = parts[1] || '';
+  const stateZip = (parts[2] || '').trim().split(/\s+/);
+  const state  = stateZip[0] || 'AZ';
+  const zip    = stateZip[1] || '';
+  return { street, city, state, zip };
+}
+
 function normalizePhone(raw) {
   if (!raw) return null;
   const digits = String(raw).replace(/\D/g, '');
