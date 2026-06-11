@@ -1479,6 +1479,42 @@
 
     <div id="active-ea-panel" style="display:none;"></div>
 
+    <!-- Property-Wide visit form — shown instead of equipment list -->
+    <div id="pw-visit-form" style="display:none;">
+      <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+        <div class="form-field" style="margin-bottom:0;">
+          <label class="form-label" for="pw-work">Work Performed <span style="color:var(--red);">*</span></label>
+          <textarea class="form-textarea" id="pw-work" placeholder="What was done? (thermostat programming, cover install…)" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+        <div class="form-label" style="margin-bottom:10px;">Parts Used</div>
+        <div id="pw-parts-chips" style="margin-bottom:10px;"></div>
+        <div class="parts-grid" id="pw-parts-grid" role="group" aria-label="Common parts quick select"></div>
+        <div style="margin-top:12px;">
+          <label class="form-label" for="pw-parts-search">Search products:</label>
+          <input type="text" class="form-input" id="pw-parts-search" placeholder="Type 2+ characters…" autocomplete="off" oninput="pwSearchProducts(this.value)">
+          <div id="pw-parts-results" class="parts-search-results" style="display:none;"></div>
+        </div>
+        <div style="margin-top:10px;">
+          <label class="form-label" for="pw-parts-other">Unlisted part:</label>
+          <input type="text" class="form-input" id="pw-parts-other" placeholder="Only if not in product list…">
+        </div>
+      </div>
+      <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+        <label class="form-label">Photos</label>
+        <div class="photo-upload-area" onclick="document.getElementById('pw-photo-input').click()" role="button" tabindex="0" aria-label="Add photos">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <div>Tap to add photos</div>
+          <div id="pw-photo-status" style="font-size:12px;margin-top:4px;color:var(--gray-text);">Saved to job record</div>
+        </div>
+        <input type="file" id="pw-photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="pwHandlePhotos(this)">
+        <div id="pw-photos-preview" class="photos-preview" role="list"></div>
+      </div>
+      <button class="btn btn-success btn-full" id="pw-complete-btn" onclick="submitPropertyWideVisit()" style="margin-bottom:24px;">✓ Complete Visit</button>
+    </div>
+
+    <div id="active-equipment-section">
     <h2 class="section-label">Equipment — This Visit</h2>
 
     <div id="active-equipment-list">
@@ -1553,6 +1589,7 @@
         </div>
       </div>
     </div>
+    </div><!-- /active-equipment-section -->
 
     <div class="bottom-pad"></div>
   </div>
@@ -2164,6 +2201,8 @@ let _currentEaStatus = '';            // EA status fetched in openJob, used by a
 let currentJob = null;
 let readyToInvoice = false;
 let selectedPhotos = [];
+let _pwParts   = [];   // parts selected on property-wide form
+let _pwPhotos  = [];   // photo files queued on property-wide form
 let followupSelected = 'no';
 let selectedCondition = 'Excellent';
 
@@ -3053,6 +3092,20 @@ async function activateJobScreen(record) {
     currentWorkOrderEquipment = merged;
   }
 
+  const pwForm  = document.getElementById('pw-visit-form');
+  const eqSect  = document.getElementById('active-equipment-section');
+
+  if (serviceMode === 'property-wide') {
+    document.getElementById('active-unit-badge').textContent = 'Property-Wide';
+    if (pwForm)  pwForm.style.display  = 'block';
+    if (eqSect)  eqSect.style.display  = 'none';
+    initPwForm();
+    return;
+  }
+
+  if (pwForm)  pwForm.style.display  = 'none';
+  if (eqSect)  eqSect.style.display  = 'block';
+
   const count = currentWorkOrderEquipment.length;
   const badgeText = count > 0 ? (count + ' Unit' + (count !== 1 ? 's' : '')) : 'Diagnostic';
   document.getElementById('active-unit-badge').textContent = badgeText;
@@ -3573,7 +3626,7 @@ async function showWorkOrderSummary(jobsByEquipment) {
   } else {
     completedJobs.forEach(([eqId, job]) => {
       const eq = currentWorkOrderEquipment.find(e => e.id === eqId);
-      const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
+      const unitName = eq ? (eq.fields['Equipment Name'] || 'Unit') : (eqId === 'pw-visit' ? 'Property Visit' : 'Unit');
       const jf = job.fields;
 
       html += '<div class="detail-section" style="margin-bottom:8px;overflow:hidden;">'
@@ -3965,6 +4018,248 @@ function updatePartQty(name, qty) { // qty supports decimals (e.g. 5.5 lbs refri
   const part = selectedParts.find(p => p.name === name);
   if (part) {
     part.qty = Math.max(0.01, parseFloat(qty) || 1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PROPERTY-WIDE FORM helpers
+// ═══════════════════════════════════════════════════════════
+function initPwForm() {
+  _pwParts  = [];
+  _pwPhotos = [];
+  const workEl = document.getElementById('pw-work');
+  if (workEl) workEl.value = '';
+  const otherEl = document.getElementById('pw-parts-other');
+  if (otherEl) otherEl.value = '';
+  const searchEl = document.getElementById('pw-parts-search');
+  if (searchEl) searchEl.value = '';
+  const resultsEl = document.getElementById('pw-parts-results');
+  if (resultsEl) { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
+  const preview = document.getElementById('pw-photos-preview');
+  if (preview) preview.innerHTML = '';
+  const statusEl = document.getElementById('pw-photo-status');
+  if (statusEl) statusEl.textContent = 'Saved to job record';
+  const btn = document.getElementById('pw-complete-btn');
+  if (btn) { btn.textContent = '✓ Complete Visit'; btn.disabled = false; }
+  pwRenderParts();
+  loadPwPartsGrid();
+}
+
+async function loadPwPartsGrid() {
+  const grid = document.getElementById('pw-parts-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="padding:8px 4px;font-size:13px;color:var(--gray-text);">Loading…</div>';
+  try {
+    if (!productListCache) {
+      let all = [], offset = null;
+      do {
+        let url = `${PROXY}/Product%20List?pageSize=100&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+        if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+        const res  = await fetch(url);
+        const json = await res.json();
+        all    = all.concat(json.records || []);
+        offset = json.offset || null;
+      } while (offset);
+      productListCache = all.filter(r => r.fields['Active'] !== false);
+    }
+    const excludedCats = ['Diagnostic & Service Calls', 'Labor', 'Installation Services'];
+    const products = productListCache.filter(r =>
+      r.fields['Commonly Used'] && !excludedCats.includes(r.fields['Category'] || '')
+    );
+    grid.innerHTML = products.map(r => {
+      const name  = r.fields['Product Name'] || '';
+      const price = r.fields['Unit Price']   || 0;
+      return '<label class="part-chip" tabindex="0" role="checkbox" aria-checked="false" aria-label="' + escHtml(name) + ' $' + price + '">'
+        + '<input type="checkbox" value="' + escAttr(name) + '" data-price="' + price + '" onchange="pwToggleCommonPart(this)">'
+        + '<svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
+        + escHtml(name) + '</label>';
+    }).join('');
+  } catch(err) {
+    grid.innerHTML = '<div style="padding:8px 4px;font-size:13px;color:var(--red);">Could not load products</div>';
+  }
+}
+
+function pwToggleCommonPart(cb) {
+  const name  = cb.value;
+  const price = parseFloat(cb.dataset.price) || 0;
+  if (cb.checked) {
+    cb.parentElement.classList.add('selected');
+    cb.parentElement.setAttribute('aria-checked', 'true');
+    pwAddPart(name, price);
+  } else {
+    cb.parentElement.classList.remove('selected');
+    cb.parentElement.setAttribute('aria-checked', 'false');
+    pwRemovePart(name);
+  }
+}
+
+function pwAddPart(name, price) {
+  if (_pwParts.find(p => p.name === name)) return;
+  _pwParts.push({ name, price });
+  pwRenderParts();
+}
+
+function pwRemovePart(name) {
+  _pwParts = _pwParts.filter(p => p.name !== name);
+  document.querySelectorAll('#pw-parts-grid .part-chip input').forEach(cb => {
+    if (cb.value === name) {
+      cb.checked = false;
+      cb.parentElement.classList.remove('selected');
+      cb.parentElement.setAttribute('aria-checked', 'false');
+    }
+  });
+  pwRenderParts();
+}
+
+function pwUpdatePartQty(name, qty) {
+  const part = _pwParts.find(p => p.name === name);
+  if (part) part.qty = Math.max(0.01, parseFloat(qty) || 1);
+}
+
+function pwRenderParts() {
+  const container = document.getElementById('pw-parts-chips');
+  if (!container) return;
+  if (_pwParts.length === 0) { container.innerHTML = ''; return; }
+  container.innerHTML = _pwParts.map(p =>
+    '<div class="part-qty-row">'
+    + '<div class="part-qty-name">' + escHtml(p.name) + '</div>'
+    + (p.price ? '<div class="part-qty-price">$' + p.price.toFixed(2) + '</div>' : '')
+    + '<input type="number" class="part-qty-input" value="' + (p.qty || 1) + '" min="0.01" max="999" step="any"'
+    + ' aria-label="Quantity for ' + escHtml(p.name) + '"'
+    + ' onchange="pwUpdatePartQty(\'' + escAttr(p.name) + '\', this.value)"'
+    + ' onclick="this.select()">'
+    + '<button class="part-qty-remove" onclick="pwRemovePart(\'' + escAttr(p.name) + '\')" aria-label="Remove ' + escHtml(p.name) + '">\xd7</button>'
+    + '</div>'
+  ).join('');
+}
+
+async function pwSearchProducts(query) {
+  const resultsEl = document.getElementById('pw-parts-results');
+  if (!resultsEl) return;
+  if (query.length < 2) { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; return; }
+  if (!productListCache) {
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="padding:12px 14px;color:var(--gray-text);font-size:13px;">Loading…</div>';
+    try {
+      let all = [], offset = null;
+      do {
+        let url = `${PROXY}/Product%20List?pageSize=100&sort[0][field]=Product%20Name&sort[0][direction]=asc`;
+        if (offset) url += `&offset=${encodeURIComponent(offset)}`;
+        const res  = await fetch(url);
+        const json = await res.json();
+        all    = all.concat(json.records || []);
+        offset = json.offset || null;
+      } while (offset);
+      productListCache = all;
+    } catch(err) {
+      resultsEl.innerHTML = '<div style="padding:12px 14px;color:var(--red);font-size:13px;">Could not load products</div>';
+      return;
+    }
+  }
+  const q = query.toLowerCase();
+  const matches = (productListCache || []).filter(r => {
+    const f = r.fields;
+    return f['Active'] !== false
+      && ((f['Product Name'] || '').toLowerCase().includes(q) || (f['Category'] || '').toLowerCase().includes(q));
+  }).slice(0, 15);
+  if (matches.length === 0) {
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="padding:12px 14px;color:var(--gray-text);font-size:13px;">No matches</div>';
+    return;
+  }
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = matches.map(r => {
+    const name  = r.fields['Product Name'] || '';
+    const price = r.fields['Unit Price']   || 0;
+    return '<div class="parts-search-result" role="button" tabindex="0"'
+      + ' onclick="pwAddPart(\'' + escAttr(name) + '\',' + price + ');document.getElementById(\'pw-parts-search\').value=\'\';document.getElementById(\'pw-parts-results\').style.display=\'none\';">'
+      + escHtml(name) + (price ? ' <span style="color:var(--gray-text);font-size:12px;">— $' + price.toFixed(2) + '</span>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function pwHandlePhotos(input) {
+  const preview = document.getElementById('pw-photos-preview');
+  Array.from(input.files).forEach(file => {
+    _pwPhotos.push(file);
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = document.createElement('img');
+      img.src = e.target.result;
+      img.className = 'photo-thumb';
+      img.alt = 'Job photo';
+      preview.appendChild(img);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function submitPropertyWideVisit() {
+  const workPerformed = (document.getElementById('pw-work')?.value || '').trim();
+  if (!workPerformed) { alert('Please enter work performed.'); return; }
+
+  const btn = document.getElementById('pw-complete-btn');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  try {
+    // Build parts string
+    const otherPart = (document.getElementById('pw-parts-other')?.value || '').trim();
+    const partLines = _pwParts.map(p => {
+      const qty   = p.qty && p.qty > 1 ? p.qty + 'x ' : '';
+      const price = p.price ? ' | $' + p.price.toFixed(2) : '';
+      return qty + p.name + price;
+    });
+    if (otherPart) partLines.push('Custom: ' + otherPart);
+    const allParts = partLines.join('\n');
+
+    // Upload photos
+    let photoUrls = [];
+    if (_pwPhotos.length > 0) {
+      btn.textContent = 'Uploading photos…';
+      try {
+        const form = new FormData();
+        _pwPhotos.forEach(f => form.append('image', f));
+        const res  = await fetch(`${PROXY}/upload-photo`, { method: 'POST', body: form });
+        if (res.ok) { const d = await res.json(); photoUrls = d.urls || []; }
+      } catch(e) { /* non-fatal */ }
+    }
+
+    btn.textContent = 'Saving…';
+
+    const now    = new Date();
+    const f      = currentJob.fields;
+    const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const autoName = (f['Customer Name'] || 'Customer') + ' — ' + (f['Work Order Type'] || 'Service') + ' — ' + dateStr;
+
+    const jobFields = {
+      'Job Name':       autoName,
+      'Work Order':     [currentJob.id],
+      'Job Type':       resolveJobType(f['Work Order Type']),
+      'Status':         'Complete',
+      'Work Performed': workPerformed,
+      'Actual Start':   f['Actual Start'] || now.toISOString(),
+      'Actual End':     now.toISOString(),
+    };
+    if (f['Scheduled Date'])    jobFields['Scheduled Start']    = f['Scheduled Date'];
+    if (f['Customer']?.length)  jobFields['Customer']           = f['Customer'];
+    if (f['Technician']?.length)jobFields['Technician']         = f['Technician'];
+    if (f['Property']?.length)  jobFields['Property']           = f['Property'];
+    if (allParts)               jobFields['Parts Used']         = allParts;
+    if (photoUrls.length)       jobFields['Photo URLs']         = photoUrls.join('\n');
+    if (isContractVisit && currentContractId) jobFields['Maintenance Contract'] = [currentContractId];
+
+    const newJob = await apiPost('Jobs', jobFields);
+    if (newJob?.id) _sessionJobIds.add(newJob.id);
+
+    await apiPatch('Work Orders', currentJob.id, { 'Status': 'Complete', 'Actual End': now.toISOString() });
+    currentJob = await apiGet(`Work Orders/${currentJob.id}`);
+
+    await showWorkOrderSummary({ 'pw-visit': newJob });
+  } catch(err) {
+    btn.textContent = '✓ Complete Visit';
+    btn.disabled = false;
+    alert('Could not save visit: ' + (err.message || 'Unknown error'));
   }
 }
 
