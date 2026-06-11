@@ -4243,7 +4243,16 @@ async function submitComplete() {
 // UTILITIES
 // ═══════════════════════
 function openMaps(address) {
-  window.open('https://www.google.com/maps/search/?api=1&query=' + (encodeURIComponent(address)) + '', '_blank');
+  const encoded = encodeURIComponent(address);
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/.test(navigator.userAgent);
+  if (isIOS) {
+    window.location.href = 'maps://?q=' + encoded;
+  } else if (isAndroid) {
+    window.location.href = 'geo:0,0?q=' + encoded;
+  } else {
+    window.open('https://www.google.com/maps/search/?api=1&query=' + encoded, '_blank');
+  }
 }
 
 // ═══════════════════════════════════════
