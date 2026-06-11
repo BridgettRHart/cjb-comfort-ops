@@ -5246,7 +5246,7 @@ function openSchedPanel() {
     step: 1,
     cust: null, custProps: [], custContacts: [], custEquipment: [],
     // New customer — Step 1 (Who)
-    newName: '', newPhone: '', newEmail: '', newReferredBy: '',
+    newName: '', newPhone: '', newEmail: '', newReferredBy: '', newLeadSource: 'Manual Entry',
     // New customer — Step 2 (Where)
     newServiceStreet: '', newServiceCity: '', newServiceState: 'AZ', newServiceZip: '',
     newBillingStreet: '', newBillingCity: '', newBillingState: 'AZ', newBillingZip: '',
@@ -5623,6 +5623,14 @@ function spRenderStep2() {
       <textarea class="form-inp" id="sp-prob" rows="3" placeholder="What's the issue?"></textarea></div>
     <div class="form-group"><label class="form-label">Internal Notes</label>
       <textarea class="form-inp" id="sp-notes" rows="2" placeholder="Office notes…"></textarea></div>
+    ${!_sp.cust ? `<div class="form-group"><label class="form-label">Lead Source</label>
+      <select class="form-inp" id="sp-lead-source">
+        <option value="Manual Entry">Manual Entry</option>
+        <option value="Referral">Referral</option>
+        <option value="ANGI">ANGI</option>
+        <option value="Repeat">Repeat</option>
+        <option value="Other">Other</option>
+      </select></div>` : ''}
     <div class="form-group" style="margin-top:4px;">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#1a6b35;">
         <input type="checkbox" id="sp-ea-job" style="width:16px;height:16px;accent-color:#1a6b35;">
@@ -5644,6 +5652,8 @@ function spRenderStep2() {
     if (msel)  msel.value  = _sp.mode;
     if (probEl)  probEl.value  = _sp.prob;
     if (notesEl) notesEl.value = _sp.notes;
+    const leadEl = document.getElementById('sp-lead-source');
+    if (leadEl) leadEl.value = _sp.newLeadSource || 'Manual Entry';
     const eaEl = document.getElementById('sp-ea-job');
     if (eaEl) eaEl.checked = _sp.eaJob || false;
     // Show/hide equipment picker and restore chips based on saved mode
@@ -5907,8 +5917,9 @@ function spGoNext() {
     const rawPropId = document.getElementById('sp-prop')?.value || '';
     _sp.propId   = (rawPropId && rawPropId !== '__new__') ? rawPropId : null;
     _sp.contId   = document.getElementById('sp-contact')?.value || null;
-    _sp.prob     = (document.getElementById('sp-prob')?.value   || '').trim();
-    _sp.notes    = (document.getElementById('sp-notes')?.value  || '').trim();
+    _sp.prob          = (document.getElementById('sp-prob')?.value        || '').trim();
+    _sp.notes         = (document.getElementById('sp-notes')?.value       || '').trim();
+    _sp.newLeadSource = (document.getElementById('sp-lead-source')?.value || _sp.newLeadSource || 'Manual Entry');
     _sp.eaJob    = !!(document.getElementById('sp-ea-job')?.checked);
     // specificEq updated live via spPickEq/spRemoveEq
 
@@ -5958,6 +5969,7 @@ async function spBook() {
       if (_sp.newPhone)        custFields['Phone']           = _sp.newPhone;
       if (_sp.newEmail)        custFields['Email']           = _sp.newEmail;
       if (_sp.newReferredBy)   custFields['Referred By']     = _sp.newReferredBy;
+      if (_sp.newLeadSource)   custFields['Lead Source']     = _sp.newLeadSource;
       if (_sp.newBillingStreet) custFields['Billing Address'] = _sp.newBillingStreet;
       if (_sp.newBillingCity)   custFields['Billing City']   = _sp.newBillingCity;
       if (_sp.newBillingState)  custFields['Billing State']  = _sp.newBillingState;

@@ -201,17 +201,35 @@ export default {
 
           // Find or create Property
           let propertyId = null;
-          if (address) {
-            let propRecords = [];
+          {
+            let existingProps = [];
             if (inviteeEmail) {
               const propSearch = await airtableGet('Properties', `{Customer Email}="${inviteeEmail}"`);
-              propRecords = propSearch.records || [];
+              existingProps = propSearch.records || [];
             }
-            if (propRecords.length === 1) {
-              propertyId = propRecords[0].id;
-            } else if (propRecords.length === 0) {
+
+            if (existingProps.length > 0 && (addrStreet || address)) {
+              // Match by address so a customer with multiple locations gets separate properties
+              const normalize = s => (s || '').toLowerCase().replace(/[,.\s]+/g, ' ').trim();
+              const incoming  = normalize(addrStreet || address);
+              const matched   = existingProps.find(p => {
+                const pAddr = normalize(p.fields['Service Address']);
+                return pAddr && (pAddr === incoming || pAddr.includes(incoming) || incoming.includes(pAddr));
+              });
+              if (matched) {
+                propertyId = matched.id; // same address → reuse existing property
+              }
+              // No address match → fall through to create a new property below
+            } else if (existingProps.length === 1 && !address) {
+              // No address from booking and only one property on file → use it
+              propertyId = existingProps[0].id;
+            }
+            // Multiple properties + no address → leave unlinked, Bridgett assigns manually
+
+            if (!propertyId && (addrStreet || address)) {
+              // Create new property (first booking, or address doesn't match any existing)
               const propFields = {
-                'Property Name':   inviteeName + (addrStreet || address ? ' — ' + (addrStreet || address) : ''),
+                'Property Name':   inviteeName + ' — ' + (addrStreet || address),
                 'Service Address': addrStreet || address,
                 'City':            addrCity,
                 'State':           addrState || 'AZ',
@@ -223,7 +241,6 @@ export default {
               const newProp = await airtablePost('Properties', propFields);
               propertyId = newProp.id;
             }
-            // Multiple properties → leave unlinked, Bridgett links manually
           }
 
           const noteParts = [];
