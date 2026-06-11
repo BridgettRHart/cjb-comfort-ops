@@ -1472,9 +1472,12 @@
         <div id="active-customer-name" style="font-size:15px;font-weight:700;color:var(--white);"></div>
         <div id="active-job-type" style="font-size:12px;color:rgba(255,255,255,0.75);margin-top:2px;"></div>
         <div id="active-contract-badge" style="display:none;margin-top:5px;"><span class="contract-badge">📋 Contract Visit</span></div>
+        <div id="active-deposit-badge" style="display:none;margin-top:5px;"><span style="background:var(--success);color:var(--white);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px;">💰 Deposit Received</span></div>
       </div>
       <div id="active-unit-badge" style="background:var(--gold);color:var(--charcoal);font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;"></div>
     </div>
+
+    <div id="active-ea-panel" style="display:none;"></div>
 
     <h2 class="section-label">Equipment — This Visit</h2>
 
@@ -2153,6 +2156,7 @@ let iestExistingAirtableQuoteId = ''; // set when editing an existing quote
 let iestEstimateUrl = '';             // approve URL shown as QR after sending
 let iestPollInterval = null;          // approval polling timer
 let _estimateApprovedRepair = false;  // true when Estimate Only → Start Repair tapped
+let _currentEaStatus = '';            // EA status fetched in openJob, used by activateJobScreen
 
 // ═══════════════════════
 // STATE
@@ -2573,6 +2577,7 @@ async function openJob(recordId) {
         eaStatus = eaData.fields['EA Status'] || '';
       } catch(e) { /* non-fatal — show panel without status */ }
     }
+    _currentEaStatus = eaStatus;
     renderJobDetail(data, eaStatus);
   } catch (err) {
     content.innerHTML = `<div class="empty-state"><h3>Could not load job</h3><p>${escHtml(err.message)}</p></div>`;
@@ -2628,7 +2633,8 @@ function renderJobDetail(record, eaStatus) {
   _omwSent = false;
 
   // On My Way button — shown for upcoming/active jobs with a customer phone
-  const omwBtn = (customerPhone && ['Scheduled','In Progress'].includes(status))
+  const omwPhone = contactPhone || customerPhone;
+  const omwBtn = (omwPhone && ['Scheduled','In Progress'].includes(status))
     ? `<button id="omw-btn" class="btn btn-outline btn-full"
         style="font-size:14px;font-weight:600;margin-bottom:8px;border-color:var(--charcoal);color:var(--charcoal);"
         onclick="sendOnMyWay()">
@@ -2649,8 +2655,14 @@ function renderJobDetail(record, eaStatus) {
     </button>`;
   } else if (['Complete','Invoiced','Paid'].includes(status)) {
     if (isEstimateType) {
+      const quoteUrl = f['Stripe Quote URL'] || '';
       statusBtn = `<div style="text-align:center;padding:12px 0 4px;color:var(--success);font-weight:700;font-size:14px;" role="status">✓ Notes Saved — Office reviewing</div>
-        <button class="btn btn-red btn-full" style="margin-top:8px;" onclick="resumeActiveJob()">Edit Findings</button>`;
+        <button class="btn btn-red btn-full" style="margin-top:8px;" onclick="resumeActiveJob()">Edit Findings</button>
+        ${quoteUrl ? `<a href="${escAttr(quoteUrl)}" target="_blank" rel="noopener"
+          class="btn btn-outline btn-full"
+          style="margin-top:8px;display:block;text-align:center;text-decoration:none;font-weight:700;">
+          See Estimate →
+        </a>` : ''}`;
     } else {
       const invoiceUrl = extractInvoiceUrl(f['Internal Notes'] || '');
       const totalAmt   = f['Total Amount'] ? `$${Number(f['Total Amount']).toFixed(2)}` : '';
@@ -2881,9 +2893,19 @@ async function sendOnMyWay() {
   if (_omwSent) return;
   if (!currentJob) return;
   const f = currentJob.fields;
-  const phone = f['Customer Phone'] || '';
+
+  // Prefer primary contact phone; fall back to customer phone
+  let phone = f['Customer Phone'] || '';
+  const contactIds = f['Primary Contact'] || [];
+  if (contactIds.length > 0) {
+    try {
+      const contactData = await apiGet(`Contacts/${contactIds[0]}`);
+      phone = contactData.fields['Phone'] || phone;
+    } catch(e) { /* non-fatal — fall back to customer phone */ }
+  }
+
   if (!phone) {
-    alert('No customer phone on file for this job.');
+    alert('No phone number on file for this job.');
     return;
   }
   const firstName = (Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : f['Customer Name'] || '').split(' ')[0] || 'there';
@@ -2932,6 +2954,35 @@ async function activateJobScreen(record) {
   isContractVisit = (f['Maintenance Contract'] || []).length > 0;
   currentContractId = isContractVisit ? f['Maintenance Contract'][0] : null;
   document.getElementById('active-contract-badge').style.display = isContractVisit ? 'block' : 'none';
+
+  const depositBadge = document.getElementById('active-deposit-badge');
+  if (depositBadge) depositBadge.style.display = f['Deposit Paid'] ? 'block' : 'none';
+
+  const eaPanel = document.getElementById('active-ea-panel');
+  if (eaPanel) {
+    const eaInstallStatuses = ['Installation Approved','In Progress','Complete','Closed'];
+    if (f['Efficiency Arizona Job'] && eaInstallStatuses.includes(_currentEaStatus)) {
+      eaPanel.style.display = 'block';
+      eaPanel.innerHTML = `
+        <div style="border:1.5px solid #1a6b35;border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;">
+          <div style="color:#1a6b35;font-size:12px;font-weight:700;margin-bottom:10px;">⚡ EA — ${escHtml(_currentEaStatus)}</div>
+          <a href="https://airtable.com/appi09WiT6MFsy9zo/pagVVSoydYr6mRK1X/form" target="_blank" rel="noopener"
+             class="btn btn-outline btn-full"
+             style="margin-bottom:8px;border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
+            📋 Quality Install Report
+          </a>
+          <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener"
+             class="btn btn-outline btn-full"
+             style="border-color:#1a6b35;color:#1a6b35;font-weight:700;display:block;text-align:center;text-decoration:none;">
+            📝 Project Updates
+          </a>
+        </div>`;
+    } else {
+      eaPanel.style.display = 'none';
+      eaPanel.innerHTML = '';
+    }
+  }
+
   showScreen('active');
 
   const propLinks = f['Property'];
