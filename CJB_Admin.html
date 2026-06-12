@@ -196,16 +196,16 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 
 /* ── DASHBOARD ── */
 .dash { flex: 1; overflow-y: auto; padding: 20px 24px; background: #f0f0f0; }
-.dash-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
-.stat-card { background: #fff; border-radius: 10px; padding: 16px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
-.stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 6px; }
-.stat-value { font-size: 30px; font-weight: 700; color: #2e2e2e; line-height: 1; }
-.stat-sub { font-size: 12px; color: #999; margin-top: 5px; }
+.dash-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.stat-card { background: #fff; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+.stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 4px; }
+.stat-value { font-size: 22px; font-weight: 700; color: #2e2e2e; line-height: 1; }
+.stat-sub { font-size: 11px; color: #999; margin-top: 4px; }
 .stat-card.alert .stat-value { color: #c81f25; }
 .stat-card.good .stat-value { color: #1a6b35; }
 .stat-card.clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
 .stat-card.clickable:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.11); transform: translateY(-1px); }
-.dash-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #ccc; margin: 8px 0 6px; }
+.dash-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #ccc; margin: 6px 0 4px; }
 
 .dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
 
@@ -1771,7 +1771,13 @@ function renderDashboard(wos, fuRecords, contracts) {
     const d = _azDate(w.fields['Scheduled Date']||'');
     return d && d <= d14agoStr;
   });
-  const approvedEst    = wos.filter(w => w.fields['Status'] === 'Estimate Approved' && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr);
+  // Approved = any WO with a quote that reached Estimate Approved, Complete, Invoiced, or Paid
+  // (once past "Estimate Approved" the WO status moves on, so only checking that one status was missing most wins)
+  const approvedEst    = wos.filter(w => {
+    if (!w.fields['Stripe Quote ID']) return false;
+    const s = w.fields['Status'] || '';
+    return ['Estimate Approved','Complete','Invoiced','Paid'].includes(s) && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr;
+  });
   const declinedEst    = wos.filter(w => w.fields['Status'] === 'Estimate Declined' && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr);
   const convDenom      = approvedEst.length + declinedEst.length;
   const convRate       = convDenom > 0 ? Math.round((approvedEst.length / convDenom) * 100) : null;
