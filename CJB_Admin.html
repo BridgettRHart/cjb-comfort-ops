@@ -3230,7 +3230,25 @@ async function openInvoiceModal(workOrderId, customerId) {
           fillLineItem(name, qty, unitPrice, null);
           regularLines++;
         }
-        if (!regularLines) addLineItem();
+        if (!regularLines) {
+          // Draft exists but has no lines — try to pre-fill from the approved Stripe Quote
+          const sqIdFallback = (woForModal?.fields?.['Stripe Quote ID'] || '').trim();
+          let filledFromQuote = false;
+          if (sqIdFallback) {
+            try {
+              const qr = await fetch(`${PROXY}/quote/${sqIdFallback}`);
+              const qd = await qr.json();
+              if (qr.ok && qd.lines?.length) {
+                for (const l of qd.lines) {
+                  const { name, qty, unitPrice } = unfoldLineItem(l.description, l.quantity, l.unitPrice);
+                  fillLineItem(name, qty, unitPrice, null);
+                }
+                filledFromQuote = true;
+              }
+            } catch(e) { /* fall through */ }
+          }
+          if (!filledFromQuote) addLineItem();
+        }
       } else {
         // Draft no longer exists in Stripe — fall back to fresh invoice
         existingStripeId = null;
@@ -3599,7 +3617,7 @@ async function openQuoteModal(woId, custId, readOnly = false) {
 
         // Restore approveUrl from WO field
         const approveUrl = wo?.fields?.['Stripe Quote URL'] || '';
-        if (approveUrl && (quoteData.status === 'open' || wo?.fields?.['Status']?.startsWith('Estimate'))) {
+        if (approveUrl && ['open','accepted'].includes(quoteData.status)) {
           quoteApproveUrl = approveUrl;
           document.getElementById('quote-url-section').classList.remove('hidden');
           document.getElementById('quote-url-inp').value = approveUrl;

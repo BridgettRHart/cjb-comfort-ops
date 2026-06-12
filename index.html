@@ -1771,6 +1771,12 @@
             Waiting for customer response…
           </div>
           <div style="margin-top:8px;font-size:11px;color:var(--gray-text);">Customer scans QR or opens the link to approve or decline</div>
+          <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px;">
+            <div style="font-size:11px;color:var(--gray-text);margin-bottom:8px;">Customer gave verbal approval on-site?</div>
+            <button onclick="recordVerbalApproval()" class="btn btn-outline" style="font-size:13px;padding:10px 16px;border-color:#059669;color:#059669;">
+              ✓ Customer Said Yes (Verbal)
+            </button>
+          </div>
         </div>
 
         <!-- Approved state -->
@@ -4960,6 +4966,27 @@ function startApprovalPolling(woId) {
 
 function stopApprovalPolling() {
   if (approvalPollInterval) { clearInterval(approvalPollInterval); approvalPollInterval = null; }
+}
+
+async function recordVerbalApproval() {
+  if (!currentJob) return;
+  const btn = document.querySelector('#eu-awaiting button[onclick="recordVerbalApproval()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
+  try {
+    const res = await fetch(`${PROXY}/approve`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ woId: currentJob.id, decision: 'approved' }),
+    });
+    if (!res.ok) throw new Error('Server error');
+    stopApprovalPolling();
+    currentJob.fields['Status'] = 'Estimate Approved';
+    showEstimateState('approved');
+    showToast('✅ Verbal approval recorded!', 'success');
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Customer Said Yes (Verbal)'; }
+    showToast('Could not record approval — check connection', 'error');
+  }
 }
 
 function euCopyLink() {
