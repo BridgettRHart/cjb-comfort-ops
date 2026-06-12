@@ -196,16 +196,16 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 
 /* ── DASHBOARD ── */
 .dash { flex: 1; overflow-y: auto; padding: 20px 24px; background: #f0f0f0; }
-.dash-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
-.stat-card { background: #fff; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
-.stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 4px; }
-.stat-value { font-size: 22px; font-weight: 700; color: #2e2e2e; line-height: 1; }
-.stat-sub { font-size: 11px; color: #999; margin-top: 4px; }
+.dash-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+.stat-card { background: #fff; border-radius: 10px; padding: 16px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+.stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 6px; }
+.stat-value { font-size: 30px; font-weight: 700; color: #2e2e2e; line-height: 1; }
+.stat-sub { font-size: 12px; color: #999; margin-top: 5px; }
 .stat-card.alert .stat-value { color: #c81f25; }
 .stat-card.good .stat-value { color: #1a6b35; }
 .stat-card.clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.1s; }
 .stat-card.clickable:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.11); transform: translateY(-1px); }
-.dash-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #ccc; margin: 6px 0 4px; }
+.dash-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #ccc; margin: 8px 0 6px; }
 
 .dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
 
@@ -1761,7 +1761,16 @@ function renderDashboard(wos, fuRecords, contracts) {
   const d14ago         = new Date(now); d14ago.setDate(now.getDate() - 14);
   const d30agoStr      = _azDate(d30ago.toISOString());
   const d14agoStr      = _azDate(d14ago.toISOString());
-  const openEstimates  = wos.filter(w => w.fields['Status'] === 'Estimate Sent');
+  // Pipeline = any WO with a quote still pending (not yet resolved or invoiced)
+  const openEstimates  = wos.filter(w => {
+    if (!w.fields['Stripe Quote ID']) return false;
+    const s = w.fields['Status'] || '';
+    const woType = w.fields['Work Order Type'] || '';
+    const isEstimateType = ['Install Estimate','Estimate Only'].includes(woType);
+    const resolved = ['Estimate Declined','Estimate Expired','Estimate Approved','Invoiced','Paid'];
+    if (!isEstimateType) resolved.push('Complete');
+    return !resolved.includes(s);
+  });
   const pipelineAmt    = openEstimates.reduce((s,w) => {
     const sqId = w.fields['Stripe Quote ID'];
     const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
