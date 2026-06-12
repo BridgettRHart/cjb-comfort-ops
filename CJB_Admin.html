@@ -6958,7 +6958,8 @@ function renderEstimateDetail(quoteTotalOverride) {
     ? `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>
        <button class="btn btn-red" onclick="convertEstimateToJob('${wo.id}')">Convert to Job →</button>`
     : status === 'Estimate Sent'
-    ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Update &amp; Resend</button>`
+    ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Update &amp; Resend</button>
+       <button class="btn btn-sm" style="background:#d97706;color:#fff;" onclick="markEstimateApproved('${wo.id}')">✓ Mark Approved</button>`
     : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>`;
 
   det.innerHTML = `
