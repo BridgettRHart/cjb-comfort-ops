@@ -1682,6 +1682,16 @@ async function loadDashboard(force) {
     renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
     // Keep the Follow-Up badge in sync whenever the dashboard refreshes
     updateFollowUpBadge((_dashFuRecords || []).length);
+    // Pre-fetch Stripe quote totals for pipeline accuracy — re-render when they arrive
+    const _wosWithQuotes = (_dashWOs || []).filter(w => w.fields['Stripe Quote ID'] && _quoteTotalCache[w.fields['Stripe Quote ID']] == null);
+    if (_wosWithQuotes.length) {
+      Promise.all(_wosWithQuotes.map(w => {
+        const sqId = w.fields['Stripe Quote ID'];
+        return fetch(`${PROXY}/quote/${sqId}`).then(r => r.json())
+          .then(d => { if (d.amountTotal != null) _quoteTotalCache[sqId] = d.amountTotal; })
+          .catch(() => {});
+      })).then(() => renderDashboard(_dashWOs, _dashFuRecords, _dashContracts));
+    }
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
       `<div style="color:#c81f25;padding:20px;">${esc(err.message)}</div>`;
