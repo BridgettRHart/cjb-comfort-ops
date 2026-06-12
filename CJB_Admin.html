@@ -1858,8 +1858,8 @@ function renderDashboard(wos, fuRecords, contracts) {
     <div class="dash-grid-3">
       <div class="stat-card clickable" onclick="switchTab('estimates')">
         <div class="stat-label">Pipeline</div>
-        <div class="stat-value">${openEstimates.length}</div>
-        <div class="stat-sub">${pipelineAmt > 0 ? '~' + fmt$(pipelineAmt) + ' in open estimates' : 'open estimates'}</div>
+        <div class="stat-value">${pipelineAmt > 0 ? '~' + fmt$(pipelineAmt) : '—'}</div>
+        <div class="stat-sub">${openEstimates.length} open estimate${openEstimates.length !== 1 ? 's' : ''}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Conversion Rate — 30d</div>
