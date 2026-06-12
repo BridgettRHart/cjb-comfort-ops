@@ -741,8 +741,14 @@ export default {
         const { woId, decision } = await request.json();
         if (!woId || !decision) return new Response(JSON.stringify({ error: 'Missing woId or decision' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
+        // Don't overwrite Invoiced/Paid — the service call is already closed;
+        // the new Repair WO created by the quote.accepted webhook is the follow-up.
+        const wo0 = await airtableGetById('Work Orders', woId);
+        const currentStatus = wo0.fields['Status'] || '';
         const newStatus = decision === 'approved' ? 'Estimate Approved' : 'Estimate Declined';
-        await airtablePatch('Work Orders', woId, { 'Status': newStatus });
+        if (!['Invoiced','Paid'].includes(currentStatus)) {
+          await airtablePatch('Work Orders', woId, { 'Status': newStatus });
+        }
 
         // Send confirmation email to customer (non-fatal)
         if (env.RESEND_API_KEY) {
