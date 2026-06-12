@@ -6810,8 +6810,13 @@ function renderEstimatesList() {
       const s = r.fields['Status'] || '';
       // A WO with a Stripe Quote ID has an estimate in flight — show it unless
       // the estimate itself reached a terminal state
-      if (r.fields['Stripe Quote ID'] &&
-          !['Estimate Declined','Estimate Expired','Estimate Approved','Complete','Invoiced','Paid'].includes(s)) return true;
+      const woType = r.fields['Work Order Type'] || '';
+      const isEstimateTypeWO = ['Install Estimate','Estimate Only'].includes(woType);
+      // Complete only means "done" for service WOs — for Install Estimate/Estimate Only,
+      // Complete just means the site visit finished; the estimate may not be sent yet.
+      const terminalStatuses = ['Estimate Declined','Estimate Expired','Estimate Approved','Invoiced','Paid'];
+      if (!isEstimateTypeWO) terminalStatuses.push('Complete');
+      if (r.fields['Stripe Quote ID'] && !terminalStatuses.includes(s)) return true;
       return !s || s === 'Draft' || s === 'Estimate Sent';
     });
   } else if (_estFilter === 'approved') {
