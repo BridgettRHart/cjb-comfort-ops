@@ -6811,7 +6811,7 @@ function renderEstimatesList() {
       // A WO with a Stripe Quote ID has an estimate in flight — show it unless
       // the estimate itself reached a terminal state
       if (r.fields['Stripe Quote ID'] &&
-          !['Estimate Declined','Estimate Expired','Estimate Approved','Invoiced','Paid'].includes(s)) return true;
+          !['Estimate Declined','Estimate Expired','Estimate Approved','Complete','Invoiced','Paid'].includes(s)) return true;
       return !s || s === 'Draft' || s === 'Estimate Sent';
     });
   } else if (_estFilter === 'approved') {
