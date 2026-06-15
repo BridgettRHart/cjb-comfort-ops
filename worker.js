@@ -506,8 +506,8 @@ export default {
 
         return new Response(JSON.stringify({
           ok: true,
-          firstName:           (f['Customer Name'] || '').split(' ')[0] || 'there',
-          customerName:        f['Customer Name'] || '',
+          firstName:           (Array.isArray(f['Customer Name']) ? (f['Customer Name'][0] || '') : (f['Customer Name'] || '')).split(' ')[0] || 'there',
+          customerName:        (Array.isArray(f['Customer Name']) ? (f['Customer Name'][0] || '') : (f['Customer Name'] || '')),
           dateStr, timeStr, endTimeStr,
           address:             f['Service Address'] || '',
           woType:              f['Work Order Type'] || 'Service Visit',
@@ -539,7 +539,7 @@ export default {
 
         const { dateStr, timeStr } = scheduledDate
           ? formatAZDateTime(scheduledDate) : { dateStr: '', timeStr: '' };
-        const customerName = f['Customer Name'] || 'A customer';
+        const customerName = (Array.isArray(f['Customer Name']) ? (f['Customer Name'][0] || '') : (f['Customer Name'] || '')) || 'A customer';
         await sendEmail(env.RESEND_API_KEY, {
           to:      ADMIN_EMAIL,
           subject: `❌ Cancellation: ${customerName} — ${dateStr || 'upcoming appointment'}`,
@@ -576,7 +576,7 @@ export default {
 
         const { dateStr, timeStr } = scheduledDate
           ? formatAZDateTime(scheduledDate) : { dateStr: '', timeStr: '' };
-        const customerName = f['Customer Name'] || 'A customer';
+        const customerName = (Array.isArray(f['Customer Name']) ? (f['Customer Name'][0] || '') : (f['Customer Name'] || '')) || 'A customer';
         await sendEmail(env.RESEND_API_KEY, {
           to:      ADMIN_EMAIL,
           subject: `🔄 Reschedule Request: ${customerName} — ${dateStr || 'upcoming appointment'}`,
@@ -727,7 +727,7 @@ export default {
         const total = lineItems.reduce((s, li) => s + li.amount, 0);
         return new Response(JSON.stringify({
           ok:           true,
-          customerName: woFields['Customer Name']  || 'Customer',
+          customerName: (Array.isArray(woFields['Customer Name']) ? (woFields['Customer Name'][0] || '') : (woFields['Customer Name'] || '')) || 'Customer',
           woNumber:     woFields['Work Order ID']  || '',
           status:       woFields['Status']         || '',
           description,
@@ -3252,7 +3252,7 @@ async function sendAppointmentReminders(env) {
       if (!email) continue;
 
       const { dateStr, timeStr, endTimeStr } = formatAZDateTime(f['Scheduled Date']);
-      const firstName = (f['Customer Name'] || '').split(' ')[0] || 'there';
+      const firstName = (Array.isArray(f['Customer Name']) ? (f['Customer Name'][0] || '') : (f['Customer Name'] || '')).split(' ')[0] || 'there';
       const isDay = hours === 24;
 
       const cancelUrl     = `${MANAGE_BASE_URL}?wo=${wo.id}&action=cancel`;
