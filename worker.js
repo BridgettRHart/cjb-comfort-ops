@@ -146,7 +146,7 @@ export default {
             if (eventTypeName.includes(key)) { workOrderType = val; break; }
           }
 
-          let phone = inviteePhone, unitCount = '', problemDesc = '';
+          let phone = inviteePhone, unitCount = '', problemDesc = '', leadSource = '', referredBy = '';
           for (const qa of (payload.questions_and_answers || [])) {
             const q = (qa.question || '').toLowerCase();
             const a = (qa.answer   || '').trim();
@@ -163,6 +163,10 @@ export default {
               // Q&A form collects street only — keep city/state/zip from evLocation if available
               address = a;
               addrStreet = a;
+            } else if (q.includes('hear about')) {
+              leadSource = a;
+            } else if (q.includes('referred by') || q.includes('their name')) {
+              referredBy = a;
             }
           }
 
@@ -174,7 +178,7 @@ export default {
               customerId = custSearch.records[0].id;
             } else {
               const nameParts = inviteeName.trim().split(' ');
-              const newCust = await airtablePost('Customers', {
+              const newCustFields = {
                 'Customer Name': inviteeName,
                 'First Name':    nameParts[0] || '',
                 'Last Name':     nameParts.slice(1).join(' ') || '',
@@ -182,9 +186,11 @@ export default {
                 'Phone':         phone,
                 'Type':          'Residential',
                 'Customer Tags': ['Residential'],
-                'Lead Source':   'Calendly',
+                'Lead Source':   leadSource ? leadSource.split(',').map(s => s.trim()).filter(Boolean) : ['Calendly'],
                 'Active':        true
-              });
+              };
+              if (referredBy) newCustFields['Referred By'] = referredBy;
+              const newCust = await airtablePost('Customers', newCustFields);
               customerId = newCust.id;
               // Auto-create primary contact record for new customer
               await airtablePost('Contacts', {

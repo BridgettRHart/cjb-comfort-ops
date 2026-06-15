@@ -4471,8 +4471,25 @@ function openCustomerForm(existingRecord) {
       <div class="form-group"><label class="form-label">Zip</label>
         <input class="form-inp" id="cf-zip" type="text" maxlength="10" value="${escAttr(f['Billing Zip']||'')}"></div>
     </div>
-    <div class="form-group"><label class="form-label">Referred By</label>
-      <input class="form-inp" id="cf-referred" type="text" value="${escAttr(f['Referred By']||'')}"></div>
+    <div class="form-row-2">
+      <div class="form-group"><label class="form-label">Lead Source</label>
+        <select class="form-inp" id="cf-lead-source">
+          <option value="">— Unknown —</option>
+          <option value="Google Search">Google Search</option>
+          <option value="Google Maps / Reviews">Google Maps / Reviews</option>
+          <option value="Yelp">Yelp</option>
+          <option value="Facebook">Facebook</option>
+          <option value="Nextdoor">Nextdoor</option>
+          <option value="Referral – Existing Customer">Referral – Existing Customer</option>
+          <option value="Yard Sign / Truck Wrap">Yard Sign / Truck Wrap</option>
+          <option value="Website / Direct">Website / Direct</option>
+          <option value="Calendly">Calendly</option>
+          <option value="Manual Entry">Manual Entry</option>
+          <option value="Other">Other</option>
+        </select></div>
+      <div class="form-group"><label class="form-label">Referred By</label>
+        <input class="form-inp" id="cf-referred" type="text" value="${escAttr(f['Referred By']||'')}"></div>
+    </div>
     <div class="form-group"><label class="form-label">Notes</label>
       <textarea class="form-inp" id="cf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
     <div class="modal-actions">
@@ -4481,6 +4498,8 @@ function openCustomerForm(existingRecord) {
         ${existingRecord ? 'Save Changes' : 'Create Customer'}</button>
     </div>`;
   document.getElementById('form-modal').classList.remove('hidden');
+  const lsEl = document.getElementById('cf-lead-source');
+  if (lsEl) lsEl.value = (Array.isArray(f['Lead Source']) ? f['Lead Source'][0] : f['Lead Source']) || '';
 }
 
 async function submitCustomerForm() {
@@ -4498,6 +4517,7 @@ async function submitCustomerForm() {
     'Billing City':    (document.getElementById('cf-city').value  ||'').trim(),
     'Billing State':   (document.getElementById('cf-state').value ||'').trim().toUpperCase(),
     'Billing Zip':     (document.getElementById('cf-zip').value   ||'').trim(),
+    'Lead Source':     document.getElementById('cf-lead-source').value ? [document.getElementById('cf-lead-source').value] : [],
     'Referred By':     (document.getElementById('cf-referred').value||'').trim(),
     'Notes':           (document.getElementById('cf-notes').value  ||'').trim(),
     'Active': true,
@@ -5624,9 +5644,14 @@ function spRenderStep2() {
     ${!_sp.cust ? `<div class="form-group"><label class="form-label">Lead Source</label>
       <select class="form-inp" id="sp-lead-source">
         <option value="Manual Entry">Manual Entry</option>
-        <option value="Referral">Referral</option>
-        <option value="ANGI">ANGI</option>
-        <option value="Repeat">Repeat</option>
+        <option value="Google Search">Google Search</option>
+        <option value="Google Maps / Reviews">Google Maps / Reviews</option>
+        <option value="Yelp">Yelp</option>
+        <option value="Facebook">Facebook</option>
+        <option value="Nextdoor">Nextdoor</option>
+        <option value="Referral – Existing Customer">Referral – Existing Customer</option>
+        <option value="Yard Sign / Truck Wrap">Yard Sign / Truck Wrap</option>
+        <option value="Website / Direct">Website / Direct</option>
         <option value="Other">Other</option>
       </select></div>` : ''}
     <div class="form-group" style="margin-top:4px;">
