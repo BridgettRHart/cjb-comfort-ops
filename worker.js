@@ -1015,7 +1015,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               if (custId)                     newWoFields['Customer']   = [custId];
               if (acceptedWoPropIds.length)   newWoFields['Property']   = acceptedWoPropIds;
               if (acceptedWoTechIds.length)   newWoFields['Technician'] = acceptedWoTechIds;
-              if (woId)                       newWoFields['Related Work Orders'] = [woId];
+              if (woId)                       newWoFields['Source Estimate'] = [woId];
               try { await airtablePost('Work Orders', newWoFields); } catch(e) { console.error('New Repair WO creation failed:', e.message); }
 
               // SMS Bridgett
@@ -3135,7 +3135,7 @@ function logCommunication(env, { type, trigger, sentTo, subject, customerId, wor
         'Log Name': logName,
         'Type':     type,
         'Trigger':  trigger,
-        'Sent To':  sentTo  || '',
+        'Sent To':  Array.isArray(sentTo) ? (sentTo[0] || '') : (sentTo || ''),
         'Subject':  subject || '',
         'Status':   status,
         'Sent At':  now,
