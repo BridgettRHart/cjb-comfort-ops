@@ -8184,6 +8184,7 @@ let _dragSource          = null;
 let _draggedOrigTechId   = null;
 let _draggedOrigStart    = null;
 let _dispatchOfficeWOs   = [];
+const _reschedulingWOs   = new Set(); // WOs dragged back to sidebar — need reschedule notify, not first-booking
 
 const DISPATCH_SLOT_H  = 50;   // px per 30-min slot
 const DISPATCH_START_H = 7;    // 7 AM
@@ -8519,13 +8520,16 @@ async function _assignDispatchJob(woId, techId, startH, startM) {
     });
     _dashWOs = null;
 
-    if (_dragSource === 'sidebar') {
-      // First scheduling: WO was in the "New" queue — always send booking confirmation
+    if (_dragSource === 'sidebar' && !_reschedulingWOs.has(woId)) {
+      // Genuinely new scheduling — always send booking confirmation
       fetch(`${PROXY}/dispatch/confirm`, {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ workOrderId: woId, techId })
       }).catch(e => console.error('Dispatch confirm email error:', e));
+      _reschedulingWOs.delete(woId);
     } else {
+      // Either a reschedule from sidebar, or a grid-to-grid move — check if time changed
+      _reschedulingWOs.delete(woId);
       // Already had a date — only notify if the time actually changed
       const origMs     = _draggedOrigStart ? new Date(_draggedOrigStart).getTime() : null;
       const newMs      = new Date(startUTC).getTime();
@@ -8550,6 +8554,7 @@ async function _unscheduleDispatchJob(woId) {
   const wo = _dispatchDayWOs.find(w => w.id === woId);
   if (!wo) return;
 
+  _reschedulingWOs.add(woId); // remember this WO had a date — next drop is a reschedule
   wo.fields['Scheduled Date'] = null;
   wo.fields['Scheduled End']  = null;
   wo.fields['Technician']     = [];
