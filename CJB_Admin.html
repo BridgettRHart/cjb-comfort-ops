@@ -1422,6 +1422,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <button class="dispatch-nav-btn dispatch-nav-today" onclick="dispatchGoToday()">Today</button>
     <span style="flex:1;"></span>
     <span style="font-size:12px;color:#6b7280;" id="dispatch-unscheduled-lbl"></span>
+    <button class="dispatch-nav-btn" onclick="dispatchGeocodeAll()" id="dispatch-geocode-btn" title="Geocode all property addresses to show map pins" style="font-size:12px;">📍 Fill Map Pins</button>
   </div>
   <div class="dispatch-content">
     <div class="dispatch-sidebar">
@@ -8450,6 +8451,15 @@ async function _assignDispatchJob(woId, techId, startH, startM) {
       body: JSON.stringify({ fields: { 'Scheduled Date': startUTC, 'Scheduled End': endUTC, 'Technician': [techId], 'Status': 'Scheduled' } })
     });
     _dashWOs = null;
+
+    // Send booking confirmation only when pulling from the unscheduled queue.
+    // Dragging an already-confirmed job to a new slot should NOT re-notify.
+    if (_dragSource === 'sidebar') {
+      fetch(`${PROXY}/dispatch/confirm`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ workOrderId: woId, techId })
+      }).catch(e => console.error('Dispatch confirm email error:', e));
+    }
   } catch(e) {
     showToast('Could not save — please refresh', 'error');
     console.error('_assignDispatchJob error:', e);
@@ -8575,6 +8585,25 @@ function openWOFromDispatch(woId) {
   if (!wo) return;
   const custId = _ddUnwrap(wo.fields['Customer']);
   if (custId) { switchTab('customers', true); selectCustomer(custId); }
+}
+
+async function dispatchGeocodeAll() {
+  const btn = document.getElementById('dispatch-geocode-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '📍 Geocoding…'; }
+  try {
+    const res  = await fetch(`${PROXY}/geocode-properties`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Geocoding failed');
+    showToast(`✓ Map pins filled: ${data.geocoded} addresses geocoded${data.failed ? ', ' + data.failed + ' failed' : ''}`, 'success');
+    // Clear property cache and reload map
+    _dispatchPropCache = {};
+    await _loadDispatchData();
+    updateDispatchMap();
+  } catch(e) {
+    showToast('Geocoding error: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📍 Fill Map Pins'; }
+  }
 }
 </script>
 </body>

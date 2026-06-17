@@ -2680,6 +2680,151 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     // Prevents duplicate records when a tech retries a failed save or
     // double-scans the same data tag. If a real serial number is provided,
     // check whether that unit already exists at this property before creating.
+    // ── Geocode all properties missing lat/lng ────────────────────────────
+    if (path === '/api/geocode-properties' && request.method === 'POST') {
+      try {
+        const MAPS_KEY = env.GOOGLE_MAPS_KEY;
+        if (!MAPS_KEY) throw new Error('GOOGLE_MAPS_KEY not configured in Worker secrets');
+
+        const atHeaders = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
+        const atBase    = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
+
+        // Fetch properties missing lat or lng (up to 100 at a time)
+        const listUrl = `${atBase}/Properties?filterByFormula=OR({Latitude}%3D"",{Longitude}%3D"")` +
+          `&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Zip&pageSize=100`;
+        const listRes  = await fetch(listUrl, { headers: atHeaders });
+        const listData = await listRes.json();
+        const props    = listData.records || [];
+
+        let geocoded = 0, failed = 0;
+        for (const prop of props) {
+          const f = prop.fields;
+          const addr = [f['Service Address'], f['City'], f['State'], f['Zip']].filter(Boolean).join(', ');
+          if (!addr) { failed++; continue; }
+          try {
+            const gRes  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${MAPS_KEY}`);
+            const gData = await gRes.json();
+            if (gData.status !== 'OK' || !gData.results?.[0]) { failed++; continue; }
+            const loc = gData.results[0].geometry.location;
+            await fetch(`${atBase}/Properties/${prop.id}`, {
+              method: 'PATCH',
+              headers: { ...atHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields: { Latitude: loc.lat, Longitude: loc.lng } })
+            });
+            geocoded++;
+          } catch(e) { failed++; }
+        }
+        return new Response(JSON.stringify({ ok: true, geocoded, failed, total: props.length }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Dispatch — send booking confirmation from WO ID ───────────────────
+    if (path === '/api/dispatch/confirm' && request.method === 'POST') {
+      try {
+        const { workOrderId, techId } = await request.json();
+        if (!workOrderId) throw new Error('workOrderId required');
+
+        const atH    = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
+        const atBase = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
+
+        const woRes = await fetch(
+          `${atBase}/Work%20Orders/${workOrderId}?fields[]=Customer&fields[]=Customer Name&fields[]=Service Address&fields[]=Work Order Type&fields[]=Scheduled Date&fields[]=Problem Description`,
+          { headers: atH }
+        );
+        const wo = await woRes.json();
+        const wf = wo.fields || {};
+
+        const custId = (wf['Customer'] || [])[0];
+        if (!custId || !wf['Scheduled Date']) {
+          return new Response(JSON.stringify({ ok: true, skipped: 'no customer or no date' }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const custRes = await fetch(`${atBase}/Customers/${custId}?fields[]=Email&fields[]=Phone&fields[]=First Name`, { headers: atH });
+        const cf      = (await custRes.json()).fields || {};
+        const email   = (cf['Email'] || '').trim();
+        if (!email) {
+          return new Response(JSON.stringify({ ok: true, skipped: 'no email on customer' }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        let techName = '';
+        if (techId) {
+          try {
+            const tRes = await fetch(`${atBase}/Technicians/${techId}?fields[]=Technician Name`, { headers: atH });
+            techName = (await tRes.json()).fields?.['Technician Name'] || '';
+          } catch(e) {}
+        }
+
+        const firstName  = (cf['First Name'] || '').trim()
+          || (Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : wf['Customer Name'] || '').split(' ')[0]
+          || 'there';
+        const phone      = (cf['Phone'] || '').trim();
+        const addr       = Array.isArray(wf['Service Address']) ? wf['Service Address'][0] : (wf['Service Address'] || '');
+        const woType     = wf['Work Order Type'] || 'Service Visit';
+        const cancelUrl  = `https://app.cjbcomfort.com/manage.html?wo=${workOrderId}&action=cancel`;
+        const reschedUrl = `https://app.cjbcomfort.com/manage.html?wo=${workOrderId}&action=reschedule`;
+        const { dateStr, timeStr, endTimeStr } = formatAZDateTime(wf['Scheduled Date']);
+
+        const html    = emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, address: addr, woType, problemDescription: wf['Problem Description'] || '', cancelUrl, rescheduleUrl: reschedUrl, techName });
+        const subject = `Your CJB Comfort appointment is confirmed — ${dateStr}`;
+
+        await sendEmail(env.RESEND_API_KEY, { to: email, subject, html });
+        logCommunication(env, { type: 'Email', trigger: 'Booking Confirm (Dispatch)', sentTo: email, subject }).catch(() => {});
+
+        if (phone && env.QUO_API_KEY) {
+          const sms = `Hi ${firstName} — your CJB Comfort ${woType} is confirmed for ${dateStr}, ${timeStr}–${endTimeStr}. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+          sendSms(env.QUO_API_KEY, phone, sms)
+            .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Confirm (Dispatch)', sentTo: phone, subject: 'Booking confirmation SMS' }))
+            .catch(e => console.error('Dispatch SMS error:', e));
+        }
+
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Properties POST — intercept to auto-geocode new address ──────────
+    if (path === '/api/Properties' && request.method === 'POST') {
+      const bodyText = await request.text();
+      const atBase   = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Properties`;
+      const atH      = { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' };
+      const createRes = await fetch(atBase, { method: 'POST', headers: atH, body: bodyText });
+      const created   = await createRes.json();
+
+      if (createRes.ok && env.GOOGLE_MAPS_KEY) {
+        const f    = (JSON.parse(bodyText).fields || {});
+        const addr = [f['Service Address'], f['City'], f['State'], f['Zip']].filter(Boolean).join(', ');
+        if (addr && created.id) {
+          _ctx?.waitUntil((async () => {
+            try {
+              const gRes  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${env.GOOGLE_MAPS_KEY}`);
+              const gData = await gRes.json();
+              if (gData.status === 'OK' && gData.results?.[0]) {
+                const loc = gData.results[0].geometry.location;
+                await fetch(`${atBase}/${created.id}`, {
+                  method: 'PATCH', headers: atH,
+                  body: JSON.stringify({ fields: { Latitude: loc.lat, Longitude: loc.lng } })
+                });
+              }
+            } catch(e) { console.error('Auto-geocode error:', e); }
+          })());
+        }
+      }
+
+      return new Response(JSON.stringify(created), {
+        status: createRes.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     if (path === '/api/Equipment' && request.method === 'POST') {
       const body = await request.json();
       const fields = body.fields || {};
