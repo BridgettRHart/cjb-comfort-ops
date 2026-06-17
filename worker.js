@@ -320,6 +320,13 @@ export default {
           }
 
           // ── New booking (not a reschedule) — create Work Order ────────────
+          // Look up the Office technician so Calendly WOs appear in their dispatch column
+          let officeTechId = null;
+          try {
+            const officeSearch = await airtableGet('Technicians', '{Dispatch Role}="Office"');
+            if (officeSearch.records?.length > 0) officeTechId = officeSearch.records[0].id;
+          } catch(e) {}
+
           const woFields = {
             'Work Order Name': `${inviteeName} — ${workOrderType}`,
             'Status':          'Scheduled',
@@ -328,14 +335,15 @@ export default {
             'Notes':           noteParts.join(' | '),
             'Active':          true
           };
-          if (scheduledDate) woFields['Scheduled Date']          = scheduledDate;
-          if (scheduledEnd)  woFields['Scheduled End']           = scheduledEnd;
-          if (problemDesc)   woFields['Problem Description']     = problemDesc;
-          if (customerId)    woFields['Customer']                = [customerId];
-          if (propertyId)    woFields['Property']                = [propertyId];
-          if (eventUri)      woFields['Calendly ID']             = eventUri;
-          if (cancelUrl)     woFields['Calendly Cancel URL']     = cancelUrl;
-          if (rescheduleUrl) woFields['Calendly Reschedule URL'] = rescheduleUrl;
+          if (scheduledDate)  woFields['Scheduled Date']          = scheduledDate;
+          if (scheduledEnd)   woFields['Scheduled End']           = scheduledEnd;
+          if (problemDesc)    woFields['Problem Description']     = problemDesc;
+          if (customerId)     woFields['Customer']                = [customerId];
+          if (propertyId)     woFields['Property']                = [propertyId];
+          if (eventUri)       woFields['Calendly ID']             = eventUri;
+          if (cancelUrl)      woFields['Calendly Cancel URL']     = cancelUrl;
+          if (rescheduleUrl)  woFields['Calendly Reschedule URL'] = rescheduleUrl;
+          if (officeTechId)   woFields['Technician']              = [officeTechId];
 
           await airtablePost('Work Orders', woFields);
 
@@ -2781,6 +2789,67 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           sendSms(env.QUO_API_KEY, phone, sms)
             .then(() => logCommunication(env, { type: 'SMS', trigger: 'Booking Confirm (Dispatch)', sentTo: phone, subject: 'Booking confirmation SMS' }))
             .catch(e => console.error('Dispatch SMS error:', e));
+        }
+
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Dispatch — send reschedule notification from admin drag ─────────
+    if (path === '/api/dispatch/reschedule-notify' && request.method === 'POST') {
+      try {
+        const { workOrderId } = await request.json();
+        if (!workOrderId) throw new Error('workOrderId required');
+
+        const atH    = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
+        const atBase = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
+
+        const woRes = await fetch(
+          `${atBase}/Work%20Orders/${workOrderId}?fields[]=Customer&fields[]=Customer%20Name&fields[]=Service%20Address&fields[]=Work%20Order%20Type&fields[]=Scheduled%20Date&fields[]=Scheduled%20End&fields[]=Problem%20Description&fields[]=Calendly%20Cancel%20URL&fields[]=Calendly%20Reschedule%20URL`,
+          { headers: atH }
+        );
+        const wo = await woRes.json();
+        const wf = wo.fields || {};
+
+        const custId = (wf['Customer'] || [])[0];
+        if (!custId || !wf['Scheduled Date']) {
+          return new Response(JSON.stringify({ ok: true, skipped: 'no customer or no date' }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const custRes = await fetch(`${atBase}/Customers/${custId}?fields[]=Email&fields[]=Phone&fields[]=First%20Name`, { headers: atH });
+        const cf      = (await custRes.json()).fields || {};
+        const email   = (cf['Email'] || '').trim();
+        if (!email) {
+          return new Response(JSON.stringify({ ok: true, skipped: 'no email on customer' }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const firstName = (cf['First Name'] || '').trim()
+          || (Array.isArray(wf['Customer Name']) ? wf['Customer Name'][0] : wf['Customer Name'] || '').split(' ')[0]
+          || 'there';
+        const phone   = (cf['Phone'] || '').trim();
+        const addr    = Array.isArray(wf['Service Address']) ? wf['Service Address'][0] : (wf['Service Address'] || '');
+        const woType  = wf['Work Order Type'] || 'Service Visit';
+        const cancelUrl  = wf['Calendly Cancel URL']     || `https://app.cjbcomfort.com/manage.html?wo=${workOrderId}&action=cancel`;
+        const reschedUrl = wf['Calendly Reschedule URL'] || `https://app.cjbcomfort.com/manage.html?wo=${workOrderId}&action=reschedule`;
+        const { dateStr, timeStr, endTimeStr } = formatAZDateTime(wf['Scheduled Date']);
+
+        const html    = emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, address: addr, woType, problemDescription: wf['Problem Description'] || '', cancelUrl, rescheduleUrl: reschedUrl, isReschedule: true });
+        const subject = `Your CJB Comfort appointment has been rescheduled — ${dateStr}`;
+
+        await sendEmail(env.RESEND_API_KEY, { to: email, subject, html });
+        logCommunication(env, { type: 'Email', trigger: 'Reschedule (Dispatch)', sentTo: email, subject }).catch(() => {});
+
+        if (phone && env.QUO_API_KEY) {
+          const sms = `Hi ${firstName} — your CJB Comfort ${woType} has been rescheduled to ${dateStr}, ${timeStr}–${endTimeStr}. Questions? Call or text us at ${OFFICE_PHONE}. – CJB Comfort`;
+          sendSms(env.QUO_API_KEY, phone, sms)
+            .then(() => logCommunication(env, { type: 'SMS', trigger: 'Reschedule (Dispatch)', sentTo: phone, subject: 'Reschedule notification SMS' }))
+            .catch(e => console.error('Reschedule SMS error:', e));
         }
 
         return new Response(JSON.stringify({ ok: true }),

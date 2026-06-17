@@ -724,6 +724,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-tech-col { flex:1; min-width:160px; border-left:1px solid #e5e7eb; display:flex; flex-direction:column; }
 .dg-tech-hd { height:40px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#374151; background:#f9fafb; border-bottom:2px solid #e5e7eb; flex-shrink:0; padding:0 8px; gap:6px; }
 .dg-tech-hd.at-limit { background:#fef3c7; color:#92400e; }
+.dg-tech-hd.office-col { background:#f0f9ff; border-bottom-color:#bae6fd; }
 .dg-tech-slots { position:relative; flex:1; }
 .dg-slot { height:50px; border-bottom:1px solid #f3f4f6; box-sizing:border-box; transition:background 0.1s; }
 .dg-slot:nth-child(even) { background:#fafafa; }
@@ -6241,7 +6242,7 @@ async function spBook(withDate = true) {
       'Work Order Type': _sp.woType,
       'Priority':        _sp.priority,
       'Service Mode':    _sp.mode,
-      'Status':          'Scheduled',
+      'Status':          withDate ? 'Scheduled' : 'New',
       'Active':          true,
     };
 
@@ -8168,6 +8169,7 @@ let _dispatchMarkers     = [];
 let _draggedWOId         = null;
 let _dragSource          = null;
 let _draggedOrigTechId   = null;
+let _draggedOrigStart    = null;
 
 const DISPATCH_SLOT_H  = 50;   // px per 30-min slot
 const DISPATCH_START_H = 7;    // 7 AM
@@ -8202,8 +8204,8 @@ async function loadDispatchTab() {
 
   if (!_dispatchTechs) {
     try {
-      const all = await fetchAll('Technicians', 'fields[]=Technician Name&fields[]=Active&sort[0][field]=Technician Name&sort[0][direction]=asc');
-      _dispatchTechs = all.filter(t => t.fields['Active'] !== false);
+      const all = await fetchAll('Technicians', 'fields[]=Technician Name&fields[]=Active&fields[]=Dispatch Role&sort[0][field]=Technician Name&sort[0][direction]=asc');
+      _dispatchTechs = all.filter(t => t.fields['Active'] !== false && (t.fields['Dispatch Role'] === 'Office' || t.fields['Dispatch Role'] === 'Field Tech'));
     } catch(e) { _dispatchTechs = []; }
   }
 
@@ -8218,7 +8220,7 @@ async function _loadDispatchData() {
   const fields = 'fields[]=Work Order Name&fields[]=Customer Name&fields[]=Service Address&fields[]=City&fields[]=Status&fields[]=Work Order Type&fields[]=Priority&fields[]=Scheduled Date&fields[]=Scheduled End&fields[]=Technician&fields[]=Property&fields[]=Customer';
   const activeStatuses = `NOT(OR({Status}="Cancelled",{Status}="Complete",{Status}="Invoiced",{Status}="Paid"))`;
   const dayF    = encodeURIComponent(`AND(${activeStatuses},{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
-  const unschF  = encodeURIComponent(`AND(${activeStatuses},{Scheduled Date}="")`);
+  const unschF  = encodeURIComponent(`{Status}="New"`);
 
   try {
     const [dayWOs, unscheduled] = await Promise.all([
@@ -8305,10 +8307,11 @@ function renderDispatchGrid() {
   </div>`;
 
   const techCols = techs.length ? techs.map(tech => {
-    const tid     = tech.id;
-    const tname   = tech.fields['Technician Name'] || 'Tech';
-    const cnt     = techJobCount[tid] || 0;
-    const atLimit = cnt >= 3;
+    const tid      = tech.id;
+    const tname    = tech.fields['Technician Name'] || 'Tech';
+    const isOffice = tech.fields['Dispatch Role'] === 'Office';
+    const cnt      = techJobCount[tid] || 0;
+    const atLimit  = !isOffice && cnt >= 3;
 
     const slotRows = slots.map((s, i) =>
       `<div class="dg-slot${i%2===1?' half-hour':''}"
@@ -8353,9 +8356,9 @@ function renderDispatchGrid() {
       }).join('');
 
     return `<div class="dg-tech-col">
-      <div class="dg-tech-hd${atLimit?' at-limit':''}">
-        ${esc(tname)}
-        ${atLimit ? ' ⚠ Full' : cnt ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${cnt}/3</span>` : ''}
+      <div class="dg-tech-hd${atLimit?' at-limit':''}${isOffice?' office-col':''}">
+        ${esc(tname)}${isOffice ? ' <span style="font-size:10px;font-weight:400;color:#0284c7;">(Office)</span>' : ''}
+        ${atLimit ? ' ⚠ Full' : (!isOffice && cnt) ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${cnt}/3</span>` : ''}
       </div>
       <div class="dg-tech-slots" style="height:${DISPATCH_SLOTS*DISPATCH_SLOT_H}px;position:relative;">
         ${slotRows}${placed}
@@ -8372,6 +8375,8 @@ function dispatchDragStart(event, woId, source, origTechId) {
   _draggedWOId       = woId;
   _dragSource        = source;
   _draggedOrigTechId = origTechId || null;
+  const origWO       = _dispatchDayWOs.find(w => w.id === woId);
+  _draggedOrigStart  = origWO?.fields['Scheduled Date'] || null;
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', woId);
   setTimeout(() => {
@@ -8452,13 +8457,26 @@ async function _assignDispatchJob(woId, techId, startH, startM) {
     });
     _dashWOs = null;
 
-    // Send booking confirmation only when pulling from the unscheduled queue.
-    // Dragging an already-confirmed job to a new slot should NOT re-notify.
     if (_dragSource === 'sidebar') {
+      // First scheduling: WO was in the "New" queue — always send booking confirmation
       fetch(`${PROXY}/dispatch/confirm`, {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ workOrderId: woId, techId })
       }).catch(e => console.error('Dispatch confirm email error:', e));
+    } else {
+      // Already had a date — only notify if the time actually changed
+      const origMs     = _draggedOrigStart ? new Date(_draggedOrigStart).getTime() : null;
+      const newMs      = new Date(startUTC).getTime();
+      const timeChanged = !origMs || Math.abs(newMs - origMs) > 60000;
+      if (timeChanged) {
+        if (confirm('The appointment time changed. Notify the customer of the reschedule?')) {
+          fetch(`${PROXY}/dispatch/reschedule-notify`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ workOrderId: woId })
+          }).catch(e => console.error('Reschedule notify error:', e));
+        }
+      }
+      // Tech-only reassignment (same time slot): no notification
     }
   } catch(e) {
     showToast('Could not save — please refresh', 'error');
@@ -8482,7 +8500,7 @@ async function _unscheduleDispatchJob(woId) {
   try {
     await fetch(`${PROXY}/Work%20Orders/${woId}`, {
       method: 'PATCH', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ fields: { 'Scheduled Date': null, 'Scheduled End': null, 'Technician': [] } })
+      body: JSON.stringify({ fields: { 'Scheduled Date': null, 'Scheduled End': null, 'Technician': [], 'Status': 'New' } })
     });
     _dashWOs = null;
   } catch(e) {
