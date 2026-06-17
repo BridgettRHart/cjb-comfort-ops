@@ -2697,8 +2697,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const atHeaders = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
         const atBase    = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
 
-        // Fetch properties missing lat or lng (up to 100 at a time)
-        const listUrl = `${atBase}/Properties?filterByFormula=OR({Latitude}%3D"",{Longitude}%3D"")` +
+        // Fetch properties missing lat or lng (number fields — use BLANK() not ="")
+        const listUrl = `${atBase}/Properties?filterByFormula=${encodeURIComponent('OR({Latitude}=BLANK(),{Longitude}=BLANK())')}` +
           `&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Zip&pageSize=100`;
         const listRes  = await fetch(listUrl, { headers: atHeaders });
         const listData = await listRes.json();
