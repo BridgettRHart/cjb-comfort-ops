@@ -697,6 +697,64 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .fu-stat-val { font-size: 22px; }
   .fu-btn-dismiss { margin-left: 0; }
 }
+
+/* ── Dispatch Board ──────────────────────────────────────────────────────── */
+#app-dispatch { display:none; flex-direction:column; height:calc(100vh - 50px); overflow:hidden; }
+.dispatch-nav { display:flex; align-items:center; gap:10px; padding:10px 16px; background:#fff; border-bottom:1px solid #e5e7eb; flex-shrink:0; }
+.dispatch-nav-date { font-size:16px; font-weight:700; color:#111827; min-width:140px; text-align:center; }
+.dispatch-nav-btn { background:none; border:1px solid #d1d5db; border-radius:6px; padding:5px 10px; cursor:pointer; font-size:14px; color:#374151; }
+.dispatch-nav-btn:hover { background:#f3f4f6; }
+.dispatch-nav-today { background:#c81f25; color:#fff; border-color:#c81f25; font-size:12px; font-weight:600; }
+.dispatch-nav-today:hover { background:#a01820; }
+.dispatch-unscheduled-badge { background:#ef4444; color:#fff; border-radius:10px; padding:1px 7px; font-size:11px; font-weight:700; margin-left:4px; }
+.dispatch-content { display:flex; flex:1; overflow:hidden; }
+.dispatch-sidebar { width:240px; flex-shrink:0; background:#f9fafb; border-right:1px solid #e5e7eb; display:flex; flex-direction:column; overflow:hidden; }
+.dispatch-sidebar-hd { padding:10px 12px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280; border-bottom:1px solid #e5e7eb; flex-shrink:0; }
+.dispatch-sidebar-list { overflow-y:auto; flex:1; padding:8px; display:flex; flex-direction:column; gap:6px; }
+.dispatch-sidebar-empty { color:#aaa; font-size:12px; padding:16px 8px; text-align:center; }
+.dispatch-grid-wrap { flex:1; overflow:auto; position:relative; }
+.dispatch-map-panel { width:300px; flex-shrink:0; border-left:1px solid #e5e7eb; }
+#dispatch-map { width:100%; height:100%; }
+
+/* Grid */
+.dgrid { display:flex; min-width:100%; }
+.dg-time-col { width:52px; flex-shrink:0; }
+.dg-time-hd { height:40px; flex-shrink:0; border-bottom:1px solid #e5e7eb; }
+.dg-time-slot { height:50px; display:flex; align-items:flex-start; padding-top:4px; justify-content:flex-end; padding-right:8px; font-size:10px; color:#9ca3af; border-bottom:1px solid #f3f4f6; box-sizing:border-box; }
+.dg-tech-col { flex:1; min-width:160px; border-left:1px solid #e5e7eb; display:flex; flex-direction:column; }
+.dg-tech-hd { height:40px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#374151; background:#f9fafb; border-bottom:2px solid #e5e7eb; flex-shrink:0; padding:0 8px; gap:6px; }
+.dg-tech-hd.at-limit { background:#fef3c7; color:#92400e; }
+.dg-tech-slots { position:relative; flex:1; }
+.dg-slot { height:50px; border-bottom:1px solid #f3f4f6; box-sizing:border-box; transition:background 0.1s; }
+.dg-slot:nth-child(even) { background:#fafafa; }
+.dg-slot.drag-over { background:#dbeafe !important; }
+.dg-slot.half-hour { border-bottom-style:dashed; border-bottom-color:#e5e7eb; }
+
+/* Job cards */
+.dispatch-card { background:#fff; border:1.5px solid #d1d5db; border-radius:8px; padding:8px 10px; cursor:grab; user-select:none; font-size:12px; transition:box-shadow 0.15s, opacity 0.15s; }
+.dispatch-card:hover { box-shadow:0 2px 8px rgba(0,0,0,0.12); }
+.dispatch-card.dragging { opacity:0.4; }
+.dispatch-card-name { font-weight:700; color:#111827; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dispatch-card-addr { color:#6b7280; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dispatch-card-type { display:inline-block; font-size:10px; font-weight:600; padding:1px 6px; border-radius:10px; margin-top:4px; }
+.dispatch-card.type-repair   { border-left:3px solid #ef4444; }
+.dispatch-card.type-maintenance { border-left:3px solid #3b82f6; }
+.dispatch-card.type-install  { border-left:3px solid #8b5cf6; }
+.dispatch-card.type-inspect  { border-left:3px solid #f59e0b; }
+.dispatch-card.type-other    { border-left:3px solid #6b7280; }
+.dispatch-card.priority-emergency { border-color:#ef4444; }
+.dispatch-card.priority-urgent    { border-color:#f59e0b; }
+
+/* Absolutely-positioned cards within the grid column */
+.dg-placed-card { position:absolute; left:4px; right:4px; border-radius:7px; padding:6px 8px; font-size:11px; cursor:grab; z-index:2; border:1.5px solid #d1d5db; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.08); overflow:hidden; }
+.dg-placed-card .dispatch-card-name { font-size:11px; }
+.dg-placed-card .dispatch-card-time { font-size:10px; color:#6b7280; }
+.dg-placed-card.dragging { opacity:0.4; }
+.dg-placed-card.type-repair      { border-left:3px solid #ef4444; }
+.dg-placed-card.type-maintenance { border-left:3px solid #3b82f6; }
+.dg-placed-card.type-install     { border-left:3px solid #8b5cf6; }
+.dg-placed-card.type-inspect     { border-left:3px solid #f59e0b; }
+.dg-placed-card.type-other       { border-left:3px solid #6b7280; }
 </style>
 </head>
 <body>
@@ -714,6 +772,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   <button class="tab-btn" id="tab-contracts" onclick="switchTab('contracts')">Contracts</button>
   <button class="tab-btn" id="tab-followup" onclick="switchTab('followup')">Follow-Up <span id="fu-badge" class="fu-badge-count" style="display:none">0</span></button>
   <button class="tab-btn" id="tab-ea" onclick="switchTab('ea')">⚡ EA</button>
+  <button class="tab-btn" id="tab-dispatch" onclick="switchTab('dispatch')">Dispatch</button>
 </div>
 
 <!-- Dashboard view -->
@@ -1354,6 +1413,35 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   </div>
 </div>
 
+<!-- Dispatch Board -->
+<div id="app-dispatch" style="display:none;">
+  <div class="dispatch-nav">
+    <button class="dispatch-nav-btn" onclick="dispatchNavDay(-1)">‹</button>
+    <button class="dispatch-nav-btn" onclick="dispatchNavDay(1)">›</button>
+    <span class="dispatch-nav-date" id="dispatch-date-lbl">—</span>
+    <button class="dispatch-nav-btn dispatch-nav-today" onclick="dispatchGoToday()">Today</button>
+    <span style="flex:1;"></span>
+    <span style="font-size:12px;color:#6b7280;" id="dispatch-unscheduled-lbl"></span>
+  </div>
+  <div class="dispatch-content">
+    <div class="dispatch-sidebar">
+      <div class="dispatch-sidebar-hd">Needs Scheduling <span id="dispatch-queue-badge" class="dispatch-unscheduled-badge" style="display:none">0</span></div>
+      <div class="dispatch-sidebar-list" id="dispatch-sidebar-list"
+        ondragover="dispatchSidebarDragOver(event)"
+        ondrop="dispatchSidebarDrop(event)"
+        ondragleave="dispatchSidebarDragLeave(event)">
+        <div class="dispatch-sidebar-empty">Loading…</div>
+      </div>
+    </div>
+    <div class="dispatch-grid-wrap" id="dispatch-grid-wrap">
+      <div id="dispatch-grid"></div>
+    </div>
+    <div class="dispatch-map-panel">
+      <div id="dispatch-map"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Schedule slide-in panel -->
 <div class="sched-overlay" id="sched-overlay" onclick="closeSchedPanel()"></div>
 <div class="sched-panel" id="sched-panel">
@@ -1611,17 +1699,20 @@ function switchTab(tab, skipMobileReset = false, scrollFuId = null) {
   document.getElementById('tab-contracts').classList.toggle('active', tab === 'contracts');
   document.getElementById('tab-followup').classList.toggle('active', tab === 'followup');
   document.getElementById('tab-ea').classList.toggle('active', tab === 'ea');
+  document.getElementById('tab-dispatch').classList.toggle('active', tab === 'dispatch');
   document.getElementById('dash-view').style.display       = tab === 'dash'      ? '' : 'none';
   document.getElementById('app-customers').style.display   = tab === 'customers' ? '' : 'none';
   document.getElementById('app-estimates').style.display   = tab === 'estimates' ? '' : 'none';
   document.getElementById('app-contracts').style.display   = tab === 'contracts' ? '' : 'none';
   document.getElementById('app-followup').style.display    = tab === 'followup'  ? '' : 'none';
   document.getElementById('app-ea').style.display          = tab === 'ea'        ? '' : 'none';
+  document.getElementById('app-dispatch').style.display    = tab === 'dispatch'  ? 'flex' : 'none';
   if (tab === 'dash') loadDashboard();
   if (tab === 'estimates') loadEstimates();
   if (tab === 'contracts') loadContracts();
   if (tab === 'followup') loadFollowUpQueue(false, scrollFuId);
   if (tab === 'ea') loadEAProjects();
+  if (tab === 'dispatch') loadDispatchTab();
   if (tab === 'customers' && isMobile() && !skipMobileReset) {
     document.querySelector('.sidebar').classList.remove('mobile-hidden');
     document.getElementById('detail').classList.remove('mobile-visible');
@@ -8063,6 +8154,428 @@ document.addEventListener('mousedown', e => {
     }
   });
 });
+
+// ── Dispatch Board ───────────────────────────────────────────────────────────
+
+let _dispatchDate        = new Date();
+let _dispatchTechs       = null;
+let _dispatchDayWOs      = [];
+let _dispatchUnscheduled = [];
+let _dispatchPropCache   = {};
+let _dispatchMap         = null;
+let _dispatchMarkers     = [];
+let _draggedWOId         = null;
+let _dragSource          = null;
+let _draggedOrigTechId   = null;
+
+const DISPATCH_SLOT_H  = 50;   // px per 30-min slot
+const DISPATCH_START_H = 7;    // 7 AM
+const DISPATCH_END_H   = 19;   // 7 PM
+const DISPATCH_SLOTS   = (DISPATCH_END_H - DISPATCH_START_H) * 2; // 24 slots
+
+function _ddStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function _ddFmt(d) {
+  return d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+}
+function _ddTime(h, m) {
+  const s = h >= 12 ? 'PM' : 'AM';
+  const hh = h > 12 ? h-12 : (h === 0 ? 12 : h);
+  return `${hh}:${String(m).padStart(2,'0')} ${s}`;
+}
+function _ddTypeClass(woType) {
+  const t = (woType || '').toLowerCase();
+  if (t.includes('repair'))      return 'type-repair';
+  if (t.includes('maintenance')) return 'type-maintenance';
+  if (t.includes('install'))     return 'type-install';
+  if (t.includes('inspect') || t.includes('estimate')) return 'type-inspect';
+  return 'type-other';
+}
+function _ddUnwrap(v) {
+  return Array.isArray(v) ? (v[0] || '') : (v || '');
+}
+
+async function loadDispatchTab() {
+  document.getElementById('dispatch-date-lbl').textContent = _ddFmt(_dispatchDate);
+
+  if (!_dispatchTechs) {
+    try {
+      const all = await fetchAll('Technicians', 'fields[]=Technician Name&fields[]=Active&sort[0][field]=Technician Name&sort[0][direction]=asc');
+      _dispatchTechs = all.filter(t => t.fields['Active'] !== false);
+    } catch(e) { _dispatchTechs = []; }
+  }
+
+  await _loadDispatchData();
+  renderDispatchSidebar();
+  renderDispatchGrid();
+  initDispatchMap();
+}
+
+async function _loadDispatchData() {
+  const ds = _ddStr(_dispatchDate);
+  const fields = 'fields[]=Work Order Name&fields[]=Customer Name&fields[]=Service Address&fields[]=City&fields[]=Status&fields[]=Work Order Type&fields[]=Priority&fields[]=Scheduled Date&fields[]=Scheduled End&fields[]=Technician&fields[]=Property&fields[]=Customer';
+  const activeStatuses = `NOT(OR({Status}="Cancelled",{Status}="Complete",{Status}="Invoiced",{Status}="Paid"))`;
+  const dayF    = encodeURIComponent(`AND(${activeStatuses},{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
+  const unschF  = encodeURIComponent(`AND(${activeStatuses},{Scheduled Date}="")`);
+
+  try {
+    const [dayWOs, unscheduled] = await Promise.all([
+      fetchAll('Work Orders', `filterByFormula=${dayF}&sort[0][field]=Scheduled Date&sort[0][direction]=asc&${fields}`),
+      fetchAll('Work Orders', `filterByFormula=${unschF}&sort[0][field]=Work Order Name&sort[0][direction]=asc&${fields}`)
+    ]);
+    _dispatchDayWOs      = dayWOs;
+    _dispatchUnscheduled = unscheduled;
+
+    // Pre-fetch lat/lng for properties we don't have cached yet
+    const propIds = [...new Set([...dayWOs, ...unscheduled]
+      .map(w => (_ddUnwrap(w.fields['Property'])))
+      .filter(id => id && !_dispatchPropCache[id])
+    )];
+    if (propIds.length) {
+      const f = propIds.length === 1
+        ? `RECORD_ID()="${propIds[0]}"`
+        : `OR(${propIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+      const props = await fetchAll('Properties', `filterByFormula=${encodeURIComponent(f)}&fields[]=Latitude&fields[]=Longitude`);
+      props.forEach(p => {
+        _dispatchPropCache[p.id] = { lat: p.fields['Latitude'], lng: p.fields['Longitude'] };
+      });
+    }
+  } catch(e) {
+    console.error('_loadDispatchData error:', e);
+    _dispatchDayWOs = []; _dispatchUnscheduled = [];
+  }
+}
+
+function renderDispatchSidebar() {
+  const list  = document.getElementById('dispatch-sidebar-list');
+  const badge = document.getElementById('dispatch-queue-badge');
+  const lbl   = document.getElementById('dispatch-unscheduled-lbl');
+  const count = _dispatchUnscheduled.length;
+
+  badge.textContent    = count;
+  badge.style.display  = count ? '' : 'none';
+  lbl.textContent      = count ? `${count} job${count !== 1 ? 's' : ''} need scheduling` : '';
+
+  if (!count) {
+    list.innerHTML = '<div class="dispatch-sidebar-empty">No unscheduled jobs ✓</div>';
+    return;
+  }
+  list.innerHTML = _dispatchUnscheduled.map(wo => {
+    const f        = wo.fields;
+    const name     = _ddUnwrap(f['Customer Name']) || 'Unknown';
+    const addr     = _ddUnwrap(f['Service Address']);
+    const city     = _ddUnwrap(f['City']);
+    const woType   = f['Work Order Type'] || '';
+    const priority = f['Priority'] || '';
+    const tc = _ddTypeClass(woType);
+    const pc = priority === 'Emergency' ? ' priority-emergency' : priority === 'Urgent' ? ' priority-urgent' : '';
+    return `<div class="dispatch-card ${tc}${pc}" draggable="true" data-wo-id="${wo.id}"
+      ondragstart="dispatchDragStart(event,'${wo.id}','sidebar')"
+      ondragend="dispatchDragEnd(event)"
+      onclick="openWOFromDispatch('${wo.id}')">
+      <div class="dispatch-card-name">${esc(name)}</div>
+      <div class="dispatch-card-addr">${esc(addr)}${city ? ', '+esc(city) : ''}</div>
+      <div class="dispatch-card-type">${esc(woType)}${priority && priority !== 'Routine' ? ' · '+esc(priority) : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderDispatchGrid() {
+  const grid  = document.getElementById('dispatch-grid');
+  const techs = _dispatchTechs || [];
+
+  const techJobCount = {};
+  _dispatchDayWOs.forEach(wo => {
+    const tid = _ddUnwrap(wo.fields['Technician']);
+    if (tid) techJobCount[tid] = (techJobCount[tid] || 0) + 1;
+  });
+
+  // Time slots array
+  const slots = [];
+  for (let i = 0; i < DISPATCH_SLOTS; i++) {
+    const min = DISPATCH_START_H * 60 + i * 30;
+    slots.push({ h: Math.floor(min/60), m: min%60 });
+  }
+
+  const timeCol = `<div class="dg-time-col">
+    <div class="dg-time-hd"></div>
+    ${slots.map(s => `<div class="dg-time-slot">${s.m === 0 ? esc(_ddTime(s.h, s.m)) : ''}</div>`).join('')}
+  </div>`;
+
+  const techCols = techs.length ? techs.map(tech => {
+    const tid     = tech.id;
+    const tname   = tech.fields['Technician Name'] || 'Tech';
+    const cnt     = techJobCount[tid] || 0;
+    const atLimit = cnt >= 3;
+
+    const slotRows = slots.map((s, i) =>
+      `<div class="dg-slot${i%2===1?' half-hour':''}"
+        data-tech-id="${tid}" data-slot-h="${s.h}" data-slot-m="${s.m}"
+        ondragover="dispatchSlotDragOver(event)"
+        ondragleave="dispatchSlotDragLeave(event)"
+        ondrop="dispatchSlotDrop(event)"></div>`
+    ).join('');
+
+    const placed = _dispatchDayWOs
+      .filter(wo => _ddUnwrap(wo.fields['Technician']) === tid)
+      .map(wo => {
+        const f       = wo.fields;
+        const name    = _ddUnwrap(f['Customer Name']) || 'Unknown';
+        const addr    = _ddUnwrap(f['Service Address']);
+        const woType  = f['Work Order Type'] || '';
+        const priority = f['Priority'] || '';
+        const tc = _ddTypeClass(woType);
+        const pc = priority === 'Emergency' ? ' priority-emergency' : priority === 'Urgent' ? ' priority-urgent' : '';
+
+        const start = f['Scheduled Date'] ? new Date(f['Scheduled Date']) : null;
+        if (!start) return '';
+        const sH = start.getHours(), sM = start.getMinutes();
+        const startSlot = (sH - DISPATCH_START_H) * 2 + (sM >= 30 ? 1 : 0);
+        if (startSlot < 0 || startSlot >= DISPATCH_SLOTS) return '';
+
+        let durSlots = 4;
+        if (f['Scheduled End']) {
+          const end = new Date(f['Scheduled End']);
+          durSlots = Math.max(4, Math.round((end - start) / 60000 / 30));
+        }
+
+        return `<div class="dg-placed-card ${tc}${pc}" draggable="true" data-wo-id="${wo.id}"
+          style="top:${startSlot*DISPATCH_SLOT_H}px;height:${durSlots*DISPATCH_SLOT_H-2}px;"
+          ondragstart="dispatchDragStart(event,'${wo.id}','grid','${tid}')"
+          ondragend="dispatchDragEnd(event)"
+          onclick="openWOFromDispatch('${wo.id}')">
+          <div class="dispatch-card-name">${esc(name)}</div>
+          <div class="dispatch-card-time">${esc(_ddTime(sH, sM))}</div>
+          <div class="dispatch-card-addr">${esc(addr)}</div>
+        </div>`;
+      }).join('');
+
+    return `<div class="dg-tech-col">
+      <div class="dg-tech-hd${atLimit?' at-limit':''}">
+        ${esc(tname)}
+        ${atLimit ? ' ⚠ Full' : cnt ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${cnt}/3</span>` : ''}
+      </div>
+      <div class="dg-tech-slots" style="height:${DISPATCH_SLOTS*DISPATCH_SLOT_H}px;position:relative;">
+        ${slotRows}${placed}
+      </div>
+    </div>`;
+  }).join('') : `<div style="padding:40px;color:#aaa;font-size:13px;">No active technicians found.</div>`;
+
+  grid.innerHTML = `<div class="dgrid">${timeCol}${techCols}</div>`;
+}
+
+// ── Drag & Drop handlers ─────────────────────────────────────────────────────
+
+function dispatchDragStart(event, woId, source, origTechId) {
+  _draggedWOId       = woId;
+  _dragSource        = source;
+  _draggedOrigTechId = origTechId || null;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', woId);
+  setTimeout(() => {
+    document.querySelectorAll(`[data-wo-id="${woId}"]`).forEach(el => el.classList.add('dragging'));
+  }, 0);
+}
+
+function dispatchDragEnd() {
+  document.querySelectorAll('[data-wo-id]').forEach(el => el.classList.remove('dragging'));
+  document.querySelectorAll('.dg-slot.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function dispatchSlotDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  event.currentTarget.classList.add('drag-over');
+}
+
+function dispatchSlotDragLeave(event) {
+  event.currentTarget.classList.remove('drag-over');
+}
+
+async function dispatchSlotDrop(event) {
+  event.preventDefault();
+  event.currentTarget.classList.remove('drag-over');
+  const woId  = _draggedWOId;
+  const techId = event.currentTarget.dataset.techId;
+  const h      = parseInt(event.currentTarget.dataset.slotH);
+  const m      = parseInt(event.currentTarget.dataset.slotM);
+  if (!woId || !techId) return;
+  await _assignDispatchJob(woId, techId, h, m);
+}
+
+function dispatchSidebarDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  document.getElementById('dispatch-sidebar-list').style.background = '#dbeafe';
+}
+
+function dispatchSidebarDragLeave() {
+  document.getElementById('dispatch-sidebar-list').style.background = '';
+}
+
+async function dispatchSidebarDrop(event) {
+  event.preventDefault();
+  document.getElementById('dispatch-sidebar-list').style.background = '';
+  if (!_draggedWOId || _dragSource === 'sidebar') return;
+  await _unscheduleDispatchJob(_draggedWOId);
+}
+
+// ── Data writes ──────────────────────────────────────────────────────────────
+
+async function _assignDispatchJob(woId, techId, startH, startM) {
+  const ds      = _ddStr(_dispatchDate);
+  const startMs = new Date(ds+'T00:00:00Z').getTime() + (startH*60+startM)*60000 + 7*3600000;
+  const startUTC = new Date(startMs).toISOString();
+  const endUTC   = new Date(startMs + 2*3600000).toISOString();
+
+  // Optimistic UI update
+  const wo = [..._dispatchDayWOs, ..._dispatchUnscheduled].find(w => w.id === woId);
+  if (wo) {
+    wo.fields['Scheduled Date'] = startUTC;
+    wo.fields['Scheduled End']  = endUTC;
+    wo.fields['Technician']     = [techId];
+    wo.fields['Status']         = 'Scheduled';
+    _dispatchDayWOs      = [..._dispatchDayWOs.filter(w => w.id !== woId), wo];
+    _dispatchUnscheduled = _dispatchUnscheduled.filter(w => w.id !== woId);
+    _dispatchDayWOs.sort((a,b) => (a.fields['Scheduled Date']||'').localeCompare(b.fields['Scheduled Date']||''));
+  }
+  renderDispatchSidebar();
+  renderDispatchGrid();
+  updateDispatchMap();
+
+  try {
+    await fetch(`${PROXY}/Work%20Orders/${woId}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ fields: { 'Scheduled Date': startUTC, 'Scheduled End': endUTC, 'Technician': [techId], 'Status': 'Scheduled' } })
+    });
+    _dashWOs = null;
+  } catch(e) {
+    showToast('Could not save — please refresh', 'error');
+    console.error('_assignDispatchJob error:', e);
+  }
+}
+
+async function _unscheduleDispatchJob(woId) {
+  const wo = _dispatchDayWOs.find(w => w.id === woId);
+  if (!wo) return;
+
+  wo.fields['Scheduled Date'] = null;
+  wo.fields['Scheduled End']  = null;
+  wo.fields['Technician']     = [];
+  _dispatchDayWOs      = _dispatchDayWOs.filter(w => w.id !== woId);
+  _dispatchUnscheduled = [wo, ..._dispatchUnscheduled];
+  renderDispatchSidebar();
+  renderDispatchGrid();
+  updateDispatchMap();
+
+  try {
+    await fetch(`${PROXY}/Work%20Orders/${woId}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ fields: { 'Scheduled Date': null, 'Scheduled End': null, 'Technician': [] } })
+    });
+    _dashWOs = null;
+  } catch(e) {
+    showToast('Could not save — please refresh', 'error');
+    console.error('_unscheduleDispatchJob error:', e);
+  }
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+
+async function dispatchNavDay(delta) {
+  _dispatchDate = new Date(_dispatchDate.getTime() + delta*24*3600000);
+  document.getElementById('dispatch-date-lbl').textContent = _ddFmt(_dispatchDate);
+  document.getElementById('dispatch-sidebar-list').innerHTML = '<div class="dispatch-sidebar-empty">Loading…</div>';
+  document.getElementById('dispatch-grid').innerHTML = '';
+  await _loadDispatchData();
+  renderDispatchSidebar();
+  renderDispatchGrid();
+  updateDispatchMap();
+}
+
+async function dispatchGoToday() {
+  _dispatchDate = new Date();
+  await dispatchNavDay(0);
+}
+
+// ── Google Maps ──────────────────────────────────────────────────────────────
+
+function initDispatchMap() {
+  if (_dispatchMap) { updateDispatchMap(); return; }
+  if (window.google?.maps) { _dispatchMapReady(); return; }
+  if (document.getElementById('dispatch-maps-script')) return; // already loading
+  const s = document.createElement('script');
+  s.id  = 'dispatch-maps-script';
+  s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBTc4S-Dh9T0a_9lwV91UGSwr1Fcvnmh8Y&callback=_dispatchMapReady';
+  s.async = true;
+  document.head.appendChild(s);
+}
+
+function _dispatchMapReady() {
+  const el = document.getElementById('dispatch-map');
+  if (!el || _dispatchMap) return;
+  _dispatchMap = new google.maps.Map(el, {
+    center: { lat: 33.4152, lng: -111.8315 }, // Mesa, AZ
+    zoom: 11,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
+  });
+  updateDispatchMap();
+}
+
+function updateDispatchMap() {
+  if (!_dispatchMap) return;
+  _dispatchMarkers.forEach(m => m.setMap(null));
+  _dispatchMarkers = [];
+
+  const all = [..._dispatchDayWOs, ..._dispatchUnscheduled];
+  const bounds = new google.maps.LatLngBounds();
+  let hasPin = false;
+
+  all.forEach(wo => {
+    const propId = _ddUnwrap(wo.fields['Property']);
+    if (!propId) return;
+    const pd = _dispatchPropCache[propId];
+    if (!pd?.lat || !pd?.lng) return;
+
+    const scheduled = !!wo.fields['Scheduled Date'];
+    const name = _ddUnwrap(wo.fields['Customer Name']) || 'Job';
+
+    const marker = new google.maps.Marker({
+      position: { lat: Number(pd.lat), lng: Number(pd.lng) },
+      map: _dispatchMap,
+      title: name,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 8,
+        fillColor:   scheduled ? '#3b82f6' : '#9ca3af',
+        fillOpacity: 1,
+        strokeColor: '#fff',
+        strokeWeight: 2,
+      }
+    });
+
+    const iw = new google.maps.InfoWindow({
+      content: `<div style="font-size:12px;font-weight:700;">${name}</div>
+                <div style="font-size:11px;color:#666;">${wo.fields['Work Order Type']||''}</div>`
+    });
+    marker.addListener('click', () => iw.open(_dispatchMap, marker));
+    _dispatchMarkers.push(marker);
+    bounds.extend(marker.getPosition());
+    hasPin = true;
+  });
+
+  if (hasPin) _dispatchMap.fitBounds(bounds);
+}
+
+function openWOFromDispatch(woId) {
+  const wo = [..._dispatchDayWOs, ..._dispatchUnscheduled].find(w => w.id === woId);
+  if (!wo) return;
+  const custId = _ddUnwrap(wo.fields['Customer']);
+  if (custId) { switchTab('customers', true); selectCustomer(custId); }
+}
 </script>
 </body>
 </html>
