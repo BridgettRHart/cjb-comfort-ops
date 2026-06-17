@@ -759,6 +759,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-placed-card .dispatch-card-name { font-size:11px; }
 .dg-placed-card .dispatch-card-time { font-size:10px; color:#6b7280; }
 .dg-placed-card.dragging { opacity:0.4; }
+.dg-placed-card.status-done { opacity:0.45; filter:grayscale(60%); cursor:default; border-style:dashed; }
 .dg-placed-card.type-repair      { border-left:3px solid #ef4444; }
 .dg-placed-card.type-maintenance { border-left:3px solid #3b82f6; }
 .dg-placed-card.type-install     { border-left:3px solid #8b5cf6; }
@@ -8239,8 +8240,7 @@ async function loadDispatchTab() {
 async function _loadDispatchData() {
   const ds = _ddStr(_dispatchDate);
   const fields = 'fields[]=Work Order Name&fields[]=Customer Name&fields[]=Service Address&fields[]=City&fields[]=Status&fields[]=Work Order Type&fields[]=Priority&fields[]=Scheduled Date&fields[]=Scheduled End&fields[]=Technician&fields[]=Property&fields[]=Customer';
-  const activeStatuses = `NOT(OR({Status}="Cancelled",{Status}="Complete",{Status}="Invoiced",{Status}="Paid"))`;
-  const dayF    = encodeURIComponent(`AND(${activeStatuses},{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
+  const dayF    = encodeURIComponent(`AND(NOT({Status}="Cancelled"),{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
   const unschF  = encodeURIComponent(`{Status}="New"`);
 
   try {
@@ -8390,8 +8390,11 @@ function renderDispatchGrid() {
         const addr    = _ddUnwrap(f['Service Address']);
         const woType  = f['Work Order Type'] || '';
         const priority = f['Priority'] || '';
+        const status = f['Status'] || '';
+        const isDone = ['Complete','Invoiced','Paid'].includes(status);
         const tc = _ddTypeClass(woType);
         const pc = priority === 'Emergency' ? ' priority-emergency' : priority === 'Urgent' ? ' priority-urgent' : '';
+        const dc = isDone ? ' status-done' : '';
 
         const start = f['Scheduled Date'] ? new Date(f['Scheduled Date']) : null;
         if (!start) return '';
@@ -8405,13 +8408,12 @@ function renderDispatchGrid() {
           durSlots = Math.max(4, Math.round((end - start) / 60000 / 30));
         }
 
-        return `<div class="dg-placed-card ${tc}${pc}" draggable="true" data-wo-id="${wo.id}"
+        return `<div class="dg-placed-card ${tc}${pc}${dc}" draggable="${!isDone}" data-wo-id="${wo.id}"
           style="top:${startSlot*DISPATCH_SLOT_H}px;height:${durSlots*DISPATCH_SLOT_H-2}px;"
-          ondragstart="dispatchDragStart(event,'${wo.id}','grid','${tid}')"
-          ondragend="dispatchDragEnd(event)"
+          ${isDone ? '' : `ondragstart="dispatchDragStart(event,'${wo.id}','grid','${tid}')" ondragend="dispatchDragEnd(event)"`}
           onclick="openWOFromDispatch('${wo.id}')">
           <div class="dispatch-card-name">${esc(name)}</div>
-          <div class="dispatch-card-time">${esc(_ddTime(sH, sM))}</div>
+          <div class="dispatch-card-time">${esc(_ddTime(sH, sM))}${isDone ? ' ✓' : ''}</div>
           <div class="dispatch-card-addr">${esc(addr)}</div>
         </div>`;
       }).join('');
