@@ -5408,7 +5408,8 @@ function spRender() {
   } else {
     foot.innerHTML = `
       <button class="btn btn-gray" onclick="spGoBack()">← Back</button>
-      <button class="btn btn-green" id="sp-book-btn" onclick="spBook()">Book Appointment</button>`;
+      <button class="btn btn-gray" id="sp-queue-btn" onclick="spBook(false)" style="font-size:13px;">Save to Queue</button>
+      <button class="btn btn-green" id="sp-book-btn" onclick="spBook(true)">Book Appointment</button>`;
   }
 
   // Hide sp-controls unless on the When step
@@ -6044,10 +6045,15 @@ function spGoBack() {
   spRender();
 }
 
-async function spBook() {
-  if (_sp.startH === null || !_sp.selDate) { alert('Please select a date and time slot.'); return; }
-  const btn = document.getElementById('sp-book-btn');
-  btn.disabled = true; btn.textContent = 'Booking…';
+async function spBook(withDate = true) {
+  if (withDate && (_sp.startH === null || !_sp.selDate)) {
+    alert('Please select a date and time slot.');
+    return;
+  }
+  const btn = withDate
+    ? document.getElementById('sp-book-btn')
+    : document.getElementById('sp-queue-btn');
+  if (btn) { btn.disabled = true; btn.textContent = withDate ? 'Booking…' : 'Saving…'; }
 
   try {
     let custId = _sp.cust?.id || null;
@@ -6056,7 +6062,7 @@ async function spBook() {
 
     // ── 1. Create Customer (if new) ──────────────────────────────────────
     if (!custId) {
-      btn.textContent = 'Creating customer…';
+      if (btn) btn.textContent = 'Creating customer…';
       const custFields = {
         'Customer Name': _sp.newName,
         'Active': true,
@@ -6084,7 +6090,7 @@ async function spBook() {
 
     // ── 2. Create Property (new or existing customer, new service address) ─
     if (!propId && _sp.newServiceStreet) {
-      btn.textContent = 'Creating property…';
+      if (btn) btn.textContent = 'Creating property…';
       const propOwnerName = _sp.cust?.fields['Customer Name'] || _sp.newName || '';
       const propFields = {
         'Property Name': `${propOwnerName} — ${_sp.newServiceStreet}`,
@@ -6131,35 +6137,36 @@ async function spBook() {
     }
 
     // ── 4. Create Work Order ─────────────────────────────────────────────
-    btn.textContent = 'Booking…';
-    const startMs = new Date(_sp.selDate + 'T00:00:00Z').getTime()
-                  + (_sp.startH * 60 + _sp.startM) * 60000
-                  + 7 * 3600000;  // AZ is UTC-7
-    const delta    = parseInt(document.getElementById('sp-endsel')?.value || '120');
-    const startUTC = new Date(startMs).toISOString();
-    const endUTC   = new Date(startMs + delta * 60000).toISOString();
-
-    const techId   = document.getElementById('sp-tech')?.value || null;
+    if (btn) btn.textContent = withDate ? 'Booking…' : 'Saving…';
     const custName = _sp.cust?.fields['Customer Name'] || _sp.newName;
-    const dateStr  = new Date(_sp.selDate + 'T12:00:00').toLocaleDateString('en-US',
-      { month: 'short', day: 'numeric', year: 'numeric' });
+    const techId   = document.getElementById('sp-tech')?.value || null;
 
     const woFields = {
-      'Work Order Name': `${custName} — ${dateStr}`,
+      'Work Order Name': withDate
+        ? `${custName} — ${new Date(_sp.selDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : `${custName} — Needs Scheduling`,
       'Customer':        [custId],
       'Work Order Type': _sp.woType,
       'Priority':        _sp.priority,
       'Service Mode':    _sp.mode,
-      'Scheduled Date':  startUTC,
-      'Scheduled End':   endUTC,
       'Status':          'Scheduled',
       'Active':          true,
     };
+
+    if (withDate) {
+      const startMs  = new Date(_sp.selDate + 'T00:00:00Z').getTime()
+                     + (_sp.startH * 60 + _sp.startM) * 60000
+                     + 7 * 3600000;  // AZ is UTC-7
+      const delta    = parseInt(document.getElementById('sp-endsel')?.value || '120');
+      woFields['Scheduled Date'] = new Date(startMs).toISOString();
+      woFields['Scheduled End']  = new Date(startMs + delta * 60000).toISOString();
+    }
+
     if (propId)              woFields['Property']            = [propId];
     if (contId)              woFields['Primary Contact']     = [contId];
     if (techId)              woFields['Technician']          = [techId];
     if (_sp.prob)            woFields['Problem Description'] = _sp.prob;
-    if (_sp.notes)           woFields['Notes'] = _sp.notes;
+    if (_sp.notes)           woFields['Notes']               = _sp.notes;
     if (_sp.eaJob)           woFields['Efficiency Arizona Job'] = true;
     if (_sp.specificEq?.length) woFields['Specific Equipment'] = _sp.specificEq.map(r => r.id);
 
@@ -6170,37 +6177,39 @@ async function spBook() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
 
-    // Send booking confirmation email (non-fatal — don't let email failure block the booking)
-    try {
-      const custEmail = _sp.cust?.fields['Email'] || _sp.newEmail || '';
-      if (custEmail) {
-        const firstName     = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
-        const custPhone     = _sp.cust?.fields['Phone'] || _sp.newPhone || '';
-        const propAddr      = _sp.prop?.fields['Service Address'] || _sp.newServiceStreet || '';
-        const techRec       = (_technicianOptions || []).find(t => t.id === techId);
-        const techName      = techRec?.fields['Technician Name'] || '';
-        const newWoId       = data.id;
-        const cancelUrl     = `https://app.cjbcomfort.com/manage.html?wo=${newWoId}&action=cancel`;
-        const rescheduleUrl = `https://app.cjbcomfort.com/manage.html?wo=${newWoId}&action=reschedule`;
-        await fetch(`${PROXY}/email/booking-confirmed`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email:              custEmail,
-            phone:              custPhone,
-            firstName,
-            scheduledDate:      startUTC,
-            address:            propAddr,
-            woType:             _sp.woType,
-            problemDescription: _sp.prob || '',
-            techName,
-            cancelUrl,
-            rescheduleUrl,
-          })
-        });
+    // Send booking confirmation email only when a date was chosen
+    if (withDate) {
+      try {
+        const custEmail = _sp.cust?.fields['Email'] || _sp.newEmail || '';
+        if (custEmail) {
+          const firstName     = _sp.cust?.fields['First Name'] || (_sp.newName || '').split(' ')[0] || '';
+          const custPhone     = _sp.cust?.fields['Phone'] || _sp.newPhone || '';
+          const propAddr      = _sp.prop?.fields['Service Address'] || _sp.newServiceStreet || '';
+          const techRec       = (_technicianOptions || []).find(t => t.id === techId);
+          const techName      = techRec?.fields['Technician Name'] || '';
+          const newWoId       = data.id;
+          const cancelUrl     = `https://app.cjbcomfort.com/manage.html?wo=${newWoId}&action=cancel`;
+          const rescheduleUrl = `https://app.cjbcomfort.com/manage.html?wo=${newWoId}&action=reschedule`;
+          await fetch(`${PROXY}/email/booking-confirmed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email:              custEmail,
+              phone:              custPhone,
+              firstName,
+              scheduledDate:      woFields['Scheduled Date'],
+              address:            propAddr,
+              woType:             _sp.woType,
+              problemDescription: _sp.prob || '',
+              techName,
+              cancelUrl,
+              rescheduleUrl,
+            })
+          });
+        }
+      } catch (emailErr) {
+        console.warn('Booking confirmation email failed (non-fatal):', emailErr.message);
       }
-    } catch (emailErr) {
-      console.warn('Booking confirmation email failed (non-fatal):', emailErr.message);
     }
 
     closeSchedPanel();
@@ -6209,7 +6218,7 @@ async function spBook() {
     if (selectedCustomer?.id === custId) selectCustomer(custId);
 
   } catch (err) {
-    btn.disabled = false; btn.textContent = 'Book Appointment';
+    if (btn) { btn.disabled = false; btn.textContent = withDate ? 'Book Appointment' : 'Save to Queue'; }
     alert('Error: ' + err.message);
   }
 }
