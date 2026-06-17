@@ -8677,12 +8677,22 @@ function openWOFromDispatch(woId) {
 async function dispatchGeocodeAll() {
   const btn = document.getElementById('dispatch-geocode-btn');
   if (btn) { btn.disabled = true; btn.textContent = '📍 Geocoding…'; }
+  let totalGeocoded = 0, totalFailed = 0, firstError = '', iterations = 0;
   try {
-    const res  = await fetch(`${PROXY}/geocode-properties`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Geocoding failed');
-    alert(`Geocode result:\n• Total properties checked: ${data.total}\n• Geocoded: ${data.geocoded}\n• Failed: ${data.failed}${data.firstError ? '\n\nFirst error: ' + data.firstError : ''}`);
-    if (data.geocoded > 0) {
+    while (iterations < 50) { // safety cap: max 50 × 20 = 1000 properties
+      iterations++;
+      const res  = await fetch(`${PROXY}/geocode-properties`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Geocoding failed');
+      totalGeocoded += data.geocoded || 0;
+      totalFailed   += data.failed   || 0;
+      if (!firstError && data.firstError) firstError = data.firstError;
+      if (btn) btn.textContent = `📍 Geocoding… (${totalGeocoded} done)`;
+      if (data.total === 0) break; // nothing left to geocode
+      await new Promise(r => setTimeout(r, 300)); // brief pause between batches
+    }
+    alert(`Geocoding complete!\n• Geocoded: ${totalGeocoded}\n• Failed: ${totalFailed}${firstError ? '\n\nFirst error: ' + firstError : ''}`);
+    if (totalGeocoded > 0) {
       _dispatchPropCache = {};
       await _loadDispatchData();
       updateDispatchMap();

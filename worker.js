@@ -2697,22 +2697,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const atHeaders = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
         const atBase    = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
 
-        // Fetch ALL properties missing lat or lng — paginate through full set
-        const propBaseUrl = `${atBase}/Properties?filterByFormula=${encodeURIComponent('OR({Latitude}=BLANK(),{Longitude}=BLANK())')}` +
-          `&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Zip&pageSize=100`;
-        const props = [];
-        let offset = '';
-        do {
-          const pageUrl = propBaseUrl + (offset ? `&offset=${offset}` : '');
-          const pageRes  = await fetch(pageUrl, { headers: atHeaders });
-          const pageData = await pageRes.json();
-          (pageData.records || []).forEach(r => props.push(r));
-          offset = pageData.offset || '';
-        } while (offset);
+        // Fetch one batch of 20 properties missing lat/lng per invocation
+        // (Cloudflare subrequest limit: ~50 free / 1000 paid — caller loops until total=0)
+        const listUrl = `${atBase}/Properties?filterByFormula=${encodeURIComponent('OR({Latitude}=BLANK(),{Longitude}=BLANK())')}` +
+          `&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Zip&pageSize=20`;
+        const listRes  = await fetch(listUrl, { headers: atHeaders });
+        const listData = await listRes.json();
+        const props    = listData.records || [];
 
         let geocoded = 0, failed = 0, firstError = '';
+        const updates = []; // collect successful geocodes for bulk Airtable PATCH
+
         for (const prop of props) {
-          const f = prop.fields;
+          const f    = prop.fields;
           const addr = [f['Service Address'], f['City'], f['State'], f['Zip']].filter(Boolean).join(', ');
           if (!addr) { failed++; continue; }
           try {
@@ -2723,17 +2720,24 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               failed++; continue;
             }
             const loc = gData.results[0].geometry.location;
-            await fetch(`${atBase}/Properties/${prop.id}`, {
-              method: 'PATCH',
-              headers: { ...atHeaders, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ fields: { Latitude: loc.lat, Longitude: loc.lng } })
-            });
+            updates.push({ id: prop.id, fields: { Latitude: loc.lat, Longitude: loc.lng } });
             geocoded++;
           } catch(e) {
             if (!firstError) firstError = e.message;
             failed++;
           }
         }
+
+        // Bulk PATCH to Airtable in groups of 10 (API max per request)
+        for (let i = 0; i < updates.length; i += 10) {
+          const batch = updates.slice(i, i + 10);
+          await fetch(`${atBase}/Properties`, {
+            method: 'PATCH',
+            headers: { ...atHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ records: batch })
+          });
+        }
+
         return new Response(JSON.stringify({ ok: true, geocoded, failed, total: props.length, firstError }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(err) {
