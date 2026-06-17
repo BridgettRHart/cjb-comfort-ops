@@ -710,8 +710,15 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dispatch-content { display:flex; flex:1; overflow:hidden; }
 .dispatch-sidebar { width:240px; flex-shrink:0; background:#f9fafb; border-right:1px solid #e5e7eb; display:flex; flex-direction:column; overflow:hidden; }
 .dispatch-sidebar-hd { padding:10px 12px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#6b7280; border-bottom:1px solid #e5e7eb; flex-shrink:0; }
+.dispatch-sidebar-hd.assign-hd { border-top:2px solid #e5e7eb; color:#0284c7; }
 .dispatch-sidebar-list { overflow-y:auto; flex:1; padding:8px; display:flex; flex-direction:column; gap:6px; }
+.dispatch-sidebar-list.assign-list { flex:0 0 auto; max-height:40%; border-top:none; }
 .dispatch-sidebar-empty { color:#aaa; font-size:12px; padding:16px 8px; text-align:center; }
+.dispatch-assign-card { background:#eff6ff; border:1.5px solid #bfdbfe; border-radius:8px; padding:8px 10px; font-size:12px; cursor:pointer; transition:box-shadow 0.15s; }
+.dispatch-assign-card:hover { box-shadow:0 2px 8px rgba(0,0,0,0.12); background:#dbeafe; }
+.dispatch-assign-card-name { font-weight:700; color:#1e40af; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dispatch-assign-card-date { color:#3b82f6; font-size:11px; font-weight:600; }
+.dispatch-assign-card-type { color:#6b7280; font-size:11px; }
 .dispatch-grid-wrap { flex:1; overflow:auto; position:relative; }
 .dispatch-map-panel { width:300px; flex-shrink:0; border-left:1px solid #e5e7eb; }
 #dispatch-map { width:100%; height:100%; }
@@ -722,6 +729,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-time-hd { height:40px; flex-shrink:0; border-bottom:1px solid #e5e7eb; }
 .dg-time-slot { height:50px; display:flex; align-items:flex-start; padding-top:4px; justify-content:flex-end; padding-right:8px; font-size:10px; color:#9ca3af; border-bottom:1px solid #f3f4f6; box-sizing:border-box; }
 .dg-tech-col { flex:1; min-width:160px; border-left:1px solid #e5e7eb; display:flex; flex-direction:column; }
+.dg-tech-col.office-narrow { flex:none; width:120px; min-width:120px; }
 .dg-tech-hd { height:40px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#374151; background:#f9fafb; border-bottom:2px solid #e5e7eb; flex-shrink:0; padding:0 8px; gap:6px; }
 .dg-tech-hd.at-limit { background:#fef3c7; color:#92400e; }
 .dg-tech-hd.office-col { background:#f0f9ff; border-bottom-color:#bae6fd; }
@@ -1432,6 +1440,10 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
         ondragover="dispatchSidebarDragOver(event)"
         ondrop="dispatchSidebarDrop(event)"
         ondragleave="dispatchSidebarDragLeave(event)">
+        <div class="dispatch-sidebar-empty">Loading…</div>
+      </div>
+      <div class="dispatch-sidebar-hd assign-hd">Needs Tech Assignment <span id="dispatch-assign-badge" class="dispatch-unscheduled-badge" style="display:none">0</span></div>
+      <div class="dispatch-sidebar-list assign-list" id="dispatch-assign-list">
         <div class="dispatch-sidebar-empty">Loading…</div>
       </div>
     </div>
@@ -8170,6 +8182,7 @@ let _draggedWOId         = null;
 let _dragSource          = null;
 let _draggedOrigTechId   = null;
 let _draggedOrigStart    = null;
+let _dispatchOfficeWOs   = [];
 
 const DISPATCH_SLOT_H  = 50;   // px per 30-min slot
 const DISPATCH_START_H = 7;    // 7 AM
@@ -8205,11 +8218,19 @@ async function loadDispatchTab() {
   if (!_dispatchTechs) {
     try {
       const all = await fetchAll('Technicians', 'fields[]=Technician Name&fields[]=Active&fields[]=Dispatch Role&sort[0][field]=Technician Name&sort[0][direction]=asc');
-      _dispatchTechs = all.filter(t => t.fields['Active'] !== false && (t.fields['Dispatch Role'] === 'Office' || t.fields['Dispatch Role'] === 'Field Tech'));
+      const filtered = all.filter(t => t.fields['Active'] !== false && (t.fields['Dispatch Role'] === 'Office' || t.fields['Dispatch Role'] === 'Field Tech'));
+      // Office column always first, field techs alphabetically after
+      filtered.sort((a, b) => {
+        const aO = a.fields['Dispatch Role'] === 'Office' ? 0 : 1;
+        const bO = b.fields['Dispatch Role'] === 'Office' ? 0 : 1;
+        if (aO !== bO) return aO - bO;
+        return (a.fields['Technician Name'] || '').localeCompare(b.fields['Technician Name'] || '');
+      });
+      _dispatchTechs = filtered;
     } catch(e) { _dispatchTechs = []; }
   }
 
-  await _loadDispatchData();
+  await Promise.all([_loadDispatchData(), _loadOfficeUnassigned()]);
   renderDispatchSidebar();
   renderDispatchGrid();
   initDispatchMap();
@@ -8250,21 +8271,39 @@ async function _loadDispatchData() {
   }
 }
 
+async function _loadOfficeUnassigned() {
+  const officeTech = (_dispatchTechs || []).find(t => t.fields['Dispatch Role'] === 'Office');
+  if (!officeTech) { _dispatchOfficeWOs = []; return; }
+
+  const todayStr = _ddStr(new Date());
+  const formula  = encodeURIComponent(`AND(NOT(OR({Status}="Cancelled",{Status}="Complete",{Status}="Invoiced",{Status}="Paid")),{Scheduled Date}!="")`);
+  const fields   = 'fields[]=Customer Name&fields[]=Work Order Type&fields[]=Scheduled Date&fields[]=Technician';
+  try {
+    const all = await fetchAll('Work Orders', `filterByFormula=${formula}&sort[0][field]=Scheduled Date&sort[0][direction]=asc&${fields}`);
+    _dispatchOfficeWOs = all.filter(wo => {
+      const tid = _ddUnwrap(wo.fields['Technician']);
+      if (tid !== officeTech.id) return false;
+      const d = (wo.fields['Scheduled Date'] || '').slice(0, 10);
+      return d >= todayStr;
+    });
+  } catch(e) {
+    console.error('_loadOfficeUnassigned error:', e);
+    _dispatchOfficeWOs = [];
+  }
+}
+
 function renderDispatchSidebar() {
+  // ── Needs Scheduling (Status = New) ──────────────────────────────────────
   const list  = document.getElementById('dispatch-sidebar-list');
   const badge = document.getElementById('dispatch-queue-badge');
   const lbl   = document.getElementById('dispatch-unscheduled-lbl');
   const count = _dispatchUnscheduled.length;
 
-  badge.textContent    = count;
-  badge.style.display  = count ? '' : 'none';
-  lbl.textContent      = count ? `${count} job${count !== 1 ? 's' : ''} need scheduling` : '';
+  badge.textContent   = count;
+  badge.style.display = count ? '' : 'none';
+  lbl.textContent     = count ? `${count} job${count !== 1 ? 's' : ''} need scheduling` : '';
 
-  if (!count) {
-    list.innerHTML = '<div class="dispatch-sidebar-empty">No unscheduled jobs ✓</div>';
-    return;
-  }
-  list.innerHTML = _dispatchUnscheduled.map(wo => {
+  list.innerHTML = count ? _dispatchUnscheduled.map(wo => {
     const f        = wo.fields;
     const name     = _ddUnwrap(f['Customer Name']) || 'Unknown';
     const addr     = _ddUnwrap(f['Service Address']);
@@ -8281,7 +8320,29 @@ function renderDispatchSidebar() {
       <div class="dispatch-card-addr">${esc(addr)}${city ? ', '+esc(city) : ''}</div>
       <div class="dispatch-card-type">${esc(woType)}${priority && priority !== 'Routine' ? ' · '+esc(priority) : ''}</div>
     </div>`;
-  }).join('');
+  }).join('') : '<div class="dispatch-sidebar-empty">No unscheduled jobs ✓</div>';
+
+  // ── Needs Tech Assignment (future Office-column WOs) ─────────────────────
+  const assignList  = document.getElementById('dispatch-assign-list');
+  const assignBadge = document.getElementById('dispatch-assign-badge');
+  const aCount      = _dispatchOfficeWOs.length;
+
+  assignBadge.textContent   = aCount;
+  assignBadge.style.display = aCount ? '' : 'none';
+
+  assignList.innerHTML = aCount ? _dispatchOfficeWOs.map(wo => {
+    const f      = wo.fields;
+    const name   = _ddUnwrap(f['Customer Name']) || 'Unknown';
+    const woType = f['Work Order Type'] || '';
+    const d      = f['Scheduled Date'] ? new Date(f['Scheduled Date']) : null;
+    const dateLabel = d ? d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) : '';
+    const timeLabel = d ? _ddTime(d.getHours(), d.getMinutes()) : '';
+    return `<div class="dispatch-assign-card" onclick="dispatchNavToDate('${f['Scheduled Date'] || ''}')">
+      <div class="dispatch-assign-card-name">${esc(name)}</div>
+      <div class="dispatch-assign-card-date">${esc(dateLabel)} · ${esc(timeLabel)}</div>
+      <div class="dispatch-assign-card-type">${esc(woType)}</div>
+    </div>`;
+  }).join('') : '<div class="dispatch-sidebar-empty">None pending ✓</div>';
 }
 
 function renderDispatchGrid() {
@@ -8355,7 +8416,7 @@ function renderDispatchGrid() {
         </div>`;
       }).join('');
 
-    return `<div class="dg-tech-col">
+    return `<div class="dg-tech-col${isOffice?' office-narrow':''}">
       <div class="dg-tech-hd${atLimit?' at-limit':''}${isOffice?' office-col':''}">
         ${esc(tname)}${isOffice ? ' <span style="font-size:10px;font-weight:400;color:#0284c7;">(Office)</span>' : ''}
         ${atLimit ? ' ⚠ Full' : (!isOffice && cnt) ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${cnt}/3</span>` : ''}
@@ -8510,6 +8571,12 @@ async function _unscheduleDispatchJob(woId) {
 }
 
 // ── Navigation ───────────────────────────────────────────────────────────────
+
+function dispatchNavToDate(isoDateStr) {
+  if (!isoDateStr) return;
+  _dispatchDate = new Date(isoDateStr.slice(0, 10) + 'T12:00:00');
+  loadDispatchTab();
+}
 
 async function dispatchNavDay(delta) {
   _dispatchDate = new Date(_dispatchDate.getTime() + delta*24*3600000);
