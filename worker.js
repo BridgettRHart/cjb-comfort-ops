@@ -2697,12 +2697,18 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const atHeaders = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
         const atBase    = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
 
-        // Fetch properties missing lat or lng (number fields — use BLANK() not ="")
-        const listUrl = `${atBase}/Properties?filterByFormula=${encodeURIComponent('OR({Latitude}=BLANK(),{Longitude}=BLANK())')}` +
+        // Fetch ALL properties missing lat or lng — paginate through full set
+        const propBaseUrl = `${atBase}/Properties?filterByFormula=${encodeURIComponent('OR({Latitude}=BLANK(),{Longitude}=BLANK())')}` +
           `&fields[]=Service Address&fields[]=City&fields[]=State&fields[]=Zip&pageSize=100`;
-        const listRes  = await fetch(listUrl, { headers: atHeaders });
-        const listData = await listRes.json();
-        const props    = listData.records || [];
+        const props = [];
+        let offset = '';
+        do {
+          const pageUrl = propBaseUrl + (offset ? `&offset=${offset}` : '');
+          const pageRes  = await fetch(pageUrl, { headers: atHeaders });
+          const pageData = await pageRes.json();
+          (pageData.records || []).forEach(r => props.push(r));
+          offset = pageData.offset || '';
+        } while (offset);
 
         let geocoded = 0, failed = 0, firstError = '';
         for (const prop of props) {
