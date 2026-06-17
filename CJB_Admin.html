@@ -8372,7 +8372,6 @@ function renderDispatchGrid() {
     const tname    = tech.fields['Technician Name'] || 'Tech';
     const isOffice = tech.fields['Dispatch Role'] === 'Office';
     const cnt      = techJobCount[tid] || 0;
-    const atLimit  = !isOffice && cnt >= 3;
 
     const slotRows = slots.map((s, i) =>
       `<div class="dg-slot${i%2===1?' half-hour':''}"
@@ -8419,9 +8418,9 @@ function renderDispatchGrid() {
       }).join('');
 
     return `<div class="dg-tech-col${isOffice?' office-narrow':''}">
-      <div class="dg-tech-hd${atLimit?' at-limit':''}${isOffice?' office-col':''}">
+      <div class="dg-tech-hd${isOffice?' office-col':''}">
         ${esc(tname)}${isOffice ? ' <span style="font-size:10px;font-weight:400;color:#0284c7;">(Office)</span>' : ''}
-        ${atLimit ? ' ⚠ Full' : (!isOffice && cnt) ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${cnt}/3</span>` : ''}
+        ${(!isOffice && cnt) ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${cnt} job${cnt!==1?'s':''}</span>` : ''}
       </div>
       <div class="dg-tech-slots" style="height:${DISPATCH_SLOTS*DISPATCH_SLOT_H}px;position:relative;">
         ${slotRows}${placed}
@@ -8691,7 +8690,7 @@ async function dispatchGeocodeAll() {
       if (data.total === 0) break; // nothing left to geocode
       await new Promise(r => setTimeout(r, 300)); // brief pause between batches
     }
-    alert(`Geocoding complete!\n• Geocoded: ${totalGeocoded}\n• Failed: ${totalFailed}${firstError ? '\n\nFirst error: ' + firstError : ''}`);
+    showToast(`✓ Geocoding complete: ${totalGeocoded} addresses mapped${totalFailed ? ', ' + totalFailed + ' failed' : ''}`, 'success');
     if (totalGeocoded > 0) {
       _dispatchPropCache = {};
       await _loadDispatchData();
