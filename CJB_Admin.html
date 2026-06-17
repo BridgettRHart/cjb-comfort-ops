@@ -731,8 +731,20 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-tech-col { flex:1; min-width:160px; border-left:1px solid #e5e7eb; display:flex; flex-direction:column; }
 .dg-tech-col.office-narrow { flex:none; width:120px; min-width:120px; }
 .dg-tech-hd { height:40px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#374151; background:#f9fafb; border-bottom:2px solid #e5e7eb; flex-shrink:0; padding:0 8px; gap:6px; }
-.dg-tech-hd.at-limit { background:#fef3c7; color:#92400e; }
 .dg-tech-hd.office-col { background:#f0f9ff; border-bottom-color:#bae6fd; }
+/* Week view */
+.dispatch-view-toggle { display:flex; gap:2px; background:#f3f4f6; border-radius:6px; padding:2px; }
+.dispatch-view-btn { padding:3px 12px; border:none; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer; color:#6b7280; background:none; }
+.dispatch-view-btn.active { background:#fff; color:#111827; box-shadow:0 1px 2px rgba(0,0,0,0.1); }
+.dg-day-col { min-width:130px; }
+.dg-day-col.dg-day-selected > .dg-tech-slots { background:rgba(59,130,246,0.04); }
+.dg-day-hd { cursor:pointer; flex-direction:column; gap:2px; height:auto; padding:6px 8px; line-height:1.2; }
+.dg-day-hd:hover { background:#f0f9ff; }
+.dg-day-hd.dg-day-hd-today { color:#c81f25; }
+.dg-day-hd.dg-day-hd-selected { background:#dbeafe; color:#1d4ed8; }
+.dg-week-card { position:absolute; left:2px; right:2px; border-radius:5px; padding:3px 5px; font-size:10px; cursor:grab; z-index:2; border:1px solid #e5e7eb; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.06); overflow:hidden; }
+.dg-week-card.status-done { opacity:0.45; filter:grayscale(60%); cursor:default; }
+.dg-week-initials { display:inline-block; color:#fff; font-size:8px; font-weight:700; padding:1px 4px; border-radius:3px; margin-bottom:2px; }
 .dg-tech-slots { position:relative; flex:1; }
 .dg-slot { height:50px; border-bottom:1px solid #f3f4f6; box-sizing:border-box; transition:background 0.1s; }
 .dg-slot:nth-child(even) { background:#fafafa; }
@@ -1426,6 +1438,10 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 <!-- Dispatch Board -->
 <div id="app-dispatch" style="display:none;">
   <div class="dispatch-nav">
+    <div class="dispatch-view-toggle">
+      <button class="dispatch-view-btn active" id="dispatch-view-day" onclick="dispatchSetView('day')">Day</button>
+      <button class="dispatch-view-btn" id="dispatch-view-week" onclick="dispatchSetView('week')">Week</button>
+    </div>
     <button class="dispatch-nav-btn" onclick="dispatchNavDay(-1)">‹</button>
     <button class="dispatch-nav-btn" onclick="dispatchNavDay(1)">›</button>
     <span class="dispatch-nav-date" id="dispatch-date-lbl">—</span>
@@ -8185,6 +8201,9 @@ let _draggedOrigTechId   = null;
 let _draggedOrigStart    = null;
 let _dispatchOfficeWOs   = [];
 const _reschedulingWOs   = new Set(); // WOs dragged back to sidebar — need reschedule notify, not first-booking
+let _dispatchView        = 'day';     // 'day' | 'week'
+let _dispatchWeekWOs     = [];        // all WOs for the current week (week view)
+let _dispatchMapDay      = null;      // YYYY-MM-DD string: which day the map shows in week view
 
 const DISPATCH_SLOT_H  = 50;   // px per 30-min slot
 const DISPATCH_START_H = 7;    // 7 AM
@@ -8214,8 +8233,21 @@ function _ddUnwrap(v) {
   return Array.isArray(v) ? (v[0] || '') : (v || '');
 }
 
+function _dispatchUpdateDateLabel() {
+  if (_dispatchView === 'week') {
+    const ws = new Date(_dispatchDate);
+    ws.setDate(ws.getDate() - ws.getDay()); // Sunday
+    const we = new Date(ws); we.setDate(we.getDate() + 6);
+    const fmt = d => d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    document.getElementById('dispatch-date-lbl').textContent =
+      `Week of ${fmt(ws)} – ${we.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}`;
+  } else {
+    document.getElementById('dispatch-date-lbl').textContent = _ddFmt(_dispatchDate);
+  }
+}
+
 async function loadDispatchTab() {
-  document.getElementById('dispatch-date-lbl').textContent = _ddFmt(_dispatchDate);
+  _dispatchUpdateDateLabel();
 
   if (!_dispatchTechs) {
     try {
@@ -8241,34 +8273,53 @@ async function loadDispatchTab() {
 async function _loadDispatchData() {
   const ds = _ddStr(_dispatchDate);
   const fields = 'fields[]=Work Order Name&fields[]=Customer Name&fields[]=Service Address&fields[]=City&fields[]=Status&fields[]=Work Order Type&fields[]=Priority&fields[]=Scheduled Date&fields[]=Scheduled End&fields[]=Technician&fields[]=Property&fields[]=Customer';
-  const dayF    = encodeURIComponent(`AND(NOT({Status}="Cancelled"),{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
-  const unschF  = encodeURIComponent(`{Status}="New"`);
+  const dayF   = encodeURIComponent(`AND(NOT({Status}="Cancelled"),{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
+  const unschF = encodeURIComponent(`{Status}="New"`);
 
   try {
-    const [dayWOs, unscheduled] = await Promise.all([
-      fetchAll('Work Orders', `filterByFormula=${dayF}&sort[0][field]=Scheduled Date&sort[0][direction]=asc&${fields}`),
-      fetchAll('Work Orders', `filterByFormula=${unschF}&sort[0][field]=Work Order Name&sort[0][direction]=asc&${fields}`)
-    ]);
-    _dispatchDayWOs      = dayWOs;
-    _dispatchUnscheduled = unscheduled;
-
-    // Pre-fetch lat/lng for properties we don't have cached yet
-    const propIds = [...new Set([...dayWOs, ...unscheduled]
-      .map(w => (_ddUnwrap(w.fields['Property'])))
-      .filter(id => id && !_dispatchPropCache[id])
-    )];
-    if (propIds.length) {
-      const f = propIds.length === 1
-        ? `RECORD_ID()="${propIds[0]}"`
-        : `OR(${propIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
-      const props = await fetchAll('Properties', `filterByFormula=${encodeURIComponent(f)}&fields[]=Latitude&fields[]=Longitude`);
-      props.forEach(p => {
-        _dispatchPropCache[p.id] = { lat: p.fields['Latitude'], lng: p.fields['Longitude'] };
-      });
+    if (_dispatchView === 'week') {
+      // Compute Sun–Sat bounds for the current _dispatchDate
+      const ws = new Date(_dispatchDate);
+      ws.setDate(ws.getDate() - ws.getDay()); // Sunday
+      const we = new Date(ws); we.setDate(we.getDate() + 7); // exclusive end
+      const wsStr = _ddStr(ws), weStr = _ddStr(we);
+      const weekF = encodeURIComponent(
+        `AND(NOT({Status}="Cancelled"),{Scheduled Date}!="",` +
+        `NOT(IS_BEFORE({Scheduled Date},"${wsStr}")),IS_BEFORE({Scheduled Date},"${weStr}"))`
+      );
+      const [weekWOs, unscheduled] = await Promise.all([
+        fetchAll('Work Orders', `filterByFormula=${weekF}&sort[0][field]=Scheduled Date&sort[0][direction]=asc&${fields}`),
+        fetchAll('Work Orders', `filterByFormula=${unschF}&sort[0][field]=Work Order Name&sort[0][direction]=asc&${fields}`)
+      ]);
+      _dispatchWeekWOs     = weekWOs;
+      _dispatchDayWOs      = weekWOs.filter(wo => (wo.fields['Scheduled Date']||'').slice(0,10) === ds);
+      _dispatchUnscheduled = unscheduled;
+      if (!_dispatchMapDay) _dispatchMapDay = ds;
+      const allWOs = [...weekWOs, ...unscheduled];
+      const propIds = [...new Set(allWOs.map(w => _ddUnwrap(w.fields['Property'])).filter(id => id && !_dispatchPropCache[id]))];
+      if (propIds.length) {
+        const f = propIds.length === 1 ? `RECORD_ID()="${propIds[0]}"` : `OR(${propIds.map(id=>`RECORD_ID()="${id}"`).join(',')})`;
+        const props = await fetchAll('Properties', `filterByFormula=${encodeURIComponent(f)}&fields[]=Latitude&fields[]=Longitude`);
+        props.forEach(p => { _dispatchPropCache[p.id] = { lat: p.fields['Latitude'], lng: p.fields['Longitude'] }; });
+      }
+    } else {
+      const [dayWOs, unscheduled] = await Promise.all([
+        fetchAll('Work Orders', `filterByFormula=${dayF}&sort[0][field]=Scheduled Date&sort[0][direction]=asc&${fields}`),
+        fetchAll('Work Orders', `filterByFormula=${unschF}&sort[0][field]=Work Order Name&sort[0][direction]=asc&${fields}`)
+      ]);
+      _dispatchDayWOs      = dayWOs;
+      _dispatchWeekWOs     = [];
+      _dispatchUnscheduled = unscheduled;
+      const propIds = [...new Set([...dayWOs, ...unscheduled].map(w => _ddUnwrap(w.fields['Property'])).filter(id => id && !_dispatchPropCache[id]))];
+      if (propIds.length) {
+        const f = propIds.length === 1 ? `RECORD_ID()="${propIds[0]}"` : `OR(${propIds.map(id=>`RECORD_ID()="${id}"`).join(',')})`;
+        const props = await fetchAll('Properties', `filterByFormula=${encodeURIComponent(f)}&fields[]=Latitude&fields[]=Longitude`);
+        props.forEach(p => { _dispatchPropCache[p.id] = { lat: p.fields['Latitude'], lng: p.fields['Longitude'] }; });
+      }
     }
   } catch(e) {
     console.error('_loadDispatchData error:', e);
-    _dispatchDayWOs = []; _dispatchUnscheduled = [];
+    _dispatchDayWOs = []; _dispatchWeekWOs = []; _dispatchUnscheduled = [];
   }
 }
 
@@ -8346,7 +8397,98 @@ function renderDispatchSidebar() {
   }).join('') : '<div class="dispatch-sidebar-empty">None pending ✓</div>';
 }
 
+function _dispatchTechColor(techId) {
+  const fieldTechs = (_dispatchTechs || []).filter(t => t.fields['Dispatch Role'] === 'Field Tech');
+  const idx = fieldTechs.findIndex(t => t.id === techId);
+  const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'];
+  return idx >= 0 ? colors[idx % colors.length] : '#9ca3af';
+}
+
+function _dispatchTechInitials(techId) {
+  const tech = (_dispatchTechs || []).find(t => t.id === techId);
+  if (!tech) return '?';
+  return (tech.fields['Technician Name'] || '').split(' ').map(w => w[0]||'').join('').slice(0,2).toUpperCase();
+}
+
+function renderDispatchGridWeek() {
+  const grid = document.getElementById('dispatch-grid');
+  const ws = new Date(_dispatchDate);
+  ws.setDate(ws.getDate() - ws.getDay()); // Sunday
+  const days = Array.from({length:7}, (_, i) => { const d = new Date(ws); d.setDate(d.getDate()+i); return d; });
+  const slots = [];
+  for (let i = 0; i < DISPATCH_SLOTS; i++) {
+    const min = DISPATCH_START_H*60 + i*30;
+    slots.push({ h: Math.floor(min/60), m: min%60 });
+  }
+  const today = _ddStr(new Date());
+  const selectedDay = _dispatchMapDay || today;
+
+  const timeCol = `<div class="dg-time-col">
+    <div class="dg-time-hd"></div>
+    ${slots.map(s => `<div class="dg-time-slot">${s.m===0 ? esc(_ddTime(s.h,s.m)) : ''}</div>`).join('')}
+  </div>`;
+
+  const dayCols = days.map(day => {
+    const ds = _ddStr(day);
+    const isToday    = ds === today;
+    const isSelected = ds === selectedDay;
+    const dayWOs = _dispatchWeekWOs.filter(wo => (wo.fields['Scheduled Date']||'').slice(0,10) === ds);
+    const dayLabel = day.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+
+    const slotRows = slots.map((s, i) =>
+      `<div class="dg-slot${i%2===1?' half-hour':''}"
+        data-date="${ds}" data-slot-h="${s.h}" data-slot-m="${s.m}"
+        ondragover="dispatchSlotDragOver(event)"
+        ondragleave="dispatchSlotDragLeave(event)"
+        ondrop="dispatchSlotDrop(event)"></div>`
+    ).join('');
+
+    const placed = dayWOs.map(wo => {
+      const f = wo.fields;
+      const name = _ddUnwrap(f['Customer Name']) || 'Unknown';
+      const status = f['Status'] || '';
+      const isDone = ['Complete','Invoiced','Paid'].includes(status);
+      const techId = _ddUnwrap(f['Technician']);
+      const color = _dispatchTechColor(techId);
+      const initials = _dispatchTechInitials(techId);
+      const dc = isDone ? ' status-done' : '';
+      const start = f['Scheduled Date'] ? new Date(f['Scheduled Date']) : null;
+      if (!start) return '';
+      const sH = start.getHours(), sM = start.getMinutes();
+      const startSlot = (sH - DISPATCH_START_H)*2 + (sM >= 30 ? 1 : 0);
+      if (startSlot < 0 || startSlot >= DISPATCH_SLOTS) return '';
+      let durSlots = 4;
+      if (f['Scheduled End']) {
+        const end = new Date(f['Scheduled End']);
+        durSlots = Math.max(2, Math.round((end - start)/60000/30));
+      }
+      return `<div class="dg-week-card${dc}" draggable="${!isDone}" data-wo-id="${wo.id}"
+        style="top:${startSlot*DISPATCH_SLOT_H}px;height:${durSlots*DISPATCH_SLOT_H-2}px;border-left:3px solid ${color};"
+        ${isDone ? '' : `ondragstart="dispatchDragStart(event,'${wo.id}','grid','${techId}','${ds}')" ondragend="dispatchDragEnd(event)"`}
+        onclick="openWOFromDispatch('${wo.id}')">
+        <span class="dg-week-initials" style="background:${color};">${esc(initials)}</span>
+        <div class="dispatch-card-name" style="font-size:10px;">${esc(name)}</div>
+        <div class="dispatch-card-time" style="font-size:9px;">${esc(_ddTime(sH,sM))}${isDone?' ✓':''}</div>
+      </div>`;
+    }).join('');
+
+    return `<div class="dg-tech-col dg-day-col${isSelected?' dg-day-selected':''}">
+      <div class="dg-tech-hd dg-day-hd${isToday?' dg-day-hd-today':''}${isSelected?' dg-day-hd-selected':''}"
+        onclick="dispatchSelectMapDay('${ds}')">
+        <span>${esc(dayLabel)}</span>
+        ${dayWOs.length ? `<span style="font-size:10px;font-weight:400;color:#6b7280;">${dayWOs.length} job${dayWOs.length!==1?'s':''}</span>` : ''}
+      </div>
+      <div class="dg-tech-slots" style="height:${DISPATCH_SLOTS*DISPATCH_SLOT_H}px;position:relative;">
+        ${slotRows}${placed}
+      </div>
+    </div>`;
+  }).join('');
+
+  grid.innerHTML = `<div class="dgrid">${timeCol}${dayCols}</div>`;
+}
+
 function renderDispatchGrid() {
+  if (_dispatchView === 'week') { renderDispatchGridWeek(); return; }
   const grid  = document.getElementById('dispatch-grid');
   const techs = _dispatchTechs || [];
 
@@ -8434,11 +8576,12 @@ function renderDispatchGrid() {
 
 // ── Drag & Drop handlers ─────────────────────────────────────────────────────
 
-function dispatchDragStart(event, woId, source, origTechId) {
+function dispatchDragStart(event, woId, source, origTechId, origDateStr) {
   _draggedWOId       = woId;
   _dragSource        = source;
   _draggedOrigTechId = origTechId || null;
-  const origWO       = _dispatchDayWOs.find(w => w.id === woId);
+  const allWOs       = [..._dispatchDayWOs, ..._dispatchWeekWOs];
+  const origWO       = allWOs.find(w => w.id === woId);
   _draggedOrigStart  = origWO?.fields['Scheduled Date'] || null;
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', woId);
@@ -8465,12 +8608,19 @@ function dispatchSlotDragLeave(event) {
 async function dispatchSlotDrop(event) {
   event.preventDefault();
   event.currentTarget.classList.remove('drag-over');
-  const woId  = _draggedWOId;
-  const techId = event.currentTarget.dataset.techId;
+  const woId   = _draggedWOId;
   const h      = parseInt(event.currentTarget.dataset.slotH);
   const m      = parseInt(event.currentTarget.dataset.slotM);
-  if (!woId || !techId) return;
-  await _assignDispatchJob(woId, techId, h, m);
+  const dateStr = event.currentTarget.dataset.date || null; // week view has this
+  let techId   = event.currentTarget.dataset.techId || null; // day view has this
+  if (!woId) return;
+  if (!techId) {
+    // Week view slot — keep existing tech or fall back to first field tech
+    techId = _draggedOrigTechId
+      || (_dispatchTechs||[]).find(t => t.fields['Dispatch Role']==='Field Tech')?.id;
+  }
+  if (!techId) return;
+  await _assignDispatchJob(woId, techId, h, m, dateStr);
 }
 
 function dispatchSidebarDragOver(event) {
@@ -8492,22 +8642,29 @@ async function dispatchSidebarDrop(event) {
 
 // ── Data writes ──────────────────────────────────────────────────────────────
 
-async function _assignDispatchJob(woId, techId, startH, startM) {
-  const ds      = _ddStr(_dispatchDate);
+async function _assignDispatchJob(woId, techId, startH, startM, dateStr) {
+  const ds      = dateStr || _ddStr(_dispatchDate);
   const startMs = new Date(ds+'T00:00:00Z').getTime() + (startH*60+startM)*60000 + 7*3600000;
   const startUTC = new Date(startMs).toISOString();
   const endUTC   = new Date(startMs + 2*3600000).toISOString();
 
   // Optimistic UI update
-  const wo = [..._dispatchDayWOs, ..._dispatchUnscheduled].find(w => w.id === woId);
+  const allWOs = [..._dispatchDayWOs, ..._dispatchWeekWOs, ..._dispatchUnscheduled];
+  const wo = allWOs.find(w => w.id === woId);
   if (wo) {
     wo.fields['Scheduled Date'] = startUTC;
     wo.fields['Scheduled End']  = endUTC;
     wo.fields['Technician']     = [techId];
     wo.fields['Status']         = 'Scheduled';
-    _dispatchDayWOs      = [..._dispatchDayWOs.filter(w => w.id !== woId), wo];
     _dispatchUnscheduled = _dispatchUnscheduled.filter(w => w.id !== woId);
-    _dispatchDayWOs.sort((a,b) => (a.fields['Scheduled Date']||'').localeCompare(b.fields['Scheduled Date']||''));
+    if (_dispatchView === 'week') {
+      _dispatchWeekWOs = [..._dispatchWeekWOs.filter(w => w.id !== woId), wo];
+      _dispatchWeekWOs.sort((a,b) => (a.fields['Scheduled Date']||'').localeCompare(b.fields['Scheduled Date']||''));
+      _dispatchDayWOs = _dispatchWeekWOs.filter(w => (w.fields['Scheduled Date']||'').slice(0,10) === _ddStr(_dispatchDate));
+    } else {
+      _dispatchDayWOs = [..._dispatchDayWOs.filter(w => w.id !== woId), wo];
+      _dispatchDayWOs.sort((a,b) => (a.fields['Scheduled Date']||'').localeCompare(b.fields['Scheduled Date']||''));
+    }
   }
   renderDispatchSidebar();
   renderDispatchGrid();
@@ -8551,7 +8708,7 @@ async function _assignDispatchJob(woId, techId, startH, startM) {
 }
 
 async function _unscheduleDispatchJob(woId) {
-  const wo = _dispatchDayWOs.find(w => w.id === woId);
+  const wo = [..._dispatchDayWOs, ..._dispatchWeekWOs].find(w => w.id === woId);
   if (!wo) return;
 
   _reschedulingWOs.add(woId); // remember this WO had a date — next drop is a reschedule
@@ -8559,6 +8716,7 @@ async function _unscheduleDispatchJob(woId) {
   wo.fields['Scheduled End']  = null;
   wo.fields['Technician']     = [];
   _dispatchDayWOs      = _dispatchDayWOs.filter(w => w.id !== woId);
+  _dispatchWeekWOs     = _dispatchWeekWOs.filter(w => w.id !== woId);
   _dispatchUnscheduled = [wo, ..._dispatchUnscheduled];
   renderDispatchSidebar();
   renderDispatchGrid();
@@ -8585,8 +8743,10 @@ function dispatchNavToDate(isoDateStr) {
 }
 
 async function dispatchNavDay(delta) {
-  _dispatchDate = new Date(_dispatchDate.getTime() + delta*24*3600000);
-  document.getElementById('dispatch-date-lbl').textContent = _ddFmt(_dispatchDate);
+  const step = (_dispatchView === 'week') ? delta * 7 : delta;
+  _dispatchDate = new Date(_dispatchDate.getTime() + step*24*3600000);
+  if (_dispatchView === 'week') _dispatchMapDay = _ddStr(_dispatchDate);
+  _dispatchUpdateDateLabel();
   document.getElementById('dispatch-sidebar-list').innerHTML = '<div class="dispatch-sidebar-empty">Loading…</div>';
   document.getElementById('dispatch-grid').innerHTML = '';
   await _loadDispatchData();
@@ -8597,7 +8757,28 @@ async function dispatchNavDay(delta) {
 
 async function dispatchGoToday() {
   _dispatchDate = new Date();
+  if (_dispatchView === 'week') _dispatchMapDay = _ddStr(_dispatchDate);
   await dispatchNavDay(0);
+}
+
+async function dispatchSetView(view) {
+  if (_dispatchView === view) return;
+  _dispatchView = view;
+  document.getElementById('dispatch-view-day').classList.toggle('active', view === 'day');
+  document.getElementById('dispatch-view-week').classList.toggle('active', view === 'week');
+  if (view === 'week') _dispatchMapDay = _ddStr(_dispatchDate);
+  _dispatchUpdateDateLabel();
+  document.getElementById('dispatch-grid').innerHTML = '';
+  await _loadDispatchData();
+  renderDispatchSidebar();
+  renderDispatchGrid();
+  updateDispatchMap();
+}
+
+function dispatchSelectMapDay(ds) {
+  _dispatchMapDay = ds;
+  renderDispatchGridWeek(); // re-render to update selected highlight
+  updateDispatchMap();
 }
 
 // ── Google Maps ──────────────────────────────────────────────────────────────
@@ -8631,7 +8812,13 @@ function updateDispatchMap() {
   _dispatchMarkers.forEach(m => m.setMap(null));
   _dispatchMarkers = [];
 
-  const all = [..._dispatchDayWOs, ..._dispatchUnscheduled];
+  let all;
+  if (_dispatchView === 'week') {
+    const mapDay = _dispatchMapDay || _ddStr(new Date());
+    all = _dispatchWeekWOs.filter(wo => (wo.fields['Scheduled Date']||'').slice(0,10) === mapDay);
+  } else {
+    all = [..._dispatchDayWOs, ..._dispatchUnscheduled];
+  }
   const bounds = new google.maps.LatLngBounds();
   let hasPin = false;
 
@@ -8672,7 +8859,7 @@ function updateDispatchMap() {
 }
 
 function openWOFromDispatch(woId) {
-  const wo = [..._dispatchDayWOs, ..._dispatchUnscheduled].find(w => w.id === woId);
+  const wo = [..._dispatchDayWOs, ..._dispatchWeekWOs, ..._dispatchUnscheduled].find(w => w.id === woId);
   if (!wo) return;
   const custId = _ddUnwrap(wo.fields['Customer']);
   if (custId) { switchTab('customers', true); selectCustomer(custId); }
