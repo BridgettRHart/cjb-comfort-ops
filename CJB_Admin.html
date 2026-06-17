@@ -1256,7 +1256,26 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     </table>
     </div>
 
-    <button class="btn btn-gray btn-sm" onclick="addQuoteLi()" style="margin-bottom:16px;">+ Add Line Item</button>
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <button class="btn btn-gray btn-sm" onclick="addQuoteLi()">+ Add Line Item</button>
+      <button class="btn btn-gray btn-sm" onclick="addQuoteDiscount()" style="color:#6b7280;">+ Discount</button>
+    </div>
+
+    <!-- Discount row — hidden until activated -->
+    <div id="quote-discount-row" style="display:none;align-items:center;gap:10px;padding:6px 8px;margin-bottom:4px;">
+      <span style="font-size:13px;color:#6b7280;flex:1;">Discount</span>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <button type="button" id="qdtype-pct" class="btn btn-gray btn-sm" onclick="setQuoteDiscountType('pct')"
+          style="padding:2px 8px;font-size:12px;">%</button>
+        <button type="button" id="qdtype-dollar" class="btn btn-gray btn-sm" onclick="setQuoteDiscountType('fixed')"
+          style="padding:2px 8px;font-size:12px;">$</button>
+        <input type="number" id="quote-discount-val" min="0" step="1" placeholder="0"
+          style="width:70px;padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;text-align:right;"
+          oninput="updateQuoteTotal()">
+        <button type="button" class="btn btn-gray btn-sm" onclick="removeQuoteDiscount()"
+          style="padding:2px 6px;font-size:12px;color:#9ca3af;">✕</button>
+      </div>
+    </div>
 
     <div class="total-row">
       <span class="total-lbl">Estimated Total</span>
@@ -3500,6 +3519,26 @@ let quoteWOId = null, quoteCustId = null, quoteStripeId = null;
 let quoteAirtableId = null, quoteStatus = 'new', qliCount = 0;
 let _eaProjectForQuote = null; // EA project linked to the WO being estimated
 let quoteApproveUrl = null;
+let _quoteDiscountType = 'pct'; // 'pct' | 'fixed'
+
+function addQuoteDiscount() {
+  document.getElementById('quote-discount-row').style.display = 'flex';
+  document.getElementById('quote-discount-val').value = '';
+  document.getElementById('quote-discount-val').focus();
+  setQuoteDiscountType('pct');
+  updateQuoteTotal();
+}
+function removeQuoteDiscount() {
+  document.getElementById('quote-discount-row').style.display = 'none';
+  document.getElementById('quote-discount-val').value = '';
+  updateQuoteTotal();
+}
+function setQuoteDiscountType(type) {
+  _quoteDiscountType = type;
+  document.getElementById('qdtype-pct').style.fontWeight    = type === 'pct'   ? '700' : '';
+  document.getElementById('qdtype-dollar').style.fontWeight = type === 'fixed' ? '700' : '';
+  updateQuoteTotal();
+}
 
 async function openQuoteModal(woId, custId, readOnly = false) {
   quoteWOId = woId; quoteCustId = custId;
@@ -3510,6 +3549,9 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   document.getElementById('quote-total').textContent = '$0.00';
   document.getElementById('quote-notes').value = '';
   document.getElementById('quote-description').value = '';
+  document.getElementById('quote-discount-row').style.display = 'none';
+  document.getElementById('quote-discount-val').value = '';
+  _quoteDiscountType = 'pct';
   document.getElementById('quote-url-section').classList.add('hidden');
   // Show install templates only for Install Estimate or Estimate Only WO types
   const wo = currentWorkOrders.find(w => w.id === woId) || _allEstimates.find(w => w.id === woId);
@@ -3690,6 +3732,9 @@ function resetQuoteModal() {
   document.getElementById('quote-total').textContent = '$0.00';
   document.getElementById('quote-notes').value = '';
   document.getElementById('quote-description').value = '';
+  document.getElementById('quote-discount-row').style.display = 'none';
+  document.getElementById('quote-discount-val').value = '';
+  _quoteDiscountType = 'pct';
   document.getElementById('quote-url-section').classList.add('hidden');
   addQuoteLi();
   renderQuoteActions('new');
@@ -3927,6 +3972,15 @@ function updateQuoteTotal() {
     t += (parseFloat(document.getElementById('qliq-' + idx)?.value) || 0) *
          (parseFloat(document.getElementById('qlip-' + idx)?.value) || 0);
   });
+  const discRow = document.getElementById('quote-discount-row');
+  if (discRow && discRow.style.display !== 'none') {
+    const discVal = parseFloat(document.getElementById('quote-discount-val')?.value) || 0;
+    if (discVal > 0) {
+      t = _quoteDiscountType === 'pct'
+        ? t * (1 - Math.min(100, discVal) / 100)
+        : Math.max(0, t - discVal);
+    }
+  }
   document.getElementById('quote-total').textContent = '$' + t.toFixed(2);
   updateEACashFlow(); // recalculate EA panel live as prices are entered
 }
@@ -3954,6 +4008,11 @@ async function submitQuote(sendNow) {
   try {
     let data;
 
+    const discountRow = document.getElementById('quote-discount-row');
+    const discountActive = discountRow && discountRow.style.display !== 'none';
+    const discountVal = discountActive ? (parseFloat(document.getElementById('quote-discount-val')?.value) || 0) : 0;
+    const discountPayload = discountVal > 0 ? { discountType: _quoteDiscountType, discountValue: discountVal } : {};
+
     if (!quoteStripeId || quoteStatus === 'new') {
       // New estimate — POST with finalize:true if sending now
       const res = await fetch(`${PROXY}/quote`, {
@@ -3963,6 +4022,7 @@ async function submitQuote(sendNow) {
           lineItems, description, notes,
           finalize: sendNow,
           ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,
+          ...discountPayload,
         })
       });
       data = await res.json();
@@ -3978,6 +4038,7 @@ async function submitQuote(sendNow) {
           lineItems, notes: description + (notes ? '\n' + notes : ''),
           finalize: sendNow,
           ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,
+          ...discountPayload,
         })
       });
       data = await patchRes.json();

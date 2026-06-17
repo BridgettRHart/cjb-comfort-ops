@@ -2076,7 +2076,19 @@
     <div class="iest-section">
       <div class="iest-section-title">Line Items</div>
       <div id="iest-line-items"></div>
-      <button class="btn btn-outline" style="width:100%;margin-top:8px;font-size:15px;" onclick="openIestProductPicker()">+ Add Line Item</button>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn btn-outline" style="flex:1;font-size:15px;" onclick="openIestProductPicker()">+ Add Line Item</button>
+        <button class="btn btn-outline" style="font-size:15px;color:#6b7280;" onclick="addIestDiscount()">+ Discount</button>
+      </div>
+      <div id="iest-discount-row" style="display:none;align-items:center;gap:8px;margin-top:8px;">
+        <span style="font-size:14px;color:#6b7280;flex:1;">Discount</span>
+        <button type="button" id="idtype-pct" class="btn btn-outline" style="padding:4px 10px;font-size:13px;" onclick="setIestDiscountType('pct')">%</button>
+        <button type="button" id="idtype-dollar" class="btn btn-outline" style="padding:4px 10px;font-size:13px;" onclick="setIestDiscountType('fixed')">$</button>
+        <input type="number" id="iest-discount-val" min="0" step="1" placeholder="0"
+          style="width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;text-align:right;"
+          oninput="updateIestTotal()">
+        <button type="button" class="btn btn-outline" style="padding:4px 8px;font-size:13px;color:#9ca3af;" onclick="removeIestDiscount()">✕</button>
+      </div>
       <div id="iest-total-row" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--charcoal);margin-top:10px;">Estimated Total: $0.00</div>
     </div>
 
@@ -5452,6 +5464,9 @@ async function showInstallEstimateScreen(record) {
   document.getElementById('iest-camera-input').value = '';
   document.getElementById('iest-line-items').innerHTML = '';
   document.getElementById('iest-total-row').textContent = 'Estimated Total: $0.00';
+  document.getElementById('iest-discount-row').style.display = 'none';
+  document.getElementById('iest-discount-val').value = '';
+  _iestDiscountType = 'pct';
   document.querySelectorAll('#iest-urgency-selector .urgency-btn').forEach(b => b.classList.remove('active'));
   const saveBtn = document.getElementById('iest-save-btn');
   const sendBtnEl = document.getElementById('iest-send-btn');
@@ -5720,8 +5735,38 @@ function renderIestLineItems() {
   updateIestTotal();
 }
 
+let _iestDiscountType = 'pct';
+
+function addIestDiscount() {
+  document.getElementById('iest-discount-row').style.display = 'flex';
+  document.getElementById('iest-discount-val').value = '';
+  document.getElementById('iest-discount-val').focus();
+  setIestDiscountType('pct');
+  updateIestTotal();
+}
+function removeIestDiscount() {
+  document.getElementById('iest-discount-row').style.display = 'none';
+  document.getElementById('iest-discount-val').value = '';
+  updateIestTotal();
+}
+function setIestDiscountType(type) {
+  _iestDiscountType = type;
+  document.getElementById('idtype-pct').style.fontWeight    = type === 'pct'   ? '700' : '';
+  document.getElementById('idtype-dollar').style.fontWeight = type === 'fixed' ? '700' : '';
+  updateIestTotal();
+}
+
 function updateIestTotal() {
-  const total = iestLineItems.reduce((sum, li) => sum + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0);
+  let total = iestLineItems.reduce((sum, li) => sum + ((parseFloat(li.qty) || 0) * (parseFloat(li.unitPrice) || 0)), 0);
+  const discRow = document.getElementById('iest-discount-row');
+  if (discRow && discRow.style.display !== 'none') {
+    const discVal = parseFloat(document.getElementById('iest-discount-val')?.value) || 0;
+    if (discVal > 0) {
+      total = _iestDiscountType === 'pct'
+        ? total * (1 - Math.min(100, discVal) / 100)
+        : Math.max(0, total - discVal);
+    }
+  }
   document.getElementById('iest-total-row').textContent = 'Estimated Total: $' + total.toFixed(2);
 }
 
@@ -5878,10 +5923,14 @@ async function saveIestDraft() {
         unitPrice:   parseFloat(li.unitPrice) || 0,
       }));
       const customerId = Array.isArray(f['Customer']) ? f['Customer'][0] : f['Customer'];
+      const iestDiscRow = document.getElementById('iest-discount-row');
+      const iestDiscActive = iestDiscRow && iestDiscRow.style.display !== 'none';
+      const iestDiscVal = iestDiscActive ? (parseFloat(document.getElementById('iest-discount-val')?.value) || 0) : 0;
+      const iestDiscPayload = iestDiscVal > 0 ? { discountType: _iestDiscountType, discountValue: iestDiscVal } : {};
       if (iestExistingStripeQuoteId) {
         const pr = await fetch(`${PROXY}/quote`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stripeQuoteId: iestExistingStripeQuoteId, airtableQuoteId: iestExistingAirtableQuoteId, workOrderId: currentJob.id, customerId, lineItems: mappedItems, notes: desc, finalize: false }),
+          body: JSON.stringify({ stripeQuoteId: iestExistingStripeQuoteId, airtableQuoteId: iestExistingAirtableQuoteId, workOrderId: currentJob.id, customerId, lineItems: mappedItems, notes: desc, finalize: false, ...iestDiscPayload }),
         });
         const pd = pr.ok ? await pr.json() : null;
         if (pd?.stripeQuoteId) iestExistingStripeQuoteId = pd.stripeQuoteId;
@@ -5889,7 +5938,7 @@ async function saveIestDraft() {
       } else {
         const pr = await fetch(`${PROXY}/quote`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workOrderId: currentJob.id, customerId, lineItems: mappedItems, description: desc, notes: '', finalize: false }),
+          body: JSON.stringify({ workOrderId: currentJob.id, customerId, lineItems: mappedItems, description: desc, notes: '', finalize: false, ...iestDiscPayload }),
         });
         const pd = pr.ok ? await pr.json() : null;
         if (pd?.stripeQuoteId)    iestExistingStripeQuoteId    = pd.stripeQuoteId;
@@ -5932,12 +5981,17 @@ async function sendIestToCustomer() {
       unitPrice:   parseFloat(li.unitPrice) || 0,
     }));
 
+    const sendDiscRow = document.getElementById('iest-discount-row');
+    const sendDiscActive = sendDiscRow && sendDiscRow.style.display !== 'none';
+    const sendDiscVal = sendDiscActive ? (parseFloat(document.getElementById('iest-discount-val')?.value) || 0) : 0;
+    const sendDiscPayload = sendDiscVal > 0 ? { discountType: _iestDiscountType, discountValue: sendDiscVal } : {};
+
     let result;
     if (iestExistingStripeQuoteId) {
       // PATCH existing draft → finalize + send
       const res = await fetch(`${PROXY}/quote`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stripeQuoteId: iestExistingStripeQuoteId, airtableQuoteId: iestExistingAirtableQuoteId, workOrderId: currentJob.id, customerId, lineItems: mappedItems, notes: desc, finalize: true }),
+        body: JSON.stringify({ stripeQuoteId: iestExistingStripeQuoteId, airtableQuoteId: iestExistingAirtableQuoteId, workOrderId: currentJob.id, customerId, lineItems: mappedItems, notes: desc, finalize: true, ...sendDiscPayload }),
       });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Error ${res.status}`); }
       result = await res.json();
@@ -5945,7 +5999,7 @@ async function sendIestToCustomer() {
       // POST new quote → finalize + send
       const res = await fetch(`${PROXY}/quote`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workOrderId: currentJob.id, customerId, lineItems: mappedItems, description: desc, notes: '', finalize: true }),
+        body: JSON.stringify({ workOrderId: currentJob.id, customerId, lineItems: mappedItems, description: desc, notes: '', finalize: true, ...sendDiscPayload }),
       });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Error ${res.status}`); }
       result = await res.json();

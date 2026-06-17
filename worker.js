@@ -2302,12 +2302,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const body = await request.json();
         // Accept both field-app keys (woId, name, unitAmount[cents], qty)
         // and admin keys (workOrderId, productName, unitPrice[dollars], quantity)
-        const workOrderId = body.workOrderId || body.woId || null;
-        const customerId  = body.customerId;
-        const notes       = body.notes || '';
-        const description = body.description || '';
-        const ccEmails    = (body.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
-        const lineItems   = body.lineItems || [];
+        const workOrderId    = body.workOrderId || body.woId || null;
+        const customerId     = body.customerId;
+        const notes          = body.notes || '';
+        const description    = body.description || '';
+        const ccEmails       = (body.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
+        const lineItems      = body.lineItems || [];
+        const discountType   = body.discountType  || '';   // 'pct' | 'fixed'
+        const discountValue  = Number(body.discountValue) || 0;
         const finalize    = body.finalize === true; // if true: create draft + finalize in one step
         if (!customerId)        throw new Error('customerId is required');
         if (!lineItems?.length) throw new Error('At least one line item is required');
@@ -2374,6 +2376,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (description || notes) quoteParamsObj.description = (description || notes).slice(0, 500);
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
+        // Apply discount via Stripe coupon if provided
+        if (discountValue > 0 && (discountType === 'pct' || discountType === 'fixed')) {
+          const couponParams = { duration: 'once' };
+          if (discountType === 'pct') {
+            couponParams.percent_off = String(Math.min(100, Math.max(0, Math.round(discountValue))));
+          } else {
+            couponParams.amount_off = String(Math.round(discountValue * 100));
+            couponParams.currency   = 'usd';
+          }
+          const coupon = await stripePost(STRIPE_KEY, '/v1/coupons', couponParams);
+          quoteParamsObj['discounts[0][coupon]'] = coupon.id;
+        }
+
         const stripeQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
 
         // 5. Airtable Quote record
@@ -2382,6 +2397,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const q = Number(li.quantity || li.qty) || 1;
           return s + p * q;
         }, 0);
+        const discountedTotal = discountValue > 0
+          ? (discountType === 'pct'
+              ? subtotal * (1 - Math.min(100, discountValue) / 100)
+              : Math.max(0, subtotal - discountValue))
+          : subtotal;
         const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
         const today      = new Date().toISOString().split('T')[0];
 
@@ -2407,7 +2427,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Status':          'Draft',
           'Stripe Quote ID': stripeQuote.id,
           'Expiration Date': expiresDate,
-          'Total Amount':    subtotal,
+          'Total Amount':    discountedTotal,
           'Customer':        [customerId]
         };
         if (workOrderId)        atQuoteFields['Work Order'] = [workOrderId];
@@ -2509,6 +2529,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       try {
         const body2 = await request.json();
         const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = body2;
+        const discountTypePatch  = body2.discountType  || '';
+        const discountValuePatch = Number(body2.discountValue) || 0;
         const finalizePatch = body2.finalize === true;
         const ccEmailsPatch = (body2.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
         if (!stripeQuoteId) throw new Error('stripeQuoteId is required');
@@ -2562,12 +2584,29 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (notes)       quoteParamsObj.description                         = notes.slice(0, 500);
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
+        if (discountValuePatch > 0 && (discountTypePatch === 'pct' || discountTypePatch === 'fixed')) {
+          const couponParamsPatch = { duration: 'once' };
+          if (discountTypePatch === 'pct') {
+            couponParamsPatch.percent_off = String(Math.min(100, Math.max(0, Math.round(discountValuePatch))));
+          } else {
+            couponParamsPatch.amount_off = String(Math.round(discountValuePatch * 100));
+            couponParamsPatch.currency   = 'usd';
+          }
+          const couponPatch = await stripePost(STRIPE_KEY, '/v1/coupons', couponParamsPatch);
+          quoteParamsObj['discounts[0][coupon]'] = couponPatch.id;
+        }
+
         const newQuote = await stripePostNested(STRIPE_KEY, '/v1/quotes', quoteParamsObj);
 
         // New quote created successfully — now safe to cancel the old one
         try { await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/cancel`, {}); } catch (e) {}
 
         const subtotal    = lineItems.reduce((s, li) => s + ((li.unitPrice || 0) * (Number(li.quantity) || 1)), 0);
+        const discountedTotalPatch = discountValuePatch > 0
+          ? (discountTypePatch === 'pct'
+              ? subtotal * (1 - Math.min(100, discountValuePatch) / 100)
+              : Math.max(0, subtotal - discountValuePatch))
+          : subtotal;
         const expiresDate = new Date(expiresAt * 1000).toISOString().split('T')[0];
 
         const patchApproveUrl = workOrderId ? `${APPROVE_BASE_URL}?wo=${workOrderId}` : null;
@@ -2577,7 +2616,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'Status':          'Draft',
             'Stripe Quote ID': newQuote.id,
             'Expiration Date': expiresDate,
-            'Total Amount':    subtotal,
+            'Total Amount':    discountedTotalPatch,
             'Stripe Quote URL': patchApproveUrl || ''
           };
           if (notes !== undefined) upd['Notes'] = notes;
