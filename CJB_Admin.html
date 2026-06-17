@@ -3134,6 +3134,12 @@ async function openInvoiceModal(workOrderId, customerId) {
   invoiceCustId = customerId;
   liCount = 0;
 
+  // Clear CC state immediately — before any async work — so stale chips from a
+  // previously-opened record never bleed into this modal during the load delay.
+  _ccEmails = [];
+  renderCcChips('inv-cc-chips');
+  renderCcChips('quote-cc-chips');
+
   document.getElementById('li-body').innerHTML    = '';
   document.getElementById('inv-notes').value      = '';
   document.getElementById('inv-total').textContent = '$0.00';
@@ -3544,6 +3550,11 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   quoteWOId = woId; quoteCustId = custId;
   quoteStripeId = null; quoteAirtableId = null; quoteStatus = 'new'; qliCount = 0;
   quoteApproveUrl = null;
+
+  // Clear CC state immediately so stale chips from a prior record never show during load.
+  _ccEmails = [];
+  renderCcChips('inv-cc-chips');
+  renderCcChips('quote-cc-chips');
 
   document.getElementById('qli-body').innerHTML = '';
   document.getElementById('quote-total').textContent = '$0.00';
