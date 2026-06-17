@@ -8681,13 +8681,14 @@ async function dispatchGeocodeAll() {
     const res  = await fetch(`${PROXY}/geocode-properties`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Geocoding failed');
-    showToast(`✓ Map pins filled: ${data.geocoded} addresses geocoded${data.failed ? ', ' + data.failed + ' failed' : ''}`, 'success');
-    // Clear property cache and reload map
-    _dispatchPropCache = {};
-    await _loadDispatchData();
-    updateDispatchMap();
+    alert(`Geocode result:\n• Total properties checked: ${data.total}\n• Geocoded: ${data.geocoded}\n• Failed: ${data.failed}`);
+    if (data.geocoded > 0) {
+      _dispatchPropCache = {};
+      await _loadDispatchData();
+      updateDispatchMap();
+    }
   } catch(e) {
-    showToast('Geocoding error: ' + e.message, 'error');
+    alert('Geocoding error: ' + e.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '📍 Fill Map Pins'; }
   }
