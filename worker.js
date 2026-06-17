@@ -2704,7 +2704,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const listData = await listRes.json();
         const props    = listData.records || [];
 
-        let geocoded = 0, failed = 0;
+        let geocoded = 0, failed = 0, firstError = '';
         for (const prop of props) {
           const f = prop.fields;
           const addr = [f['Service Address'], f['City'], f['State'], f['Zip']].filter(Boolean).join(', ');
@@ -2712,7 +2712,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           try {
             const gRes  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${MAPS_KEY}`);
             const gData = await gRes.json();
-            if (gData.status !== 'OK' || !gData.results?.[0]) { failed++; continue; }
+            if (gData.status !== 'OK' || !gData.results?.[0]) {
+              if (!firstError) firstError = `Google status: ${gData.status} — ${gData.error_message || 'no results'}`;
+              failed++; continue;
+            }
             const loc = gData.results[0].geometry.location;
             await fetch(`${atBase}/Properties/${prop.id}`, {
               method: 'PATCH',
@@ -2720,9 +2723,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               body: JSON.stringify({ fields: { Latitude: loc.lat, Longitude: loc.lng } })
             });
             geocoded++;
-          } catch(e) { failed++; }
+          } catch(e) {
+            if (!firstError) firstError = e.message;
+            failed++;
+          }
         }
-        return new Response(JSON.stringify({ ok: true, geocoded, failed, total: props.length }),
+        return new Response(JSON.stringify({ ok: true, geocoded, failed, total: props.length, firstError }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(err) {
         return new Response(JSON.stringify({ error: err.message }),

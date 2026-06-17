@@ -8681,7 +8681,7 @@ async function dispatchGeocodeAll() {
     const res  = await fetch(`${PROXY}/geocode-properties`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Geocoding failed');
-    alert(`Geocode result:\n• Total properties checked: ${data.total}\n• Geocoded: ${data.geocoded}\n• Failed: ${data.failed}`);
+    alert(`Geocode result:\n• Total properties checked: ${data.total}\n• Geocoded: ${data.geocoded}\n• Failed: ${data.failed}${data.firstError ? '\n\nFirst error: ' + data.firstError : ''}`);
     if (data.geocoded > 0) {
       _dispatchPropCache = {};
       await _loadDispatchData();
