@@ -8491,6 +8491,7 @@ function renderDispatchGridWeek() {
       const name = _ddUnwrap(f['Customer Name']) || 'Unknown';
       const status = f['Status'] || '';
       const isDone = ['Complete','Invoiced','Paid'].includes(status);
+      const woType  = f['Work Order Type'] || '';
       const techId = _ddUnwrap(f['Technician']);
       const color = _dispatchTechColor(techId);
       const initials = _dispatchTechInitials(techId);
