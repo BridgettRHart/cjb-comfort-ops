@@ -745,6 +745,32 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-week-card { position:absolute; left:2px; right:2px; border-radius:5px; padding:3px 5px; font-size:10px; cursor:grab; z-index:2; border:1px solid #e5e7eb; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.06); overflow:hidden; }
 .dg-week-card.status-done { opacity:0.45; filter:grayscale(60%); cursor:default; }
 .dg-week-initials { display:inline-block; color:#fff; font-size:8px; font-weight:700; padding:1px 4px; border-radius:3px; margin-bottom:2px; }
+/* Dispatch WO popup */
+.dwo-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:4000; display:flex; align-items:center; justify-content:center; }
+.dwo-panel { background:#fff; border-radius:14px; width:500px; max-width:94vw; max-height:90vh; overflow-y:auto; box-shadow:0 8px 40px rgba(0,0,0,0.22); display:flex; flex-direction:column; }
+.dwo-hd { display:flex; align-items:flex-start; justify-content:space-between; padding:18px 20px 12px; border-bottom:1px solid #e5e7eb; }
+.dwo-title { font-size:16px; font-weight:700; color:#111827; }
+.dwo-close { background:none; border:none; font-size:20px; color:#9ca3af; cursor:pointer; padding:0 4px; line-height:1; }
+.dwo-close:hover { color:#374151; }
+.dwo-body { padding:16px 20px; display:flex; flex-direction:column; gap:12px; }
+.dwo-row { display:flex; gap:8px; align-items:baseline; }
+.dwo-lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; color:#9ca3af; min-width:90px; }
+.dwo-val { font-size:14px; color:#111827; }
+.dwo-val.muted { color:#6b7280; }
+.dwo-chips { display:flex; gap:6px; flex-wrap:wrap; }
+.dwo-chip { font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; }
+.dwo-chip.type { background:#ede9fe; color:#5b21b6; }
+.dwo-chip.priority-Emergency { background:#fee2e2; color:#991b1b; }
+.dwo-chip.priority-Urgent { background:#fef3c7; color:#92400e; }
+.dwo-chip.priority-Routine { background:#f0fdf4; color:#15803d; }
+.dwo-chip.status { background:#f3f4f6; color:#374151; }
+.dwo-notes { background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; font-size:13px; color:#374151; line-height:1.5; white-space:pre-wrap; }
+.dwo-ft { display:flex; gap:8px; padding:12px 20px 16px; border-top:1px solid #e5e7eb; flex-wrap:wrap; }
+.dwo-btn { padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:1px solid #d1d5db; background:#fff; color:#374151; }
+.dwo-btn:hover { background:#f3f4f6; }
+.dwo-btn.primary { background:#c81f25; color:#fff; border-color:#c81f25; }
+.dwo-btn.primary:hover { background:#a01820; }
+.dwo-status-sel { padding:7px 12px; border-radius:8px; font-size:13px; font-weight:600; border:1px solid #d1d5db; color:#374151; background:#fff; cursor:pointer; }
 .dg-tech-slots { position:relative; flex:1; }
 .dg-slot { height:50px; border-bottom:1px solid #f3f4f6; box-sizing:border-box; transition:background 0.1s; }
 .dg-slot:nth-child(even) { background:#fafafa; }
@@ -1470,6 +1496,23 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="dispatch-map-panel">
       <div id="dispatch-map"></div>
     </div>
+  </div>
+</div>
+
+<!-- Dispatch WO detail popup -->
+<div class="dwo-overlay" id="dwo-overlay" style="display:none;" onclick="closeDWOPopup(event)">
+  <div class="dwo-panel" id="dwo-panel" onclick="event.stopPropagation()">
+    <div class="dwo-hd">
+      <div>
+        <div class="dwo-title" id="dwo-wo-name">Work Order</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;" id="dwo-wo-id-lbl"></div>
+      </div>
+      <button class="dwo-close" onclick="closeDWOPopup()">×</button>
+    </div>
+    <div class="dwo-body" id="dwo-body">
+      <div style="color:#aaa;font-size:13px;">Loading…</div>
+    </div>
+    <div class="dwo-ft" id="dwo-ft"></div>
   </div>
 </div>
 
@@ -8861,8 +8904,130 @@ function updateDispatchMap() {
 function openWOFromDispatch(woId) {
   const wo = [..._dispatchDayWOs, ..._dispatchWeekWOs, ..._dispatchUnscheduled].find(w => w.id === woId);
   if (!wo) return;
-  const custId = _ddUnwrap(wo.fields['Customer']);
-  if (custId) { switchTab('customers', true); selectCustomer(custId); }
+  _dwoCurrentWOId  = woId;
+  _dwoCurrentCustId = _ddUnwrap(wo.fields['Customer']) || null;
+
+  // Show overlay immediately with cached data
+  document.getElementById('dwo-overlay').style.display = 'flex';
+  _renderDWOPopup(wo, null);
+
+  // Fetch full record for notes/problem description
+  fetch(`${PROXY}/Work%20Orders/${woId}`)
+    .then(r => r.json())
+    .then(full => { if (_dwoCurrentWOId === woId) _renderDWOPopup(wo, full); })
+    .catch(() => {});
+}
+
+let _dwoCurrentWOId  = null;
+let _dwoCurrentCustId = null;
+
+function _renderDWOPopup(wo, fullRecord) {
+  const f    = wo.fields;
+  const full = fullRecord?.fields || {};
+
+  const name     = f['Work Order Name'] || 'Work Order';
+  const custName = _ddUnwrap(f['Customer Name']) || '—';
+  const addr     = [_ddUnwrap(f['Service Address']), _ddUnwrap(f['City'])].filter(Boolean).join(', ') || '—';
+  const type     = f['Work Order Type'] || '';
+  const priority = f['Priority'] || '';
+  const status   = f['Status'] || '';
+  const techId   = _ddUnwrap(f['Technician']);
+  const techName = (_dispatchTechs||[]).find(t=>t.id===techId)?.fields['Technician Name'] || '—';
+
+  const fmtDT = iso => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) +
+      ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  };
+  const start  = fmtDT(f['Scheduled Date']);
+  const end    = f['Scheduled End'] ? new Date(f['Scheduled End']).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '';
+  const timeStr = end ? `${start} – ${end}` : start;
+
+  const problem = full['Problem Description'] || f['Problem Description'] || '';
+  const notes   = full['Notes'] || f['Notes'] || '';
+
+  document.getElementById('dwo-wo-name').textContent = name;
+  document.getElementById('dwo-wo-id-lbl').textContent = full['Work Order ID'] || '';
+
+  document.getElementById('dwo-body').innerHTML = `
+    <div class="dwo-row">
+      <span class="dwo-lbl">Customer</span>
+      <span class="dwo-val">${esc(custName)}</span>
+    </div>
+    <div class="dwo-row">
+      <span class="dwo-lbl">Address</span>
+      <span class="dwo-val">${esc(addr)}</span>
+    </div>
+    <div class="dwo-row">
+      <span class="dwo-lbl">Scheduled</span>
+      <span class="dwo-val">${esc(timeStr)}</span>
+    </div>
+    <div class="dwo-row">
+      <span class="dwo-lbl">Technician</span>
+      <span class="dwo-val">${esc(techName)}</span>
+    </div>
+    <div class="dwo-row">
+      <span class="dwo-lbl">Details</span>
+      <div class="dwo-chips">
+        ${type     ? `<span class="dwo-chip type">${esc(type)}</span>` : ''}
+        ${priority ? `<span class="dwo-chip priority-${priority}">${esc(priority)}</span>` : ''}
+        <span class="dwo-chip status">${esc(status)}</span>
+      </div>
+    </div>
+    ${problem ? `<div class="dwo-row" style="flex-direction:column;gap:4px;">
+      <span class="dwo-lbl">Problem</span>
+      <div class="dwo-notes">${esc(problem)}</div>
+    </div>` : ''}
+    ${notes ? `<div class="dwo-row" style="flex-direction:column;gap:4px;">
+      <span class="dwo-lbl">Notes</span>
+      <div class="dwo-notes">${esc(notes)}</div>
+    </div>` : ''}
+    ${!fullRecord ? '<div style="font-size:11px;color:#aaa;">Loading full details…</div>' : ''}
+  `;
+
+  const statusOptions = ['New','Scheduled','In Progress','Complete','Invoiced','Paid','On Hold','Cancelled']
+    .map(s => `<option value="${s}"${s===status?' selected':''}>${s}</option>`).join('');
+
+  document.getElementById('dwo-ft').innerHTML = `
+    <select class="dwo-status-sel" onchange="dwoChangeStatus(this.value)" title="Change status">
+      ${statusOptions}
+    </select>
+    ${_dwoCurrentCustId ? `<button class="dwo-btn primary" onclick="dwoGoCustomer()">Open Customer →</button>` : ''}
+    <button class="dwo-btn" onclick="closeDWOPopup()">Close</button>
+  `;
+}
+
+async function dwoChangeStatus(newStatus) {
+  if (!_dwoCurrentWOId) return;
+  try {
+    await fetch(`${PROXY}/Work%20Orders/${_dwoCurrentWOId}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ fields: { 'Status': newStatus } })
+    });
+    // Update local cache
+    const update = wo => { if (wo.id === _dwoCurrentWOId) wo.fields['Status'] = newStatus; };
+    _dispatchDayWOs.forEach(update);
+    _dispatchWeekWOs.forEach(update);
+    _dispatchUnscheduled.forEach(update);
+    _dashWOs = null;
+    renderDispatchGrid();
+    showToast(`Status updated to ${newStatus}`);
+  } catch(e) {
+    showToast('Could not update status', 'error');
+  }
+}
+
+function dwoGoCustomer() {
+  closeDWOPopup();
+  if (_dwoCurrentCustId) { switchTab('customers', true); selectCustomer(_dwoCurrentCustId); }
+}
+
+function closeDWOPopup(event) {
+  if (event && event.target !== document.getElementById('dwo-overlay')) return;
+  document.getElementById('dwo-overlay').style.display = 'none';
+  _dwoCurrentWOId  = null;
+  _dwoCurrentCustId = null;
 }
 
 async function dispatchGeocodeAll() {
