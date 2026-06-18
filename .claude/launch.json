@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cjb-admin",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "8342", "-s", "."],
+      "port": 8342
+    }
+  ]
+}
