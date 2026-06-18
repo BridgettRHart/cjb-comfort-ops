@@ -8512,6 +8512,7 @@ function renderDispatchGridWeek() {
         <span class="dg-week-initials" style="background:${color};">${esc(initials)}</span>
         <div class="dispatch-card-name" style="font-size:10px;">${esc(name)}</div>
         <div class="dispatch-card-time" style="font-size:9px;">${esc(_ddTime(sH,sM))}${isDone?' ✓':''}</div>
+        ${woType ? `<div class="dispatch-card-type" style="font-size:9px;">${esc(woType)}</div>` : ''}
       </div>`;
     }).join('');
 
@@ -8599,6 +8600,7 @@ function renderDispatchGrid() {
           onclick="openWOFromDispatch('${wo.id}')">
           <div class="dispatch-card-name">${esc(name)}</div>
           <div class="dispatch-card-time">${esc(_ddTime(sH, sM))}${isDone ? ' ✓' : ''}</div>
+          ${woType ? `<div class="dispatch-card-type">${esc(woType)}</div>` : ''}
           <div class="dispatch-card-addr">${esc(addr)}</div>
         </div>`;
       }).join('');
