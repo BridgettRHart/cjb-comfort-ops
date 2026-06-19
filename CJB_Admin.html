@@ -1971,6 +1971,14 @@ function renderDashboard(wos, fuRecords, contracts) {
     const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
     return s + Number(amt);
   }, 0);
+  // Approved & Booked = estimate approved (known $ value) but work not yet invoiced —
+  // the gap between Pipeline (still open) and Outstanding AR (already invoiced)
+  const approvedBookedWOs = wos.filter(w => w.fields['Stripe Quote ID'] && w.fields['Status'] === 'Estimate Approved');
+  const approvedBookedAmt = approvedBookedWOs.reduce((s,w) => {
+    const sqId = w.fields['Stripe Quote ID'];
+    const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
+    return s + Number(amt);
+  }, 0);
   const followupNeeded = openEstimates.filter(w => {
     const d = _azDate(w.fields['Scheduled Date']||'');
     return d && d <= d14agoStr;
@@ -2028,11 +2036,16 @@ function renderDashboard(wos, fuRecords, contracts) {
         <div class="stat-sub">${paidYTD.length} paid job${paidYTD.length !== 1 ? 's' : ''} this year</div>
       </div>
     </div>
-    <div class="dash-grid-2" style="margin-bottom:14px;">
+    <div class="dash-grid-3" style="margin-bottom:14px;">
       <div class="stat-card clickable" onclick="switchTab('estimates')">
         <div class="stat-label">Pipeline</div>
         <div class="stat-value">${pipelineAmt > 0 ? '~' + fmt$(pipelineAmt) : '—'}</div>
         <div class="stat-sub">${openEstimates.length} open estimate${openEstimates.length !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="stat-card clickable" onclick="switchTab('estimates');setEstFilter('approved')">
+        <div class="stat-label">Approved — Awaiting Deposit</div>
+        <div class="stat-value">${approvedBookedAmt > 0 ? fmt$(approvedBookedAmt) : '—'}</div>
+        <div class="stat-sub">${approvedBookedWOs.length} job${approvedBookedWOs.length !== 1 ? 's' : ''} booked</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Conversion Rate — 30d</div>
