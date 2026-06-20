@@ -3335,7 +3335,10 @@ async function openInvoiceModal(workOrderId, customerId) {
   document.getElementById('inv-type-section').style.display = '';
 
   const wo = currentWorkOrders.find(w => w.id === workOrderId);
-  document.getElementById('modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
+  const woAddr = _ddUnwrap(wo?.fields['Service Address']);
+  const woCity = _ddUnwrap(wo?.fields['City']);
+  const addrStr = [woAddr, woCity].filter(Boolean).join(', ');
+  document.getElementById('modal-sub').textContent = (wo?.fields['Work Order Name'] || '—') + (addrStr ? ' — ' + addrStr : '');
   document.getElementById('invoice-modal').classList.remove('hidden');
 
   // Check if there's an existing Stripe draft for this work order
@@ -3781,7 +3784,10 @@ async function openQuoteModal(woId, custId, readOnly = false) {
   }
 
   renderQuoteActions('loading');
-  document.getElementById('quote-modal-sub').textContent = wo?.fields['Work Order Name'] || '—';
+  const qWoAddr = _ddUnwrap(wo?.fields['Service Address']);
+  const qWoCity = _ddUnwrap(wo?.fields['City']);
+  const qAddrStr = [qWoAddr, qWoCity].filter(Boolean).join(', ');
+  document.getElementById('quote-modal-sub').textContent = (wo?.fields['Work Order Name'] || '—') + (qAddrStr ? ' — ' + qAddrStr : '');
   document.getElementById('quote-modal').classList.remove('hidden');
 
   // Auto-populate CC from Primary Contact (non-blocking)
@@ -5422,18 +5428,17 @@ async function editWorkOrder(woId) {
 
 async function submitWOForm() {
   const startVal = (document.getElementById('wf-start').value||'').trim();
-  if (!startVal) { alert('Scheduled start date is required.'); return; }
   const custName = selectedCustomer?.fields['Customer Name'] || '';
   const fields = {
     'Work Order Name':     (document.getElementById('wf-name').value||'').trim() || `${custName} — Work Order`,
     'Work Order Type':     document.getElementById('wf-type').value,
     'Priority':            document.getElementById('wf-priority').value,
-    'Scheduled Date':      new Date(startVal).toISOString(),
     'Service Mode':        document.getElementById('wf-mode').value,
     'Problem Description': (document.getElementById('wf-problem').value||'').trim(),
     'Notes':               (document.getElementById('wf-notes').value   ||'').trim(),
     'Active': true,
   };
+  if (startVal) fields['Scheduled Date'] = new Date(startVal).toISOString();
   const endVal = (document.getElementById('wf-end').value||'').trim();
   if (endVal) fields['Scheduled End'] = new Date(endVal).toISOString();
   const propId = document.getElementById('wf-prop')?.value;
@@ -5443,7 +5448,7 @@ async function submitWOForm() {
   if (selectedCustomer) fields['Customer'] = [selectedCustomer.id];
   const statusEl = document.getElementById('wf-status');
   if (statusEl) fields['Status'] = statusEl.value;
-  else fields['Status'] = 'Scheduled';
+  else fields['Status'] = startVal ? 'Scheduled' : 'New';
   // Specific Equipment — write IDs if any selected, clear if editing with none
   if (_woSpecificEq.length) fields['Specific Equipment'] = _woSpecificEq.map(r => r.id);
   else if (formModalRecordId) fields['Specific Equipment'] = [];
@@ -7429,7 +7434,7 @@ async function convertEstimateToJob(woId) {
   const wo = _allEstimates.find(w => w.id === woId);
   if (!wo) return;
   const custName = Array.isArray(wo.fields['Customer Name']) ? wo.fields['Customer Name'][0] : (wo.fields['Customer Name'] || 'Customer');
-  if (!confirm(`Convert this estimate to a scheduled job? A new Work Order will be created for Cornell to schedule.`)) return;
+  if (!confirm(`Convert this estimate to a job? A new Work Order will be created — you can schedule it now or leave it in the queue for later.`)) return;
 
   const custId       = (wo.fields['Customer'] || [])[0] || null;
   const propId       = (wo.fields['Property'] || [])[0] || null;
@@ -7439,7 +7444,7 @@ async function convertEstimateToJob(woId) {
   const fields = {
     'Work Order Name':  `${custName} — Job — ${today}`,
     'Work Order Type':  'Repair',
-    'Status':           'Scheduled',
+    'Status':           'New',
     'Active':           true,
     'Internal Notes':   `Converted from estimate: ${wo.fields['Work Order Name'] || woId}`,
   };
