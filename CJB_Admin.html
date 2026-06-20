@@ -2049,14 +2049,9 @@ function renderDashboard(wos, fuRecords, contracts) {
         <div class="stat-sub">${openEstimates.length} open estimate${openEstimates.length !== 1 ? 's' : ''}</div>
       </div>
       <div class="stat-card clickable" onclick="switchTab('estimates');setEstFilter('approved')">
-        <div class="stat-label">Approved — Awaiting Deposit</div>
-        <div class="stat-value">${approvedBookedAmt > 0 ? fmt$(approvedBookedAmt) : '—'}</div>
-        <div class="stat-sub">${approvedBookedWOs.length} job${approvedBookedWOs.length !== 1 ? 's' : ''} · no deposit yet</div>
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;">
-          <div class="stat-label" style="font-size:10px;">Deposit Collected — Awaiting Completion</div>
-          <div class="stat-value" style="font-size:18px;color:#15803d;">${depositInAmt > 0 ? fmt$(depositInAmt) : '—'}</div>
-          <div class="stat-sub">${depositInWOs.length} job${depositInWOs.length !== 1 ? 's' : ''} · deposit in hand</div>
-        </div>
+        <div class="stat-label">Approved</div>
+        <div class="stat-value">${(approvedBookedAmt + depositInAmt) > 0 ? fmt$(approvedBookedAmt + depositInAmt) : '—'}</div>
+        <div class="stat-sub">${approvedAllWOs.length} job${approvedAllWOs.length !== 1 ? 's' : ''} booked</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Conversion Rate — 30d</div>
