@@ -1972,13 +1972,19 @@ function renderDashboard(wos, fuRecords, contracts) {
     return s + Number(amt);
   }, 0);
   // Approved & Booked = estimate approved (known $ value) but work not yet invoiced —
-  // the gap between Pipeline (still open) and Outstanding AR (already invoiced)
-  const approvedBookedWOs = wos.filter(w => w.fields['Stripe Quote ID'] && w.fields['Status'] === 'Estimate Approved');
-  const approvedBookedAmt = approvedBookedWOs.reduce((s,w) => {
+  // the gap between Pipeline (still open) and Outstanding AR (already invoiced).
+  // Split by Deposit Paid so the label matches reality — money already collected
+  // looks identical to money still owed unless we separate them here.
+  const approvedAllWOs    = wos.filter(w => w.fields['Stripe Quote ID'] && w.fields['Status'] === 'Estimate Approved');
+  const approvedBookedWOs = approvedAllWOs.filter(w => !w.fields['Deposit Paid']);
+  const depositInWOs      = approvedAllWOs.filter(w => !!w.fields['Deposit Paid']);
+  const _approvedAmt = list => list.reduce((s,w) => {
     const sqId = w.fields['Stripe Quote ID'];
     const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
     return s + Number(amt);
   }, 0);
+  const approvedBookedAmt = _approvedAmt(approvedBookedWOs);
+  const depositInAmt      = _approvedAmt(depositInWOs);
   const followupNeeded = openEstimates.filter(w => {
     const d = _azDate(w.fields['Scheduled Date']||'');
     return d && d <= d14agoStr;
@@ -2045,7 +2051,12 @@ function renderDashboard(wos, fuRecords, contracts) {
       <div class="stat-card clickable" onclick="switchTab('estimates');setEstFilter('approved')">
         <div class="stat-label">Approved — Awaiting Deposit</div>
         <div class="stat-value">${approvedBookedAmt > 0 ? fmt$(approvedBookedAmt) : '—'}</div>
-        <div class="stat-sub">${approvedBookedWOs.length} job${approvedBookedWOs.length !== 1 ? 's' : ''} booked</div>
+        <div class="stat-sub">${approvedBookedWOs.length} job${approvedBookedWOs.length !== 1 ? 's' : ''} · no deposit yet</div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;">
+          <div class="stat-label" style="font-size:10px;">Deposit Collected — Awaiting Completion</div>
+          <div class="stat-value" style="font-size:18px;color:#15803d;">${depositInAmt > 0 ? fmt$(depositInAmt) : '—'}</div>
+          <div class="stat-sub">${depositInWOs.length} job${depositInWOs.length !== 1 ? 's' : ''} · deposit in hand</div>
+        </div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Conversion Rate — 30d</div>
@@ -2929,10 +2940,14 @@ function renderDetail(customer, props, wos, contacts) {
         const reschedBadge = wf['Reschedule Requested']
           ? `<span style="display:inline-block;background:#fff3cd;color:#7a5a00;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle;">🔄 Reschedule Requested</span>`
           : '';
+        const woRowAddr = _ddUnwrap(wf['Service Address']);
+        const woRowCity = _ddUnwrap(wf['City']);
+        const woRowAddrStr = [woRowAddr, woRowCity].filter(Boolean).join(', ');
         return `${eaPanel}<div class="wo-row">
           <div class="wo-info">
             <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}${reschedBadge}</div>
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
+            ${woRowAddrStr ? `<div class="wo-meta" style="color:#9ca3af;">📍 ${esc(woRowAddrStr)}</div>` : ''}
             ${eqChipsHtml}
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
@@ -3016,10 +3031,14 @@ function renderDetail(customer, props, wos, contacts) {
         const viewBtn = isClosedWO
           ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}',true)">View Quote</button>`
           : `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${customer.id}')">View / Edit</button>`;
+        const oeAddr = _ddUnwrap(wf['Service Address']);
+        const oeCity = _ddUnwrap(wf['City']);
+        const oeAddrStr = [oeAddr, oeCity].filter(Boolean).join(', ');
         return `<div class="wo-row">
           <div class="wo-info">
             <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
             <div class="wo-meta">${esc(date)} ${daysChip}</div>
+            ${oeAddrStr ? `<div class="wo-meta" style="color:#9ca3af;">📍 ${esc(oeAddrStr)}</div>` : ''}
           </div>
           <strong style="font-size:14px;color:#111;white-space:nowrap;">${esc(totalStr)}</strong>
           ${viewBtn}
