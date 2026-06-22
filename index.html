@@ -2184,6 +2184,19 @@
   </div>
 </div>
 
+<!-- Backfill actual visit date overlay -->
+<div id="backfill-date-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:500;align-items:flex-end;justify-content:center;" role="dialog" aria-modal="true" aria-label="Confirm actual visit date">
+  <div style="background:white;border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:4px;">When did you actually do this visit?</div>
+    <div style="font-size:13px;color:var(--gray-text);margin-bottom:14px;">This job's scheduled date already passed. Confirm the date you were actually on site so the record stays accurate — change it if you weren't there on the date shown.</div>
+    <input type="date" id="backfill-date-input" class="form-input" style="margin-bottom:14px;" aria-label="Actual visit date">
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-dark" style="flex:1;font-size:15px;" onclick="confirmBackfillDate()">Confirm &amp; Start Job</button>
+      <button class="btn btn-outline" style="flex:1;font-size:15px;" onclick="cancelBackfillDate()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- estimate overlay removed — estimate now lives inline in screen-complete -->
 
 
@@ -2241,6 +2254,50 @@ const azDateStr = isoStr => {
 // INIT
 // ═══════════════════════
 let scheduleView = 'today'; // 'today' | 'week'
+
+// ── Late/backfill data entry: when a tech catches up on a job whose ──
+// Scheduled Date already passed, Actual Start/End should reflect when the
+// visit really happened on-site, not when the paperwork got entered.
+let _backfillActualDate = null; // 'YYYY-MM-DD' (AZ local) or null = use real "now"
+let _backfillPendingJobId = null;
+
+function _actualStartStamp() {
+  if (!_backfillActualDate) return new Date().toISOString();
+  const ref = currentJob?.fields?.['Scheduled Date'] ? new Date(currentJob.fields['Scheduled Date']) : new Date();
+  const d = new Date(_backfillActualDate + 'T00:00:00');
+  d.setHours(ref.getHours(), ref.getMinutes(), 0, 0);
+  return d.toISOString();
+}
+
+function _actualEndStamp() {
+  if (!_backfillActualDate) return new Date().toISOString();
+  const ref = currentJob?.fields?.['Scheduled End'] ? new Date(currentJob.fields['Scheduled End']) : new Date();
+  const d = new Date(_backfillActualDate + 'T00:00:00');
+  d.setHours(ref.getHours(), ref.getMinutes(), 0, 0);
+  return d.toISOString();
+}
+
+function promptBackfillThenStart(recordId, scheduledDateIso) {
+  _backfillPendingJobId = recordId;
+  const input = document.getElementById('backfill-date-input');
+  input.value = scheduledDateIso ? azDateStr(scheduledDateIso) : '';
+  document.getElementById('backfill-date-overlay').style.display = 'flex';
+}
+
+function cancelBackfillDate() {
+  _backfillPendingJobId = null;
+  document.getElementById('backfill-date-overlay').style.display = 'none';
+}
+
+function confirmBackfillDate() {
+  const val = document.getElementById('backfill-date-input').value;
+  const recordId = _backfillPendingJobId;
+  document.getElementById('backfill-date-overlay').style.display = 'none';
+  if (!recordId) return;
+  _backfillActualDate = val || null;
+  _backfillPendingJobId = null;
+  updateStatus(recordId, 'In Progress');
+}
 
 // ── Airtable field options cache ─────────────────────────────
 let _eqFieldOpts = null; // { types: [...], refrigerants: [...] }
@@ -2661,6 +2718,7 @@ function buildJobCard(record, overdueLabel) {
 // ═══════════════════════
 async function openJob(recordId) {
   _estimateApprovedRepair = false; // reset any prior repair-from-estimate session
+  _backfillActualDate = null; // reset late-entry state for the newly opened job
   showScreen('detail');
   const content = document.getElementById('detail-content');
   content.innerHTML = '<div class="loading-state" role="status"><div class="spinner" aria-hidden="true"></div><div>Loading job...</div></div>';
@@ -2688,7 +2746,7 @@ async function updateStatus(recordId, newStatus) {
     showToast('Updating...');
     const updateFields = { 'Status': newStatus };
     if (newStatus === 'In Progress') {
-      updateFields['Actual Start'] = new Date().toISOString();
+      updateFields['Actual Start'] = _actualStartStamp();
     }
     await apiPatch('Work Orders', recordId, updateFields);
     const data = await apiGet(`Work Orders/${recordId}`);
@@ -2744,7 +2802,12 @@ function renderJobDetail(record, eaStatus) {
   let statusBtn = '';
   if (status === 'Scheduled') {
     const startLabel = isEstimateType ? '▶ Start Site Visit — Mark In Progress' : '▶ Start Job — Mark In Progress';
-    statusBtn = `<button class="btn btn-red btn-full" onclick="updateStatus('${record.id}', 'In Progress')" aria-label="${startLabel}">
+    const scheduledDateIso = f['Scheduled Date'] || '';
+    const isOverdueJob = scheduledDateIso && azDateStr(scheduledDateIso) < azDateStr(new Date().toISOString());
+    const startOnclick = isOverdueJob
+      ? `promptBackfillThenStart('${record.id}', '${scheduledDateIso}')`
+      : `updateStatus('${record.id}', 'In Progress')`;
+    statusBtn = `<button class="btn btn-red btn-full" onclick="${startOnclick}" aria-label="${startLabel}">
       ${startLabel}
     </button>`;
   } else if (['In Progress','Estimate Sent','Estimate Approved','Estimate Declined'].includes(status)) {
@@ -3462,8 +3525,8 @@ async function executeSkip(eqId, eqName, reason) {
       'Work Order': [woId],
       'Job Type': resolveJobType(woFields['Work Order Type']),
       'Status': 'Cancelled',
-      'Actual Start': now.toISOString(),
-      'Actual End': now.toISOString(),
+      'Actual Start': _actualStartStamp(),
+      'Actual End': _actualEndStamp(),
       'Equipment': [eqId],
     };
     if (reason) jobFields['Work Performed'] = 'Not serviced this visit — ' + reason;
@@ -3807,7 +3870,7 @@ async function submitWorkOrderComplete() {
   try {
     const woUpdate = {
       'Status': 'Complete',
-      'Actual End': new Date().toISOString(),
+      'Actual End': _actualEndStamp(),
     };
     await apiPatch('Work Orders', currentJob.id, woUpdate);
 
@@ -4307,8 +4370,8 @@ async function submitPropertyWideVisit() {
       'Job Type':       resolveJobType(f['Work Order Type']),
       'Status':         'Complete',
       'Work Performed': workPerformed,
-      'Actual Start':   f['Actual Start'] || now.toISOString(),
-      'Actual End':     now.toISOString(),
+      'Actual Start':   f['Actual Start'] || _actualStartStamp(),
+      'Actual End':     _actualEndStamp(),
     };
     if (f['Scheduled Date'])    jobFields['Scheduled Start']    = f['Scheduled Date'];
     if (f['Customer']?.length)  jobFields['Customer']           = f['Customer'];
@@ -4321,7 +4384,7 @@ async function submitPropertyWideVisit() {
     const newJob = await apiPost('Jobs', jobFields);
     if (newJob?.id) _sessionJobIds.add(newJob.id);
 
-    await apiPatch('Work Orders', currentJob.id, { 'Status': 'Complete', 'Actual End': now.toISOString() });
+    await apiPatch('Work Orders', currentJob.id, { 'Status': 'Complete', 'Actual End': _actualEndStamp() });
     currentJob = await apiGet(`Work Orders/${currentJob.id}`);
 
     await showWorkOrderSummary({ 'pw-visit': newJob });
@@ -4509,8 +4572,8 @@ async function submitComplete() {
       'Job Type':      resolveJobType(woFields['Work Order Type']),
       'Status':        'Complete',
       'Work Performed': workPerformed,
-      'Actual Start':  woFields['Actual Start'] || now.toISOString(),
-      'Actual End':    now.toISOString(),
+      'Actual Start':  woFields['Actual Start'] || _actualStartStamp(),
+      'Actual End':    _actualEndStamp(),
     };
 
     if (woFields['Scheduled Date']) jobFields['Scheduled Start'] = woFields['Scheduled Date'];
@@ -5367,7 +5430,7 @@ async function submitFieldEstimate() {
         'Work Order':       [currentJob.id],
         'Job Type':         jobTypeName,
         'Status':           'In Progress',
-        'Actual Start':     woFields['Actual Start'] || now.toISOString(),
+        'Actual Start':     woFields['Actual Start'] || _actualStartStamp(),
         'Repairs Estimated': true,
       };
       if (workPerformed)                  draftFields['Work Performed']    = workPerformed;
@@ -6091,7 +6154,7 @@ async function iestStartRepair() {
       'Work Order': [currentJob.id],
       'Job Type':   'Repair',
       'Status':     'In Progress',
-      'Actual Start': new Date().toISOString(),
+      'Actual Start': _actualStartStamp(),
     };
     if (f['Customer']?.length)   repairJob['Customer']   = f['Customer'];
     if (f['Property']?.length)   repairJob['Property']   = f['Property'];
