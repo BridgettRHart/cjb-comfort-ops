@@ -153,6 +153,8 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .section-title-row .section-title { margin-bottom: 0; }
 .add-link { font-size: 11px; font-weight: 700; color: #c81f25; cursor: pointer; background: none; border: none; padding: 0; font-family: inherit; }
 .add-link:hover { text-decoration: underline; }
+.section-title-click { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.section-chevron { font-size: 10px; color: #aaa; transition: transform 0.1s; flex-shrink: 0; }
 
 /* ── INLINE EDIT BUTTON ── */
 .btn-edit { background: #f4f4f4; color: #555; border: 1px solid #e0e0e0; border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
@@ -2771,6 +2773,30 @@ async function selectCustomer(id) {
   }
 }
 
+// Collapsible section wrapper used throughout the customer detail page —
+// keeps long lists (equipment, work orders, etc.) from forcing endless scroll.
+function sectionHtml(id, titleText, btnsHtml, bodyHtml) {
+  return `<div class="section">
+    <div class="section-title-row">
+      <div class="section-title-click" onclick="toggleSection('${id}')">
+        <span class="section-chevron" id="${id}-chev">▾</span>
+        <div class="section-title">${titleText}</div>
+      </div>
+      ${btnsHtml || ''}
+    </div>
+    <div class="section-body" id="${id}-body">${bodyHtml}</div>
+  </div>`;
+}
+
+function toggleSection(id) {
+  const body = document.getElementById(id + '-body');
+  const chev = document.getElementById(id + '-chev');
+  if (!body) return;
+  const collapsing = body.style.display !== 'none';
+  body.style.display = collapsing ? 'none' : '';
+  if (chev) chev.textContent = collapsing ? '▸' : '▾';
+}
+
 function renderDetail(customer, props, wos, contacts) {
   const f = customer.fields;
 
@@ -2977,45 +3003,31 @@ function renderDetail(customer, props, wos, contacts) {
         ${referredByCust ? `<span>🔗 Referred by: <a href="#" onclick="event.preventDefault();selectCustomer('${referredByCust.id}')">${esc(referredByCust.fields['Customer Name']||'')}</a></span>` : ''}
       </div>
     </div>
-    ${referredCustomers.length ? `
-    <div class="section">
-      <div class="section-title-row">
-        <div class="section-title">Referrals (${referredCustomers.length})</div>
-      </div>
-      ${referredCustomers.map(c => `<div class="prop-row">
-          <div class="prop-row-text">
-            <div class="prop-row-name">${esc(c.fields['Customer Name'] || '')}</div>
-          </div>
-          <button class="btn-edit" onclick="selectCustomer('${c.id}')">View</button>
-        </div>`).join('')}
-    </div>` : ''}
-    <div class="section">
-      <div class="section-title-row">
-        <div class="section-title">Contacts (${(contacts||[]).length})</div>
-        <div class="section-title-btns">
+    ${sectionHtml('sec-referrals', `Referrals (${referredCustomers.length})`,
+      `<div class="section-title-btns"><button class="add-link" onclick="openLinkModal('referral')">+ Add Referral</button></div>`,
+      referredCustomers.length
+        ? referredCustomers.map(c => `<div class="prop-row">
+            <div class="prop-row-text">
+              <div class="prop-row-name">${esc(c.fields['Customer Name'] || '')}</div>
+            </div>
+            <button class="btn-edit" onclick="selectCustomer('${c.id}')">View</button>
+          </div>`).join('')
+        : '<div style="color:#bbb;font-size:13px;">No referrals logged yet</div>')}
+    ${sectionHtml('sec-contacts', `Contacts (${(contacts||[]).length})`,
+      `<div class="section-title-btns">
           <button class="add-link" onclick="openLinkModal('contact')">Link Existing</button>
           <button class="add-link" onclick="openContactForm()">+ New</button>
-        </div>
-      </div>
-      ${contactsHtml}
-    </div>
-    <div class="section">
-      <div class="section-title-row">
-        <div class="section-title">Properties (${props.length})</div>
-        <div class="section-title-btns">
+        </div>`,
+      contactsHtml)}
+    ${sectionHtml('sec-properties', `Properties (${props.length})`,
+      `<div class="section-title-btns">
           <button class="add-link" onclick="openLinkModal('property')">Link Existing</button>
           <button class="add-link" onclick="openPropertyForm()">+ Add</button>
-        </div>
-      </div>
-      ${propsHtml}
-    </div>
-    <div class="section">
-      <div class="section-title-row">
-        <div class="section-title">Equipment (${currentEquipment.length})</div>
-        <button class="add-link" onclick="openEquipmentForm(null, null)">+ Add</button>
-      </div>
-      ${renderEquipmentSection(currentEquipment, props)}
-    </div>
+        </div>`,
+      propsHtml)}
+    ${sectionHtml('sec-equipment', `Equipment (${currentEquipment.length})`,
+      `<button class="add-link" onclick="openEquipmentForm(null, null)">+ Add</button>`,
+      renderEquipmentSection(currentEquipment, props))}
     ${(() => {
       const outstandingEstimates = wos.filter(wo => {
         const s = wo.fields['Stripe Quote ID'];
@@ -3057,20 +3069,11 @@ function renderDetail(customer, props, wos, contacts) {
           ${viewBtn}
         </div>`;
       }).join('');
-      return `<div class="section">
-        <div class="section-title-row">
-          <div class="section-title">Outstanding Estimates (${outstandingEstimates.length})</div>
-        </div>
-        ${rows}
-      </div>`;
+      return sectionHtml('sec-oe', `Outstanding Estimates (${outstandingEstimates.length})`, '', rows);
     })()}
-    <div class="section">
-      <div class="section-title-row">
-        <div class="section-title">Work Orders (${wos.length})</div>
-        <button class="add-link" onclick="openWOForm()">+ Add Work Order</button>
-      </div>
-      ${wosHtml}
-    </div>`;
+    ${sectionHtml('sec-wo', `Work Orders (${wos.length})`,
+      `<button class="add-link" onclick="openWOForm()">+ Add Work Order</button>`,
+      wosHtml)}`;
 }
 
 // ── Equipment ────────────────────────────────────────────────────────────────
@@ -5131,15 +5134,20 @@ let _linkType = null;
 function openLinkModal(type) {
   _linkType = type;
   const isContact  = type === 'contact';
-  const title      = isContact ? 'Link Existing Contact' : 'Link Existing Property';
-  const placeholder = isContact ? 'Search by name or email…' : 'Search by name or address…';
+  const isReferral = type === 'referral';
+  const title      = isContact ? 'Link Existing Contact' : isReferral ? 'Add a Referral' : 'Link Existing Property';
+  const placeholder = isContact ? 'Search by name or email…' : isReferral ? 'Search by name, phone, or email…' : 'Search by name or address…';
 
   // Build candidate list — exclude already-linked records
   const linkedIds = isContact
     ? currentContacts.map(c => c.id)
+    : isReferral
+    ? allCustomers.filter(c => (c.fields['Referral Source']||[]).includes(selectedCustomer.id)).map(c => c.id)
     : currentProperties.map(p => p.id);
   const candidates = isContact
     ? allContacts.filter(c => !linkedIds.includes(c.id))
+    : isReferral
+    ? allCustomers.filter(c => !linkedIds.includes(c.id) && c.id !== selectedCustomer.id)
     : allProperties.filter(p => !linkedIds.includes(p.id));
 
   document.getElementById('form-modal-body').innerHTML = `
@@ -5164,12 +5172,18 @@ function filterLinkList() {
   if (!list) return;
   const candidates = list._candidates || [];
   const isContact  = _linkType === 'contact';
+  const isReferral = _linkType === 'referral';
 
   const matches = candidates.filter(r => {
     const f = r.fields;
     if (isContact) {
       return !q
         || (f['Contact Name']||'').toLowerCase().includes(q)
+        || (f['Email']||'').toLowerCase().includes(q)
+        || (f['Phone']||'').toLowerCase().includes(q);
+    } else if (isReferral) {
+      return !q
+        || (f['Customer Name']||'').toLowerCase().includes(q)
         || (f['Email']||'').toLowerCase().includes(q)
         || (f['Phone']||'').toLowerCase().includes(q);
     } else {
@@ -5191,6 +5205,9 @@ function filterLinkList() {
     if (isContact) {
       name = esc(f['Contact Name'] || [f['First Name'],f['Last Name']].filter(Boolean).join(' ') || '(no name)');
       meta = [f['Title'], f['Email'], f['Phone']].filter(Boolean).join(' · ');
+    } else if (isReferral) {
+      name = esc(f['Customer Name'] || '(no name)');
+      meta = [f['Email'], f['Phone']].filter(Boolean).join(' · ');
     } else {
       name = esc(f['Property Name'] || '(unnamed)');
       meta = [f['Service Address'], f['City'], f['State']].filter(Boolean).join(', ');
@@ -5217,6 +5234,9 @@ async function confirmLink(recordId) {
       const current  = existing?.fields['Customers'] || [];
       fields = { 'Customers': [...new Set([...current, custId])] };
       url    = `${PROXY}/Contacts/${recordId}`;
+    } else if (_linkType === 'referral') {
+      fields = { 'Referral Source': [custId] };
+      url    = `${PROXY}/Customers/${recordId}`;
     } else {
       fields = { 'Customer': [custId] };
       url    = `${PROXY}/Properties/${recordId}`;
@@ -5236,6 +5256,9 @@ async function confirmLink(recordId) {
         '&fields[]=Customers&fields[]=Active&fields[]=Notes' +
         '&sort[0][field]=Contact Name&sort[0][direction]=asc');
       allContacts = allContacts.filter(c => c.fields['Active'] !== false);
+    } else if (_linkType === 'referral') {
+      const idx = allCustomers.findIndex(c => c.id === recordId);
+      if (idx !== -1) allCustomers[idx].fields['Referral Source'] = [custId];
     } else {
       allProperties = await fetchAll('Properties',
         'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
