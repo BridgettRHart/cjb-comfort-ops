@@ -208,6 +208,8 @@
 
   .job-card:active { transform: scale(0.985); }
 
+  .job-card-overdue { border-left: 5px solid #b91c1c; }
+
   /* Status variants — border color + pill text both convey status */
   .job-card.scheduled   { border-left-color: var(--gold); }
   .job-card.in-progress { border-left-color: var(--red); }
@@ -2473,8 +2475,22 @@ async function loadTodaysJobs() {
       seen.add(r.id); return true;
     });
 
-    // Client-side date filter using AZ-corrected dates
+    // Overdue: never started/finished, and its Scheduled Date has already passed.
+    // These persist on screen every day until opened — date filtering alone used to
+    // make them vanish the moment their day passed, with no way to catch up on them.
+    const incompleteStatuses = ['Scheduled', 'In Progress'];
+    const overdueRecords = merged.filter(r => {
+      const st = r.fields['Status'] || '';
+      const d  = r.fields['Scheduled Date'];
+      if (!incompleteStatuses.includes(st) || !d) return false;
+      return azDateStr(d) < todayStr;
+    });
+    const overdueIds = new Set(overdueRecords.map(r => r.id));
+
+    // Client-side date filter using AZ-corrected dates (excludes anything already
+    // captured as overdue, so a job doesn't show twice in week view)
     const records = merged.filter(r => {
+      if (overdueIds.has(r.id)) return false;
       const d = r.fields['Scheduled Date'];
       if (!d) return false;
       const ds = azDateStr(d);
@@ -2482,7 +2498,7 @@ async function loadTodaysJobs() {
     });
 
     const isWeekView = scheduleView === 'week';
-    if (records.length === 0) {
+    if (records.length === 0 && overdueRecords.length === 0) {
       badgeEl.textContent = isWeekView ? 'No jobs this week' : 'No jobs today';
       listEl.innerHTML = `
         <div class="empty-state">
@@ -2494,7 +2510,27 @@ async function loadTodaysJobs() {
     }
 
     const label = scheduleView === 'week' ? 'this week' : 'today';
-    badgeEl.textContent = `${records.length} job${records.length !== 1 ? 's' : ''} ${label}`;
+    const overdueBadgeStr = overdueRecords.length ? ` · ${overdueRecords.length} needs attention` : '';
+    badgeEl.textContent = records.length === 0 && overdueRecords.length > 0
+      ? `${overdueRecords.length} job${overdueRecords.length !== 1 ? 's' : ''} needs attention`
+      : `${records.length} job${records.length !== 1 ? 's' : ''} ${label}${overdueBadgeStr}`;
+
+    let overdueHtml = '';
+    if (overdueRecords.length > 0) {
+      const oMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const oDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      overdueHtml = `
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:#b91c1c;margin:0 0 8px 2px;">
+          ⚠️ Needs Attention — ${overdueRecords.length} job${overdueRecords.length !== 1 ? 's' : ''} not started
+        </div>
+        ${overdueRecords.map(r => {
+          const ds = azDateStr(r.fields['Scheduled Date']);
+          const d  = new Date(ds + 'T12:00:00');
+          const oLabel = `${oDays[d.getDay()]}, ${oMonths[d.getMonth()]} ${d.getDate()}`;
+          return buildJobCard(r, oLabel);
+        }).join('')}
+        <div style="height:14px;"></div>`;
+    }
 
     // For week view, group cards by day with a date divider
     if (scheduleView === 'week') {
@@ -2512,9 +2548,9 @@ async function loadTodaysJobs() {
         }
         html += buildJobCard(r);
       }
-      listEl.innerHTML = html;
+      listEl.innerHTML = overdueHtml + html;
     } else {
-      listEl.innerHTML = records.map(r => buildJobCard(r)).join('');
+      listEl.innerHTML = overdueHtml + records.map(r => buildJobCard(r)).join('');
     }
 
   } catch (err) {
@@ -2526,7 +2562,7 @@ async function loadTodaysJobs() {
   }
 }
 
-function buildJobCard(record) {
+function buildJobCard(record, overdueLabel) {
   const f = record.fields;
   const rawStatus = f['Status'] || 'Scheduled';
   const statusClass = rawStatus.toLowerCase().replace(/\s+/g, '-');
@@ -2566,14 +2602,20 @@ function buildJobCard(record) {
   const contractBadge = (f['Maintenance Contract'] || []).length > 0
     ? `<span class="contract-badge" style="margin-left:6px;">📋 Contract</span>` : '';
 
+  const overdueBanner = overdueLabel ? `
+    <div style="display:flex;align-items:center;gap:6px;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:700;padding:7px 10px;border-radius:8px 8px 0 0;margin:-1px -1px 10px -1px;">
+      ⚠️ Was scheduled ${escHtml(overdueLabel)} — not yet started
+    </div>` : '';
+
   return `
-  <article class="job-card ${statusClass}"
+  <article class="job-card ${statusClass}${overdueLabel ? ' job-card-overdue' : ''}"
     onclick="openJob('${record.id}')"
     role="button"
     tabindex="0"
-    aria-label="Job: ${customer}, ${rawStatus}, ${timeDisplay} ${ampm}${unitCount ? ', ' + unitCount + ' units' : ''}"
+    aria-label="Job: ${customer}, ${rawStatus}, ${timeDisplay} ${ampm}${unitCount ? ', ' + unitCount + ' units' : ''}${overdueLabel ? ', overdue, was scheduled ' + overdueLabel : ''}"
     onkeydown="if(event.key==='Enter'||event.key===' ')openJob('${record.id}')">
 
+    ${overdueBanner}
     <div class="job-card-top">
       <div>
         <div class="job-time">${timeDisplay}<span class="job-time-ampm">${ampm}</span></div>
