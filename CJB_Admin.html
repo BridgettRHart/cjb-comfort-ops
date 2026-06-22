@@ -1740,7 +1740,7 @@ async function init() {
         'fields[]=Customer Name&fields[]=First Name&fields[]=Last Name' +
         '&fields[]=Email&fields[]=Phone&fields[]=Type&fields[]=Active&fields[]=Notes' +
         '&fields[]=Billing Address&fields[]=Billing City&fields[]=Billing State&fields[]=Billing Zip' +
-        '&fields[]=Referred By&fields[]=Referral Source&fields[]=Referral Partner' +
+        '&fields[]=Referred By&fields[]=Referral Source&fields[]=Customer Tags' +
         '&sort[0][field]=Customer Name&sort[0][direction]=asc'),
       fetchAll('Properties',
         'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
@@ -2966,7 +2966,7 @@ function renderDetail(customer, props, wos, contacts) {
     ${isMobile() ? '<button class="mobile-back" onclick="mobileBack()">← Customers</button>' : ''}
     <div class="cust-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-        <div class="cust-card-name">${esc(f['Customer Name'] || '')}${f['Referral Partner'] ? ' <span style="font-size:13px;font-weight:600;color:#b45309;">⭐ Referral Partner</span>' : ''}</div>
+        <div class="cust-card-name">${esc(f['Customer Name'] || '')}${(f['Customer Tags']||[]).includes('Referral Partner') ? ' <span style="font-size:13px;font-weight:600;color:#b45309;">⭐ Referral Partner</span>' : ''}</div>
         <button class="btn-edit" style="margin-top:4px;flex-shrink:0;" onclick="openCustomerForm(selectedCustomer)">Edit</button>
       </div>
       <div class="cust-card-meta">
@@ -4721,6 +4721,7 @@ let formModalRecordId = null;
 let _technicianOptions = null;
 let _cfReferredId = null;   // picked customer record id for Referral Source link
 let _cfReferredName = '';
+let _cfExistingTags = [];   // preserves other Customer Tags while toggling Referral Partner
 
 function closeFormModal() {
   document.getElementById('form-modal').classList.add('hidden');
@@ -4735,6 +4736,7 @@ function openCustomerForm(existingRecord) {
   _cfReferredName = existingRefId
     ? (allCustomers.find(c => c.id === existingRefId)?.fields['Customer Name'] || '')
     : '';
+  _cfExistingTags = f['Customer Tags'] || [];
   document.getElementById('form-modal-body').innerHTML = `
     <div class="modal-title">${existingRecord ? 'Edit Customer' : 'New Customer'}</div>
     <div class="modal-sub">Contact info and billing address</div>
@@ -4793,7 +4795,7 @@ function openCustomerForm(existingRecord) {
         </div></div>
     </div>
     <div class="form-group" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="cf-referral-partner" style="width:16px;height:16px;" ${f['Referral Partner'] ? 'checked' : ''}>
+      <input type="checkbox" id="cf-referral-partner" style="width:16px;height:16px;" ${(f['Customer Tags']||[]).includes('Referral Partner') ? 'checked' : ''}>
       <label class="form-label" style="margin:0;" for="cf-referral-partner">⭐ Referral Partner — known repeat referral source (e.g. a realtor)</label>
     </div>
     <div class="form-group"><label class="form-label">Notes</label>
@@ -4853,7 +4855,12 @@ async function submitCustomerForm() {
     'Lead Source':     document.getElementById('cf-lead-source').value ? [document.getElementById('cf-lead-source').value] : [],
     'Referred By':     (document.getElementById('cf-referred').value||'').trim(),
     'Referral Source': _cfReferredId ? [_cfReferredId] : [],
-    'Referral Partner': document.getElementById('cf-referral-partner').checked,
+    'Customer Tags':   (() => {
+      const tags = new Set(_cfExistingTags);
+      if (document.getElementById('cf-referral-partner').checked) tags.add('Referral Partner');
+      else tags.delete('Referral Partner');
+      return [...tags];
+    })(),
     'Notes':           (document.getElementById('cf-notes').value  ||'').trim(),
     'Active': true,
   };
