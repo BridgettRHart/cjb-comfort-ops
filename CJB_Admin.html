@@ -1740,6 +1740,7 @@ async function init() {
         'fields[]=Customer Name&fields[]=First Name&fields[]=Last Name' +
         '&fields[]=Email&fields[]=Phone&fields[]=Type&fields[]=Active&fields[]=Notes' +
         '&fields[]=Billing Address&fields[]=Billing City&fields[]=Billing State&fields[]=Billing Zip' +
+        '&fields[]=Referred By&fields[]=Referral Source&fields[]=Referral Partner' +
         '&sort[0][field]=Customer Name&sort[0][direction]=asc'),
       fetchAll('Properties',
         'fields[]=Property Name&fields[]=Service Address&fields[]=City&fields[]=State' +
@@ -2957,11 +2958,15 @@ function renderDetail(customer, props, wos, contacts) {
       }).join('')
     : '<div style="color:#bbb;font-size:13px;">No work orders found</div>';
 
+  const referredById = (f['Referral Source'] || [])[0] || null;
+  const referredByCust = referredById ? allCustomers.find(c => c.id === referredById) : null;
+  const referredCustomers = allCustomers.filter(c => (c.fields['Referral Source'] || []).includes(customer.id));
+
   document.getElementById('detail').innerHTML = `
     ${isMobile() ? '<button class="mobile-back" onclick="mobileBack()">← Customers</button>' : ''}
     <div class="cust-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-        <div class="cust-card-name">${esc(f['Customer Name'] || '')}</div>
+        <div class="cust-card-name">${esc(f['Customer Name'] || '')}${f['Referral Partner'] ? ' <span style="font-size:13px;font-weight:600;color:#b45309;">⭐ Referral Partner</span>' : ''}</div>
         <button class="btn-edit" style="margin-top:4px;flex-shrink:0;" onclick="openCustomerForm(selectedCustomer)">Edit</button>
       </div>
       <div class="cust-card-meta">
@@ -2969,8 +2974,21 @@ function renderDetail(customer, props, wos, contacts) {
         ${f['Phone'] ? `<span>📞 ${esc(f['Phone'])}</span>` : ''}
         ${f['Type']  ? `<span>🏷 ${esc(f['Type'])}</span>` : ''}
         ${f['Billing Address'] ? `<span>📬 ${esc([f['Billing Address'],f['Billing City'],f['Billing State']].filter(Boolean).join(', '))}</span>` : ''}
+        ${referredByCust ? `<span>🔗 Referred by: <a href="#" onclick="event.preventDefault();selectCustomer('${referredByCust.id}')">${esc(referredByCust.fields['Customer Name']||'')}</a></span>` : ''}
       </div>
     </div>
+    ${referredCustomers.length ? `
+    <div class="section">
+      <div class="section-title-row">
+        <div class="section-title">Referrals (${referredCustomers.length})</div>
+      </div>
+      ${referredCustomers.map(c => `<div class="prop-row">
+          <div class="prop-row-text">
+            <div class="prop-row-name">${esc(c.fields['Customer Name'] || '')}</div>
+          </div>
+          <button class="btn-edit" onclick="selectCustomer('${c.id}')">View</button>
+        </div>`).join('')}
+    </div>` : ''}
     <div class="section">
       <div class="section-title-row">
         <div class="section-title">Contacts (${(contacts||[]).length})</div>
@@ -4701,6 +4719,8 @@ async function submitInvoice(sendNow) {
 // ── Form modal ───────────────────────────────────────────────────────────────
 let formModalRecordId = null;
 let _technicianOptions = null;
+let _cfReferredId = null;   // picked customer record id for Referral Source link
+let _cfReferredName = '';
 
 function closeFormModal() {
   document.getElementById('form-modal').classList.add('hidden');
@@ -4710,6 +4730,11 @@ function closeFormModal() {
 function openCustomerForm(existingRecord) {
   formModalRecordId = existingRecord?.id || null;
   const f = existingRecord?.fields || {};
+  const existingRefId = (f['Referral Source'] || [])[0] || null;
+  _cfReferredId = existingRefId;
+  _cfReferredName = existingRefId
+    ? (allCustomers.find(c => c.id === existingRefId)?.fields['Customer Name'] || '')
+    : '';
   document.getElementById('form-modal-body').innerHTML = `
     <div class="modal-title">${existingRecord ? 'Edit Customer' : 'New Customer'}</div>
     <div class="modal-sub">Contact info and billing address</div>
@@ -4758,7 +4783,18 @@ function openCustomerForm(existingRecord) {
           <option value="Other">Other</option>
         </select></div>
       <div class="form-group"><label class="form-label">Referred By</label>
-        <input class="form-inp" id="cf-referred" type="text" value="${escAttr(f['Referred By']||'')}"></div>
+        <div class="sp-ta-wrap">
+          <input class="form-inp" id="cf-referred" type="text" placeholder="Search existing customers…"
+            value="${escAttr(_cfReferredName || f['Referred By'] || '')}"
+            oninput="cfSearchReferred(this.value)"
+            onfocus="if(this.value) cfSearchReferred(this.value)"
+            autocomplete="off">
+          <div class="sp-ta-drop" id="cf-ref-drop"></div>
+        </div></div>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="cf-referral-partner" style="width:16px;height:16px;" ${f['Referral Partner'] ? 'checked' : ''}>
+      <label class="form-label" style="margin:0;" for="cf-referral-partner">⭐ Referral Partner — known repeat referral source (e.g. a realtor)</label>
     </div>
     <div class="form-group"><label class="form-label">Notes</label>
       <textarea class="form-inp" id="cf-notes" rows="2">${esc(f['Notes']||'')}</textarea></div>
@@ -4770,6 +4806,33 @@ function openCustomerForm(existingRecord) {
   document.getElementById('form-modal').classList.remove('hidden');
   const lsEl = document.getElementById('cf-lead-source');
   if (lsEl) lsEl.value = (Array.isArray(f['Lead Source']) ? f['Lead Source'][0] : f['Lead Source']) || '';
+}
+
+function cfSearchReferred(q) {
+  const drop = document.getElementById('cf-ref-drop');
+  if (!drop) return;
+  // Free typing invalidates any previously picked record until a fresh pick is made
+  if (q !== _cfReferredName) _cfReferredId = null;
+  q = (q || '').toLowerCase().trim();
+  if (!q) { drop.classList.remove('open'); return; }
+  const matches = allCustomers.filter(c =>
+    (c.fields['Customer Name'] || '').toLowerCase().includes(q) && c.id !== formModalRecordId
+  ).slice(0, 6);
+  drop.innerHTML = !matches.length
+    ? '<div style="padding:10px 14px;font-size:13px;color:#bbb;">No matches — will save as plain text</div>'
+    : matches.map(c => `<div class="sp-ta-item" onclick="cfPickReferred('${escAttr(c.id)}','${escAttr(c.fields['Customer Name'] || '')}')">
+        <div class="sp-ta-name">${esc(c.fields['Customer Name'] || '')}</div>
+      </div>`).join('');
+  drop.classList.add('open');
+}
+
+function cfPickReferred(id, name) {
+  _cfReferredId = id;
+  _cfReferredName = name;
+  const inp = document.getElementById('cf-referred');
+  const drop = document.getElementById('cf-ref-drop');
+  if (inp) inp.value = name;
+  if (drop) drop.classList.remove('open');
 }
 
 async function submitCustomerForm() {
@@ -4789,6 +4852,8 @@ async function submitCustomerForm() {
     'Billing Zip':     (document.getElementById('cf-zip').value   ||'').trim(),
     'Lead Source':     document.getElementById('cf-lead-source').value ? [document.getElementById('cf-lead-source').value] : [],
     'Referred By':     (document.getElementById('cf-referred').value||'').trim(),
+    'Referral Source': _cfReferredId ? [_cfReferredId] : [],
+    'Referral Partner': document.getElementById('cf-referral-partner').checked,
     'Notes':           (document.getElementById('cf-notes').value  ||'').trim(),
     'Active': true,
   };
@@ -5533,7 +5598,7 @@ function openSchedPanel() {
     step: 1,
     cust: null, custProps: [], custContacts: [], custEquipment: [],
     // New customer — Step 1 (Who)
-    newName: '', newPhone: '', newEmail: '', newReferredBy: '', newLeadSource: 'Manual Entry',
+    newName: '', newPhone: '', newEmail: '', newReferredBy: '', newReferredById: null, newLeadSource: 'Manual Entry',
     // New customer — Step 2 (Where)
     newServiceStreet: '', newServiceCity: '', newServiceState: 'AZ', newServiceZip: '',
     newBillingStreet: '', newBillingCity: '', newBillingState: 'AZ', newBillingZip: '',
@@ -5678,6 +5743,8 @@ function spRenderStep1() {
 function spSearchReferred(q) {
   const drop = document.getElementById('sp-ref-drop');
   if (!drop) return;
+  // Free typing invalidates any previously picked record until a fresh pick is made
+  if (q !== _sp.newReferredBy) _sp.newReferredById = null;
   q = (q || '').toLowerCase().trim();
   if (!q) { drop.classList.remove('open'); return; }
   const matches = allCustomers.filter(c =>
@@ -5693,6 +5760,7 @@ function spSearchReferred(q) {
 
 function spPickReferred(id, name) {
   _sp.newReferredBy = name;
+  _sp.newReferredById = id;
   const inp = document.getElementById('sp-nreferred');
   const drop = document.getElementById('sp-ref-drop');
   if (inp) inp.value = name;
@@ -6267,6 +6335,7 @@ async function spBook(withDate = true) {
       if (_sp.newPhone)        custFields['Phone']           = _sp.newPhone;
       if (_sp.newEmail)        custFields['Email']           = _sp.newEmail;
       if (_sp.newReferredBy)   custFields['Referred By']     = _sp.newReferredBy;
+      if (_sp.newReferredById) custFields['Referral Source'] = [_sp.newReferredById];
       if (_sp.newLeadSource)   custFields['Lead Source']     = _sp.newLeadSource;
       if (_sp.newBillingStreet) custFields['Billing Address'] = _sp.newBillingStreet;
       if (_sp.newBillingCity)   custFields['Billing City']   = _sp.newBillingCity;
