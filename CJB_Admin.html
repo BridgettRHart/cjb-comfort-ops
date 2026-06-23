@@ -8506,7 +8506,7 @@ async function _loadDispatchData() {
   const ds = _ddStr(_dispatchDate);
   const fields = 'fields[]=Work Order Name&fields[]=Customer Name&fields[]=Service Address&fields[]=City&fields[]=Status&fields[]=Work Order Type&fields[]=Priority&fields[]=Scheduled Date&fields[]=Scheduled End&fields[]=Technician&fields[]=Property&fields[]=Customer';
   const dayF   = encodeURIComponent(`AND(NOT({Status}="Cancelled"),{Scheduled Date}!="",DATETIME_FORMAT({Scheduled Date},"YYYY-MM-DD")="${ds}")`);
-  const unschF = encodeURIComponent(`{Status}="New"`);
+  const unschF = encodeURIComponent(`OR({Status}="New",{Status}="On Hold")`);
 
   try {
     if (_dispatchView === 'week') {
@@ -8589,17 +8589,19 @@ function renderDispatchSidebar() {
 
   list.innerHTML = count ? _dispatchUnscheduled.map(wo => {
     const f        = wo.fields;
-    const name     = _ddUnwrap(f['Customer Name']) || 'Unknown';
+    const name     = f['Work Order Name'] || _ddUnwrap(f['Customer Name']) || 'Unknown';
     const addr     = _ddUnwrap(f['Service Address']);
     const city     = _ddUnwrap(f['City']);
     const woType   = f['Work Order Type'] || '';
     const priority = f['Priority'] || '';
+    const onHold   = f['Status'] === 'On Hold';
     const tc = _ddTypeClass(woType);
     const pc = priority === 'Emergency' ? ' priority-emergency' : priority === 'Urgent' ? ' priority-urgent' : '';
     return `<div class="dispatch-card ${tc}${pc}" draggable="true" data-wo-id="${wo.id}"
       ondragstart="dispatchDragStart(event,'${wo.id}','sidebar')"
       ondragend="dispatchDragEnd(event)"
       onclick="openWOFromDispatch('${wo.id}')">
+      ${onHold ? `<span style="font-size:9px;font-weight:700;color:#92400e;background:#fef3c7;border-radius:4px;padding:1px 5px;display:inline-block;margin-bottom:3px;">ON HOLD</span>` : ''}
       <div class="dispatch-card-name">${esc(name)}</div>
       <div class="dispatch-card-addr">${esc(addr)}${city ? ', '+esc(city) : ''}</div>
       <div class="dispatch-card-type">${esc(woType)}${priority && priority !== 'Routine' ? ' · '+esc(priority) : ''}</div>
