@@ -6012,16 +6012,10 @@ function spRenderStep2() {
       <textarea class="form-inp" id="sp-notes" rows="2" placeholder="Office notes…"></textarea></div>
     ${!_sp.cust ? `<div class="form-group"><label class="form-label">Lead Source</label>
       <select class="form-inp" id="sp-lead-source">
-        <option value="Manual Entry">Manual Entry</option>
-        <option value="Google Search">Google Search</option>
-        <option value="Google Maps / Reviews">Google Maps / Reviews</option>
-        <option value="Yelp">Yelp</option>
-        <option value="Facebook">Facebook</option>
-        <option value="Nextdoor">Nextdoor</option>
-        <option value="Referral – Existing Customer">Referral – Existing Customer</option>
-        <option value="Yard Sign / Truck Wrap">Yard Sign / Truck Wrap</option>
-        <option value="Website / Direct">Website / Direct</option>
-        <option value="Other">Other</option>
+        ${getSelectOpts('Customers','Lead Source',
+          ['Manual Entry','Google Search','Google Maps / Reviews','Yelp','Facebook','Nextdoor',
+           'Referral – Existing Customer','Yard Sign / Truck Wrap','Website / Direct','Other']).map(s =>
+          `<option value="${escAttr(s)}">${esc(s)}</option>`).join('')}
       </select></div>` : ''}
     <div class="form-group" style="margin-top:4px;">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#1a6b35;">
@@ -6367,7 +6361,7 @@ async function spBook(withDate = true) {
       if (_sp.newEmail)        custFields['Email']           = _sp.newEmail;
       if (_sp.newReferredBy)   custFields['Referred By']     = _sp.newReferredBy;
       if (_sp.newReferredById) custFields['Referral Source'] = [_sp.newReferredById];
-      if (_sp.newLeadSource)   custFields['Lead Source']     = _sp.newLeadSource;
+      if (_sp.newLeadSource)   custFields['Lead Source']     = [_sp.newLeadSource];
       if (_sp.newBillingStreet) custFields['Billing Address'] = _sp.newBillingStreet;
       if (_sp.newBillingCity)   custFields['Billing City']   = _sp.newBillingCity;
       if (_sp.newBillingState)  custFields['Billing State']  = _sp.newBillingState;
