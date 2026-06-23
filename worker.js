@@ -2318,7 +2318,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const lineItems      = body.lineItems || [];
         const discountType   = body.discountType  || '';   // 'pct' | 'fixed'
         const discountValue  = Number(body.discountValue) || 0;
-        const finalize    = body.finalize === true; // if true: create draft + finalize in one step
+        const finalize     = body.finalize === true;     // finalize + email customer
+        const finalizeOnly = body.finalizeOnly === true; // finalize for PDF only — no email, no WO status change
         if (!customerId)        throw new Error('customerId is required');
         if (!lineItems?.length) throw new Error('At least one line item is required');
 
@@ -2499,20 +2500,21 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           }
         }
 
-        // Finalize the Stripe quote (makes it Open in Stripe for clean records — non-fatal)
+        // Finalize the Stripe quote (makes it Open in Stripe, enables PDF generation — non-fatal).
+        // finalizeOnly finalizes for PDF purposes without notifying the customer or touching WO status —
+        // e.g. attaching a PDF to an EA program SOW submission before the customer has seen the estimate.
         let quoteStatus = 'draft';
-        if (finalize) {
+        if (finalize || finalizeOnly) {
           try {
             await stripePost(STRIPE_KEY, `/v1/quotes/${stripeQuote.id}/finalize`, {});
             quoteStatus = 'open';
-            const atFin = { 'Status': 'Open' };
-            await airtablePatch('Quotes', atQuote.id, atFin);
-            if (workOrderId && isEstimateTypeWO) {
+            await airtablePatch('Quotes', atQuote.id, { 'Status': 'Open' });
+            if (finalize && workOrderId && isEstimateTypeWO) {
               await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
             }
           } catch (finErr) {
             console.error('Quote finalize failed (non-fatal):', finErr.message);
-            if (workOrderId && isEstimateTypeWO) {
+            if (finalize && workOrderId && isEstimateTypeWO) {
               try { await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' }); } catch(e) {}
             }
           }
@@ -2539,7 +2541,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = body2;
         const discountTypePatch  = body2.discountType  || '';
         const discountValuePatch = Number(body2.discountValue) || 0;
-        const finalizePatch = body2.finalize === true;
+        const finalizePatch     = body2.finalize === true;
+        const finalizeOnlyPatch = body2.finalizeOnly === true; // finalize for PDF only — no email, no WO status change
         const ccEmailsPatch = (body2.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
         if (!stripeQuoteId) throw new Error('stripeQuoteId is required');
 
@@ -2635,19 +2638,20 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           await airtablePatch('Work Orders', workOrderId, { 'Stripe Quote ID': newQuote.id, 'Stripe Quote URL': patchApproveUrl });
         }
 
-        // Finalize + email if requested (non-fatal)
+        // Finalize + email if requested (non-fatal). finalizeOnlyPatch finalizes for PDF
+        // purposes only — no email, no WO status change (see POST handler for why).
         let patchStatus = 'draft';
-        if (finalizePatch) {
+        if (finalizePatch || finalizeOnlyPatch) {
           try {
             await stripePost(STRIPE_KEY, `/v1/quotes/${newQuote.id}/finalize`, {});
             patchStatus = 'open';
             if (airtableQuoteId) await airtablePatch('Quotes', airtableQuoteId, { 'Status': 'Open' });
-            if (workOrderId) await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
+            if (finalizePatch && workOrderId) await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' });
           } catch (finErr) {
-            if (workOrderId) { try { await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' }); } catch(e) {} }
+            if (finalizePatch && workOrderId) { try { await airtablePatch('Work Orders', workOrderId, { 'Status': 'Estimate Sent' }); } catch(e) {} }
           }
-          // Send estimate email
-          if (patchApproveUrl && customerId && env.RESEND_API_KEY) {
+          // Send estimate email (full finalize only)
+          if (finalizePatch && patchApproveUrl && customerId && env.RESEND_API_KEY) {
             try {
               const cRec = await airtableGetById('Customers', customerId);
               const cEmail = (cRec.fields['Email'] || '').trim();

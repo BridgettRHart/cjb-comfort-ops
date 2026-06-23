@@ -1458,6 +1458,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="modal-actions" id="quote-modal-actions">
       <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
       <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
+      <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF (no email)</button>
       <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>
     </div>
   </div>
@@ -1655,6 +1656,10 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
     <div class="form-group">
       <label class="form-label">Documents URL</label>
       <input class="form-inp" id="ea-f-docs-url" type="url" placeholder="https://…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">EA Dashboard URL <span style="font-weight:400;text-transform:none;">(project home on the EA contractor portal)</span></label>
+      <input class="form-inp" id="ea-f-dashboard-url" type="url" placeholder="https://…">
     </div>
     <div class="form-group">
       <label class="form-label">Notes</label>
@@ -3955,6 +3960,7 @@ function renderQuoteActions(status) {
   el.innerHTML = `
     <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
     <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
+    <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF (no email)</button>
     <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>`;
 }
 
@@ -4222,7 +4228,9 @@ function updateQuoteTotal() {
   updateEACashFlow(); // recalculate EA panel live as prices are entered
 }
 
-async function submitQuote(sendNow) {
+async function submitQuote(mode) {
+  const sendNow = mode === true;
+  const pdfOnly = mode === 'pdf';
   const lineItems = [];
   document.querySelectorAll('[id^="qli-"]').forEach(row => {
     if (!row.id.match(/^qli-\d+$/)) return;
@@ -4239,8 +4247,10 @@ async function submitQuote(sendNow) {
   const notes       = document.getElementById('quote-notes').value.trim();
   const draftBtn    = document.getElementById('quote-draft-btn');
   const sendBtn     = document.getElementById('quote-send-btn');
+  const pdfBtn      = document.getElementById('quote-pdf-btn');
   if (draftBtn) draftBtn.disabled = true;
   if (sendBtn)  { sendBtn.disabled = true; sendBtn.textContent = sendNow ? 'Sending…' : 'Saving…'; }
+  if (pdfBtn)   { pdfBtn.disabled = true; pdfBtn.textContent = 'Finalizing…'; }
 
   try {
     let data;
@@ -4251,13 +4261,14 @@ async function submitQuote(sendNow) {
     const discountPayload = discountVal > 0 ? { discountType: _quoteDiscountType, discountValue: discountVal } : {};
 
     if (!quoteStripeId || quoteStatus === 'new') {
-      // New estimate — POST with finalize:true if sending now
+      // New estimate — POST with finalize:true if sending now, finalizeOnly if PDF-only
       const res = await fetch(`${PROXY}/quote`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workOrderId: quoteWOId, customerId: quoteCustId,
           lineItems, description, notes,
           finalize: sendNow,
+          finalizeOnly: pdfOnly,
           ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,
           ...discountPayload,
         })
@@ -4266,7 +4277,7 @@ async function submitQuote(sendNow) {
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to create estimate');
       quoteStripeId = data.stripeQuoteId; quoteAirtableId = data.airtableQuoteId;
     } else {
-      // Update existing — PATCH (cancels old, creates new draft) then finalize if sending
+      // Update existing — PATCH (cancels old, creates new draft) then finalize if sending/PDF-only
       const patchRes = await fetch(`${PROXY}/quote`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -4274,6 +4285,7 @@ async function submitQuote(sendNow) {
           workOrderId: quoteWOId, customerId: quoteCustId,
           lineItems, notes: description + (notes ? '\n' + notes : ''),
           finalize: sendNow,
+          finalizeOnly: pdfOnly,
           ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,
           ...discountPayload,
         })
@@ -4299,6 +4311,12 @@ async function submitQuote(sendNow) {
         renderQuoteActions('open');
         if (selectedCustomer) selectCustomer(selectedCustomer.id);
       }
+    } else if (pdfOnly) {
+      // Finalized for PDF only — customer was NOT notified, quote stays in its current
+      // admin-side state so Save Draft/Send to Customer/Finalize for PDF all remain available.
+      if (pdfBtn) { pdfBtn.disabled = false; pdfBtn.textContent = 'Finalize for PDF (no email)'; }
+      showToast('Finalized — opening PDF ✓');
+      window.open(`${PROXY}/quote-pdf?wo=${quoteWOId}`, '_blank');
     } else {
       closeQuoteModal();
       if (selectedCustomer) selectCustomer(selectedCustomer.id);
@@ -4307,6 +4325,7 @@ async function submitQuote(sendNow) {
     alert('Error: ' + err.message);
     if (draftBtn) draftBtn.disabled = false;
     if (sendBtn)  { sendBtn.disabled = false; sendBtn.textContent = sendNow ? 'Send to Customer' : 'Save Draft'; }
+    if (pdfBtn)   { pdfBtn.disabled = false; pdfBtn.textContent = 'Finalize for PDF (no email)'; }
   }
 }
 
@@ -7929,17 +7948,17 @@ async function loadEAProjects() {
   }
 }
 
-function selectEAProject(id) {
+async function selectEAProject(id) {
   _selectedEAId = id;
   // Re-highlight sidebar
   document.querySelectorAll('#ea-list .cust-item').forEach(el => {
     el.classList.toggle('active', el.getAttribute('onclick') === `selectEAProject('${id}')`);
   });
   const record = _eaProjectsCache.find(r => r.id === id);
-  if (record) renderEADetail(record);
+  if (record) await renderEADetail(record);
 }
 
-function renderEADetail(record) {
+async function renderEADetail(record) {
   const f = record.fields;
   const status = f['EA Status'] || '';
 
@@ -7972,9 +7991,49 @@ function renderEADetail(record) {
     f['SOW Form URL']           ? `<a class="btn btn-gray btn-sm" href="${escAttr(f['SOW Form URL'])}" target="_blank" rel="noopener">Open SOW Form ↗</a>` : '',
     f['Project Update Form URL']? `<a class="btn btn-gray btn-sm" href="${escAttr(f['Project Update Form URL'])}" target="_blank" rel="noopener">Submit Project Update ↗</a>` : '',
     f['Documents URL']          ? `<a class="btn btn-gray btn-sm" href="${escAttr(f['Documents URL'])}" target="_blank" rel="noopener">Open Documents ↗</a>` : '',
+    f['EA Dashboard URL']       ? `<a class="btn btn-gray btn-sm" href="${escAttr(f['EA Dashboard URL'])}" target="_blank" rel="noopener">Open EA Dashboard ↗</a>` : '',
   ].filter(Boolean).join(' ');
 
   const woIds = f['Work Orders'] || [];
+  const eaCustId = (f['Customer'] || [])[0] || null;
+
+  // Fetch linked Work Orders so estimate/WO actions can be surfaced directly on this page —
+  // no more bouncing to the customer profile just to view/edit/send an EA estimate.
+  let eaWOs = [];
+  if (woIds.length) {
+    try {
+      eaWOs = await Promise.all(woIds.map(id =>
+        fetch(`${PROXY}/Work%20Orders/${id}`).then(r => r.ok ? r.json() : null)
+      ));
+      eaWOs = eaWOs.filter(Boolean);
+      // So openQuoteModal/editWorkOrder behave correctly when launched from this page
+      eaWOs.forEach(wo => { if (!currentWorkOrders.find(w => w.id === wo.id)) currentWorkOrders.push(wo); });
+    } catch (e) { /* non-fatal — falls back to the plain count below */ }
+  }
+
+  const badgeCls = {
+    'Scheduled':'b-scheduled','In Progress':'b-in-progress','Complete':'b-complete',
+    'Invoiced':'b-invoiced','Paid':'b-paid','Cancelled':'b-cancelled','On Hold':'b-on-hold',
+    'Estimate Sent':'b-estimate-sent','Estimate Approved':'b-estimate-approved','Estimate Declined':'b-estimate-declined'
+  };
+  const eaWOsHtml = eaWOs.length ? eaWOs.map(wo => {
+    const wf = wo.fields;
+    const woStatus = wf['Status'] || 'Scheduled';
+    const cls = badgeCls[woStatus] || 'b-scheduled';
+    const woCustId = (wf['Customer'] || [])[0] || eaCustId;
+    const hasQuote = !!wf['Stripe Quote ID'];
+    const total = wf['Total Amount'] != null ? ' · $' + Number(wf['Total Amount']).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+    return `<div class="wo-row">
+      <div class="wo-info">
+        <div class="wo-name">${esc(wf['Work Order Name'] || '(unnamed)')}</div>
+        <div class="wo-meta">${esc(wf['Work Order Type'] || '')}${total}</div>
+      </div>
+      <span class="badge ${cls}">${esc(woStatus)}</span>
+      <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
+      ${woCustId ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${woCustId}')">${hasQuote ? 'View/Edit Estimate' : 'Create Estimate'}</button>` : ''}
+      ${hasQuote ? `<a class="btn btn-gray btn-sm" href="${PROXY}/quote-pdf?wo=${wo.id}" target="_blank" rel="noopener">View PDF</a>` : ''}
+    </div>`;
+  }).join('') : '<div style="color:#bbb;font-size:13px;">No work orders linked</div>';
 
   document.getElementById('ea-detail').innerHTML = `
     <div class="cust-card" style="border-left:4px solid #1a6b35;">
@@ -8029,7 +8088,7 @@ function renderEADetail(record) {
 
     <div class="section">
       <div class="section-title">Linked Work Orders (${woIds.length})</div>
-      ${woIds.length ? `<div style="font-size:13px;color:#555;">${woIds.length} work order${woIds.length!==1?'s':''} linked</div>` : '<div style="color:#bbb;font-size:13px;">No work orders linked</div>'}
+      ${eaWOsHtml}
     </div>`;
 }
 
@@ -8098,6 +8157,7 @@ function openEAModal(project = null) {
   document.getElementById('ea-f-sow-url').value      = f['SOW Form URL'] || '';
   document.getElementById('ea-f-update-url').value   = f['Project Update Form URL'] || '';
   document.getElementById('ea-f-docs-url').value     = f['Documents URL'] || '';
+  document.getElementById('ea-f-dashboard-url').value= f['EA Dashboard URL'] || '';
   document.getElementById('ea-f-notes').value        = f['Notes'] || '';
   document.getElementById('ea-f-active').checked     = f['Active'] !== false;
 
@@ -8295,6 +8355,7 @@ async function saveEAProject() {
     'SOW Form URL':           document.getElementById('ea-f-sow-url').value.trim() || undefined,
     'Project Update Form URL':document.getElementById('ea-f-update-url').value.trim() || undefined,
     'Documents URL':          document.getElementById('ea-f-docs-url').value.trim() || undefined,
+    'EA Dashboard URL':       document.getElementById('ea-f-dashboard-url').value.trim() || undefined,
     'Notes':                  document.getElementById('ea-f-notes').value.trim() || undefined,
     'Active':                 document.getElementById('ea-f-active').checked,
   };
