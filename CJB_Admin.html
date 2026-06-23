@@ -777,6 +777,8 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-slot { height:50px; border-bottom:1px solid #f3f4f6; box-sizing:border-box; transition:background 0.1s; }
 .dg-slot:nth-child(even) { background:#fafafa; }
 .dg-slot.drag-over { background:#dbeafe !important; }
+body.dispatch-dragging .dg-week-card:not(.dragging),
+body.dispatch-dragging .dg-placed-card:not(.dragging) { pointer-events:none; }
 .dg-slot.half-hour { border-bottom-style:dashed; border-bottom-color:#e5e7eb; }
 
 /* Job cards */
@@ -8675,7 +8677,7 @@ function renderDispatchGridWeek() {
 
     const placed = dayWOs.map(wo => {
       const f = wo.fields;
-      const name = _ddUnwrap(f['Customer Name']) || 'Unknown';
+      const name = f['Work Order Name'] || _ddUnwrap(f['Customer Name']) || 'Unknown';
       const status = f['Status'] || '';
       const isDone = ['Complete','Invoiced','Paid'].includes(status);
       const woType  = f['Work Order Type'] || '';
@@ -8760,7 +8762,7 @@ function renderDispatchGrid() {
       .filter(wo => _ddUnwrap(wo.fields['Technician']) === tid)
       .map(wo => {
         const f       = wo.fields;
-        const name    = _ddUnwrap(f['Customer Name']) || 'Unknown';
+        const name    = f['Work Order Name'] || _ddUnwrap(f['Customer Name']) || 'Unknown';
         const addr    = _ddUnwrap(f['Service Address']);
         const woType  = f['Work Order Type'] || '';
         const priority = f['Priority'] || '';
@@ -8818,12 +8820,18 @@ function dispatchDragStart(event, woId, source, origTechId, origDateStr) {
   _draggedOrigStart  = origWO?.fields['Scheduled Date'] || null;
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', woId);
+  // Other appointment cards sit on top of the time slots (absolute-positioned, z-index above
+  // .dg-slot) with no drop handlers of their own — dropping onto a slot that already has another
+  // card visually covering it silently swallows the drop. Disable pointer events on all cards for
+  // the duration of the drag so the underlying .dg-slot always receives dragover/drop.
+  document.body.classList.add('dispatch-dragging');
   setTimeout(() => {
     document.querySelectorAll(`[data-wo-id="${woId}"]`).forEach(el => el.classList.add('dragging'));
   }, 0);
 }
 
 function dispatchDragEnd() {
+  document.body.classList.remove('dispatch-dragging');
   document.querySelectorAll('[data-wo-id]').forEach(el => el.classList.remove('dragging'));
   document.querySelectorAll('.dg-slot.drag-over').forEach(el => el.classList.remove('drag-over'));
 }
@@ -9124,15 +9132,12 @@ function _renderDWOPopup(wo, fullRecord) {
   const techId   = _ddUnwrap(f['Technician']);
   const techName = (_dispatchTechs||[]).find(t=>t.id===techId)?.fields['Technician Name'] || '—';
 
-  const fmtDT = iso => {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) +
-      ' · ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-  };
-  const start  = fmtDT(f['Scheduled Date']);
-  const end    = f['Scheduled End'] ? new Date(f['Scheduled End']).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '';
-  const timeStr = end ? `${start} – ${end}` : start;
+  const startD = f['Scheduled Date'] ? new Date(f['Scheduled Date']) : null;
+  const endD   = f['Scheduled End']  ? new Date(f['Scheduled End'])  : null;
+  const toHM   = d => String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  const dateVal  = startD ? _ddStr(startD) : '';
+  const startVal = startD ? toHM(startD)   : '';
+  const endVal   = endD   ? toHM(endD)     : '';
 
   const problem = full['Problem Description'] || f['Problem Description'] || '';
   const notes   = full['Notes'] || f['Notes'] || '';
@@ -9149,9 +9154,13 @@ function _renderDWOPopup(wo, fullRecord) {
       <span class="dwo-lbl">Address</span>
       <span class="dwo-val">${esc(addr)}</span>
     </div>
-    <div class="dwo-row">
+    <div class="dwo-row" style="align-items:center;flex-wrap:wrap;gap:6px;">
       <span class="dwo-lbl">Scheduled</span>
-      <span class="dwo-val">${esc(timeStr)}</span>
+      <input type="date" id="dwo-date" value="${dateVal}" style="font-size:12px;padding:3px 5px;border:1px solid #d1d5db;border-radius:5px;">
+      <input type="time" id="dwo-start" value="${startVal}" style="font-size:12px;padding:3px 5px;border:1px solid #d1d5db;border-radius:5px;">
+      <span style="color:#9ca3af;font-size:11px;">–</span>
+      <input type="time" id="dwo-end" value="${endVal}" style="font-size:12px;padding:3px 5px;border:1px solid #d1d5db;border-radius:5px;">
+      <button class="dwo-btn" onclick="dwoSaveTime()">Save</button>
     </div>
     <div class="dwo-row">
       <span class="dwo-lbl">Technician</span>
@@ -9208,9 +9217,41 @@ async function dwoChangeStatus(newStatus) {
   }
 }
 
+async function dwoSaveTime() {
+  if (!_dwoCurrentWOId) return;
+  const dateVal  = document.getElementById('dwo-date').value;
+  const startVal = document.getElementById('dwo-start').value;
+  const endVal   = document.getElementById('dwo-end').value;
+  if (!dateVal || !startVal) { showToast('Date and start time are required', 'error'); return; }
+  const startDT = new Date(`${dateVal}T${startVal}:00`);
+  const endDT   = endVal ? new Date(`${dateVal}T${endVal}:00`) : new Date(startDT.getTime() + 2*3600000);
+  if (endDT <= startDT) { showToast('End time must be after start time', 'error'); return; }
+  const startISO = startDT.toISOString();
+  const endISO   = endDT.toISOString();
+
+  try {
+    await fetch(`${PROXY}/Work%20Orders/${_dwoCurrentWOId}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ fields: { 'Scheduled Date': startISO, 'Scheduled End': endISO } })
+    });
+    const update = wo => { if (wo.id === _dwoCurrentWOId) { wo.fields['Scheduled Date'] = startISO; wo.fields['Scheduled End'] = endISO; } };
+    _dispatchDayWOs.forEach(update);
+    _dispatchWeekWOs.forEach(update);
+    _dispatchUnscheduled.forEach(update);
+    _dashWOs = null;
+    renderDispatchGrid();
+    showToast('Appointment time updated ✓');
+    const wo = [..._dispatchDayWOs, ..._dispatchWeekWOs, ..._dispatchUnscheduled].find(w => w.id === _dwoCurrentWOId);
+    if (wo) _renderDWOPopup(wo, null);
+  } catch(e) {
+    showToast('Could not update time', 'error');
+  }
+}
+
 function dwoGoCustomer() {
+  const custId = _dwoCurrentCustId;
   closeDWOPopup();
-  if (_dwoCurrentCustId) { switchTab('customers', true); selectCustomer(_dwoCurrentCustId); }
+  if (custId) { switchTab('customers', true); selectCustomer(custId); }
 }
 
 function closeDWOPopup(event) {
