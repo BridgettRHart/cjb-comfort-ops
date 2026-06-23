@@ -2625,12 +2625,19 @@ async function fetchAll(table, qs) {
   do {
     let url = `${PROXY}/${encodeURIComponent(table)}?pageSize=100&${qs}`;
     if (offset) url += '&offset=' + encodeURIComponent(offset);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error('Failed to fetch ' + table + ': ' + res.status + ' — ' + body);
+    // Retry transient Cloudflare/Airtable connectivity blips (522/525 etc.) before giving up —
+    // a single flaky page used to kill the whole multi-page fetch with no second chance.
+    let data, lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) { data = await res.json(); lastErr = null; break; }
+        const body = await res.text().catch(() => '');
+        lastErr = new Error('Failed to fetch ' + table + ': ' + res.status + ' — ' + body);
+      } catch (e) { lastErr = e; }
+      if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
     }
-    const data = await res.json();
+    if (lastErr) throw lastErr;
     all = all.concat(data.records || []);
     offset = data.offset || null;
   } while (offset);
