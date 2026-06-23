@@ -3013,23 +3013,41 @@ async function patchBillableJobs(jobIds, status) {
   }
 }
 
+// Retries on network errors and 5xx (transient Cloudflare<->Airtable connectivity issues —
+// see the 522/525 incident + the silently-dropped Calendly webhook on 2026-06-23).
+// 4xx is a real client error (bad formula, bad field, etc.) and is never retried.
+async function airtableFetchWithRetry(url, options) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok || res.status < 500) return res;
+      lastErr = new Error(`Airtable ${res.status}: ${await res.text().catch(() => '')}`);
+    } catch (e) {
+      lastErr = e;
+    }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+  }
+  throw lastErr;
+}
+
 async function airtableGet(table, formula) {
   const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}` +
               `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=5`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
+  const res = await airtableFetchWithRetry(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
   if (!res.ok) throw new Error(`Airtable GET ${table}: ${res.status}`);
   return res.json();
 }
 
 async function airtableGetById(table, recordId) {
   const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}/${recordId}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
+  const res = await airtableFetchWithRetry(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
   if (!res.ok) throw new Error(`Airtable GET ${table}/${recordId}: ${res.status}`);
   return res.json();
 }
 
 async function airtablePost(table, fields) {
-  const res = await fetch(
+  const res = await airtableFetchWithRetry(
     `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}`,
     {
       method: 'POST',
@@ -3045,7 +3063,7 @@ async function airtablePost(table, fields) {
 }
 
 async function airtablePatch(table, recordId, fields) {
-  const res = await fetch(
+  const res = await airtableFetchWithRetry(
     `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}/${recordId}`,
     {
       method: 'PATCH',
