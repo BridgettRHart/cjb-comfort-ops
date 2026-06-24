@@ -1718,6 +1718,7 @@ let _allEstimates  = [];
 let _estFilter     = 'active';
 let _selectedEst   = null;
 let _quoteTotalCache = {}; // stripeQuoteId -> amountTotal (fetched from Stripe)
+let _quoteStatusCache = {}; // stripeQuoteId -> Stripe quote status (draft/open/accepted/canceled)
 let _estWizCustId  = null;
 let _estWizCust    = null;
 
@@ -7382,16 +7383,17 @@ async function selectEstimate(woId) {
       const data = await res.json();
       if (data.amountTotal != null) {
         _quoteTotalCache[stripeQuoteId] = data.amountTotal;
+        if (data.status) _quoteStatusCache[stripeQuoteId] = data.status;
         renderEstimatesList();           // update sidebar amount
-        renderEstimateDetail(data.amountTotal);
+        renderEstimateDetail(data.amountTotal, data.status);
       }
     } catch(e) { /* non-fatal */ }
   } else if (stripeQuoteId && _quoteTotalCache[stripeQuoteId] != null) {
-    renderEstimateDetail(_quoteTotalCache[stripeQuoteId]);
+    renderEstimateDetail(_quoteTotalCache[stripeQuoteId], _quoteStatusCache[stripeQuoteId]);
   }
 }
 
-function renderEstimateDetail(quoteTotalOverride) {
+function renderEstimateDetail(quoteTotalOverride, quoteStatusOverride) {
   const det = document.getElementById('est-detail');
   if (!_selectedEst) {
     det.innerHTML = '<div class="empty-state"><span class="arrow">←</span><span>Select an estimate</span></div>';
@@ -7435,7 +7437,13 @@ function renderEstimateDetail(quoteTotalOverride) {
     ? new Date(f['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
     : '—';
 
-  const isClosedWO = ['Invoiced','Paid'].includes(status);
+  // A WO's own Status (e.g. an Inspection that's been Paid) can be totally unrelated
+  // to the lifecycle of a follow-up estimate sitting on that same WO — trust the real
+  // Stripe quote status once we have it, and only fall back to the WO's Status as a
+  // first-paint guess before that fetch resolves.
+  const liveQuoteStatus = quoteStatusOverride ?? (f['Stripe Quote ID'] ? _quoteStatusCache[f['Stripe Quote ID']] : null);
+  const quoteResolved   = liveQuoteStatus != null ? ['accepted','canceled'].includes(liveQuoteStatus) : null;
+  const isClosedWO = quoteResolved != null ? quoteResolved : ['Invoiced','Paid'].includes(status);
   const actionBtns = isClosedWO && f['Stripe Quote ID']
     ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}',true)">View Quote</button>`
     : status === 'Estimate Approved'
