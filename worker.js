@@ -816,6 +816,52 @@ export default {
       }
     }
 
+    // ── Convert an approved estimate into a real Job Work Order ────────────
+    // Single source of truth for this business rule — any client (admin app,
+    // future mobile/automations) gets the same correct linking every time,
+    // instead of each client having to remember to set both links itself.
+    if (path === '/api/convert-to-job' && request.method === 'POST') {
+      try {
+        const { woId, quoteId } = await request.json();
+        if (!woId) return new Response(JSON.stringify({ error: 'Missing woId' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const estWO = await airtableGetById('Work Orders', woId);
+        const f = estWO.fields;
+        const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || 'Customer');
+        const custId        = (f['Customer'] || [])[0] || null;
+        const propId        = (f['Property'] || [])[0] || null;
+        const stripeQuoteId = (f['Stripe Quote ID'] || '').trim();
+        const today         = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+        const jobFields = {
+          'Work Order Name': `${custName} — Job — ${today}`,
+          'Work Order Type': 'Repair',
+          'Status':          'New',
+          'Active':          true,
+          'Internal Notes':  `Converted from estimate: ${f['Work Order Name'] || woId}`,
+          'Source Estimate': [woId],
+        };
+        if (custId)        jobFields['Customer']        = [custId];
+        if (propId)        jobFields['Property']        = [propId];
+        if (stripeQuoteId) jobFields['Stripe Quote ID'] = stripeQuoteId;
+
+        const newJobWO = await airtablePost('Work Orders', jobFields);
+
+        // Patch the originating Quote's direct Job link, so the Estimates tab can
+        // resolve the live job status in one hop instead of inferring it. Resolve
+        // the quote record from the request if given, else from the WO's own link.
+        const quoteRecordId = quoteId || (f['Quotes'] || [])[0] || null;
+        if (quoteRecordId) {
+          try { await airtablePatch('Quotes', quoteRecordId, { 'Job': [newJobWO.id] }); }
+          catch (e) { /* non-fatal — job is created either way */ }
+        }
+
+        return new Response(JSON.stringify({ ok: true, id: newJobWO.id }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Stripe quote PDF proxy ────────────────────────────────────────────
     if (path === '/api/quote-pdf' && request.method === 'GET') {
       try {

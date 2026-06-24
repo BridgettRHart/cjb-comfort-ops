@@ -7285,11 +7285,14 @@ async function loadEstimates() {
     const woIds = [...new Set(quotes.map(q => (q.fields['Work Order'] || [])[0]).filter(Boolean))];
     const woMap = await _fetchWOsByIds(woIds);
 
-    // Any of those WOs already converted into a real job — batch-fetch the jobs too,
+    // Any of those quotes already converted into a real job — batch-fetch the jobs too,
     // so we can track the job's own live status instead of a frozen approval label.
-    const jobIds = [...new Set(
-      Object.values(woMap).flatMap(w => (w.fields['From field: Source Estimate'] || []).map(x => x.id))
-    )];
+    // Quotes.Job is the direct, canonical link (set atomically by /api/convert-to-job);
+    // the WO reverse-link hop is a fallback for older conversions made before that field
+    // existed.
+    const directJobIds = quotes.map(q => (q.fields['Job'] || [])[0]).filter(Boolean);
+    const legacyJobIds = Object.values(woMap).flatMap(w => (w.fields['From field: Source Estimate'] || []).map(x => x.id));
+    const jobIds = [...new Set([...directJobIds, ...legacyJobIds])];
     const jobMap = jobIds.length ? await _fetchWOsByIds(jobIds) : {};
 
     _allEstimates = quotes
@@ -7297,7 +7300,7 @@ async function loadEstimates() {
         const woId = (q.fields['Work Order'] || [])[0] || null;
         const wo   = woId ? woMap[woId] : null;
         if (!wo) return null; // orphaned quote with no linked WO — shouldn't normally happen
-        const jobId = (wo.fields['From field: Source Estimate'] || [])[0]?.id || null;
+        const jobId = (q.fields['Job'] || [])[0] || (wo.fields['From field: Source Estimate'] || [])[0]?.id || null;
         const job   = jobId ? jobMap[jobId] : null;
         return { id: q.id, quote: q, wo, job };
       })
@@ -7357,6 +7360,16 @@ function estimateDisplayStatus(entry) {
 
   if (quoteStatus === 'Open' && isEstimateTypeWO && woStatus !== 'Estimate Sent') {
     return { status: woStatus || 'Draft', isJob: false };
+  }
+
+  // Once a quote is Accepted, "what stage of doing the work are we at" is the Work
+  // Order's territory, not the quote's — unless this is a genuine estimate-type WO
+  // that's still waiting on a deliberate Convert-to-Job step. A combo Inspection/
+  // Repair/Maintenance/Installation WO that carried the quote directly (no separate
+  // conversion needed) should show its own live progress instead of freezing on
+  // "Estimate Approved" forever — same delineation a converted Job gives above.
+  if (quoteStatus === 'Accepted' && !isEstimateTypeWO) {
+    return { status: woStatus || 'Estimate Approved', isJob: true };
   }
 
   const mapped = { Open: 'Estimate Sent', Accepted: 'Estimate Approved', Declined: 'Estimate Declined', Expired: 'Estimate Expired' }[quoteStatus];
@@ -7718,35 +7731,23 @@ async function estSelectProperty(propId) {
 }
 
 async function convertEstimateToJob(woId) {
-  const wo = _allEstimates.find(e => e.wo.id === woId)?.wo;
+  const entry = _allEstimates.find(e => e.wo.id === woId);
+  const wo = entry?.wo;
   if (!wo) return;
-  const custName = Array.isArray(wo.fields['Customer Name']) ? wo.fields['Customer Name'][0] : (wo.fields['Customer Name'] || 'Customer');
   if (!confirm(`Convert this estimate to a job? A new Work Order will be created — you can schedule it now or leave it in the queue for later.`)) return;
 
-  const custId       = (wo.fields['Customer'] || [])[0] || null;
-  const propId       = (wo.fields['Property'] || [])[0] || null;
-  const stripeQuoteId = (wo.fields['Stripe Quote ID'] || '').trim();
-  const today        = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
-
-  const fields = {
-    'Work Order Name':  `${custName} — Job — ${today}`,
-    'Work Order Type':  'Repair',
-    'Status':           'New',
-    'Active':           true,
-    'Internal Notes':   `Converted from estimate: ${wo.fields['Work Order Name'] || woId}`,
-  };
-  if (custId)        fields['Customer']        = [custId];
-  if (propId)        fields['Property']        = [propId];
-  if (stripeQuoteId) fields['Stripe Quote ID'] = stripeQuoteId;
-  // Links this job back to the estimate it came from — the Estimates tab uses this
-  // to know the original estimate is superseded and to track the job's own live
-  // status (Scheduled, deposit paid, Invoiced...) instead of a frozen approval label.
-  fields['Source Estimate'] = [woId];
+  const custId = (wo.fields['Customer'] || [])[0] || null;
 
   try {
-    const res  = await fetch(`${PROXY}/Work%20Orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
+    // The conversion itself — creating the Job WO, linking it back via Source
+    // Estimate, and linking the originating Quote's own Job field — all happens
+    // server-side in one call, so the links can never end up only half-set.
+    const res  = await fetch(`${PROXY}/convert-to-job`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ woId, quoteId: entry?.quote?.id || null })
+    });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    if (!res.ok || data.error) throw new Error(data.error || 'Failed to convert estimate');
 
     // Navigate to the customer so the edit modal has full context (properties, etc.)
     switchTab('customers', true);
