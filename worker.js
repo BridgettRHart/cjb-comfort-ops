@@ -1174,23 +1174,40 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               // Mark deposit paid on WO; don't flip WO status to Paid yet
               await airtablePatch('Work Orders', wo.id, { 'Deposit Paid': true });
 
-              // Update the Airtable Invoice record for this deposit
-              // Find it by looking through linked Invoice records for type=Deposit
+              // Update the Airtable Invoice record for this deposit.
+              // Prefer an exact Stripe Invoice ID match — a WO can have more than one
+              // Deposit-type Invoice record linked (e.g. a corrected replacement after
+              // a voided one), and matching on type alone grabs whichever is linked
+              // first, which can resurrect a stale/voided record instead of the real one.
               const linkedInvIds = wo.fields['Invoice'] || [];
+              let matchedInvId = null;
               for (const invId of linkedInvIds) {
                 try {
                   const atInv = await airtableGetById('Invoices', invId);
-                  if ((atInv.fields['Invoice Type'] || '') === 'Deposit') {
-                    await airtablePatch('Invoices', invId, {
-                      'Status':            'Paid in Full',
-                      'Paid Date':         paidDate,
-                      'Amount Paid':       amountPaid,
-                      'Deposit Paid':      true,
-                      'Deposit Paid Date': paidDate,
-                    });
-                    break;
-                  }
+                  if (atInv.fields['Stripe Invoice ID'] === stripeInvId) { matchedInvId = invId; break; }
                 } catch(e) { /* skip */ }
+              }
+              if (!matchedInvId) {
+                // Fallback for legacy records with no Stripe Invoice ID stored — never
+                // fall back onto a Void record.
+                for (const invId of linkedInvIds) {
+                  try {
+                    const atInv = await airtableGetById('Invoices', invId);
+                    if ((atInv.fields['Invoice Type'] || '') === 'Deposit' && (atInv.fields['Status'] || '') !== 'Void') {
+                      matchedInvId = invId;
+                      break;
+                    }
+                  } catch(e) { /* skip */ }
+                }
+              }
+              if (matchedInvId) {
+                await airtablePatch('Invoices', matchedInvId, {
+                  'Status':            'Paid in Full',
+                  'Paid Date':         paidDate,
+                  'Amount Paid':       amountPaid,
+                  'Deposit Paid':      true,
+                  'Deposit Paid Date': paidDate,
+                });
               }
 
               // Send deposit received confirmation email
@@ -1220,8 +1237,18 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
               await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
 
-              // Update linked Invoice record
-              const atInvId = (wo.fields['Invoice'] || [])[0];
+              // Update linked Invoice record — match by exact Stripe Invoice ID rather
+              // than just taking Invoice[0], so a stale/voided duplicate linked to the
+              // same WO never gets overwritten instead of the real one.
+              const linkedStdInvIds = wo.fields['Invoice'] || [];
+              let atInvId = null;
+              for (const invId of linkedStdInvIds) {
+                try {
+                  const atInv = await airtableGetById('Invoices', invId);
+                  if (atInv.fields['Stripe Invoice ID'] === stripeInvId) { atInvId = invId; break; }
+                } catch(e) { /* skip */ }
+              }
+              if (!atInvId) atInvId = linkedStdInvIds[0] || null; // legacy fallback
               if (atInvId) {
                 await airtablePatch('Invoices', atInvId, {
                   'Status':      'Paid in Full',
