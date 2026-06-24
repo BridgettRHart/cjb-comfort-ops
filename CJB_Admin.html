@@ -2937,9 +2937,13 @@ function renderDetail(customer, props, wos, contacts) {
             : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
         } else if (status === 'Invoiced') {
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
-          if (stripeUrl) invoiceBtn += ` <a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View ↗</a>`;
+          if (stripeUrl || hasDraftInvoice) {
+            invoiceBtn += ` <button class="btn btn-gray btn-sm" onclick="viewStripeInvoice('${wf['Stripe Invoice ID'] || ''}','${escAttr(stripeUrl || '')}')">View Invoice ↗</button>`;
+          }
         } else if (status === 'Paid') {
-          if (stripeUrl) invoiceBtn = `<a class="btn btn-gray btn-sm" href="${escAttr(stripeUrl)}" target="_blank" rel="noopener">View Invoice ↗</a>`;
+          if (stripeUrl || hasDraftInvoice) {
+            invoiceBtn = `<button class="btn btn-gray btn-sm" onclick="viewStripeInvoice('${wf['Stripe Invoice ID'] || ''}','${escAttr(stripeUrl || '')}')">View Invoice ↗</button>`;
+          }
         }
 
         const eqChips = (woEquipment[wo.id] || []);
@@ -5631,6 +5635,22 @@ function extractStripeUrl(internalNotes) {
   if (!internalNotes) return null;
   const m = internalNotes.match(/https:\/\/invoice\.stripe\.com\/[^\s]+/);
   return m ? m[0] : null;
+}
+
+// Open a Stripe invoice in a new tab. Prefers a URL already on hand (parsed from
+// Internal Notes); falls back to looking the invoice up by its Stripe Invoice ID
+// when that text never got saved but the invoice itself still exists.
+async function viewStripeInvoice(stripeInvoiceId, knownUrl) {
+  if (knownUrl) { window.open(knownUrl, '_blank'); return; }
+  if (!stripeInvoiceId) { alert('No Stripe invoice found for this work order.'); return; }
+  try {
+    const res  = await fetch(`${PROXY}/invoice/${stripeInvoiceId}`);
+    const data = await res.json();
+    if (data.hostedUrl) window.open(data.hostedUrl, '_blank');
+    else alert('Could not find that invoice in Stripe.');
+  } catch (e) {
+    alert('Could not load that invoice from Stripe.');
+  }
 }
 
 function showToast(msg, duration = 3000) {
