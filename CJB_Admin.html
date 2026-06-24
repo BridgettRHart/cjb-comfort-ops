@@ -1981,16 +1981,21 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   // the invoice flow runs on a WO, and "Invoiced"/"Paid" describe the WO's own
   // lifecycle, not verified billing state (no partial-payment handling, no real
   // cross-check against what was actually collected).
-  const arInvoices = invoices.filter(i => Number(i.fields['Balance Due']) > 0);
+  // A Void invoice is a reversed charge, not revenue — exclude it everywhere below.
+  // Voiding doesn't reliably clear Amount Paid/Paid Date/Balance Due on the record,
+  // so without this check a voided deposit can still get counted as collected cash.
+  const liveInvoices = invoices.filter(i => i.fields['Status'] !== 'Void');
+
+  const arInvoices = liveInvoices.filter(i => Number(i.fields['Balance Due']) > 0);
   const arTotal     = arInvoices.reduce((s, i) => s + Number(i.fields['Balance Due'] || 0), 0);
 
-  const paidThisMonth = invoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(monthStr));
+  const paidThisMonth = liveInvoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(monthStr));
   const collectedAmt  = paidThisMonth.reduce((s, i) => s + Number(i.fields['Amount Paid'] != null ? i.fields['Amount Paid'] : (i.fields['Total'] || 0)), 0);
   const completedCount = paidThisMonth.length;
-  const invoicedThisMonth = invoices.filter(i => i.fields['Invoice Date'] && _azDate(i.fields['Invoice Date']).startsWith(monthStr));
+  const invoicedThisMonth = liveInvoices.filter(i => i.fields['Invoice Date'] && _azDate(i.fields['Invoice Date']).startsWith(monthStr));
   const invoicedAmt   = invoicedThisMonth.reduce((s, i) => s + Number(i.fields['Total'] || 0), 0);
 
-  const paidYTD    = invoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(yearStr));
+  const paidYTD    = liveInvoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(yearStr));
   const revenueYTD = paidYTD.reduce((s, i) => s + Number(i.fields['Total'] || 0), 0);
   const avgJobYTD  = paidYTD.length ? revenueYTD / paidYTD.length : null;
 
