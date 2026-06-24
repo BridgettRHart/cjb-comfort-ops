@@ -450,6 +450,8 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .est-pill-approved { background: #dcfce7; color: #166534; }
 .est-pill-declined { background: #fee2e2; color: #991b1b; }
 .est-pill-expired  { background: #f3f4f6; color: #9ca3af; }
+.est-pill-scheduled { background: #e3f0ff; color: #1a4f8a; }
+.est-pill-jobdone   { background: #c3e6cb; color: #0d4a1f; }
 .est-days-chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 5px; }
 .est-days-green  { background: #dcfce7; color: #166534; }
 .est-days-yellow { background: #fef9c3; color: #854d0e; }
@@ -7271,21 +7273,30 @@ async function loadEstimates() {
     const data = await res.json();
     _allEstimates = (data.records || []).filter(r =>
       r.fields['Active'] !== false &&
-      // Converted job WOs (Terry Mahan's Installation, etc.) inherit their source
-      // estimate's Stripe Quote ID purely for invoice-prefill — that makes them match
-      // the query above, but they're not estimates in their own right. The real
-      // estimate WO is what should show; this one belongs only on the customer page.
-      !((r.fields['Source Estimate'] || []).length)
+      // Once an estimate WO has been converted into a real job (tracked via the
+      // reverse Source Estimate link), the original estimate is superseded — the
+      // job is now the live, actionable thing to track (Scheduled, deposit paid,
+      // Invoiced, Paid...), not a frozen 'Estimate Approved' label. Hide the
+      // original here; the converted job WO itself stays in this list (it
+      // matched the query above via the Stripe Quote ID it inherited) and is
+      // shown using its own current status.
+      !((r.fields['From field: Source Estimate'] || []).length)
     );
     document.getElementById('est-count').textContent = '(' + _allEstimates.length + ')';
     renderEstimatesList();
-    // Pre-fetch Stripe quote totals in the background so sidebar amounts are correct on load
+    // Pre-fetch live Stripe quote totals + status in the background so sidebar amounts
+    // and status badges are correct on load (a WO's own Status field is meaningless for
+    // the quote's lifecycle on combo WOs like Inspections that carry a follow-up estimate).
     _allEstimates.forEach(wo => {
       const sqId = wo.fields['Stripe Quote ID'];
-      if (sqId && _quoteTotalCache[sqId] == null) {
+      if (sqId && (_quoteTotalCache[sqId] == null || _quoteStatusCache[sqId] == null)) {
         fetch(`${PROXY}/quote/${sqId}`)
           .then(r => r.json())
-          .then(d => { if (d.amountTotal != null) { _quoteTotalCache[sqId] = d.amountTotal; renderEstimatesList(); } })
+          .then(d => {
+            if (d.amountTotal != null) _quoteTotalCache[sqId] = d.amountTotal;
+            if (d.status) _quoteStatusCache[sqId] = d.status;
+            renderEstimatesList();
+          })
           .catch(() => {});
       }
     });
@@ -7294,22 +7305,49 @@ async function loadEstimates() {
   }
 }
 
+// Resolve what should actually be displayed/filtered-on for an Estimates-tab entry.
+// A WO's own Status field is only trustworthy in two situations: (1) this WO IS a
+// converted job (Source Estimate populated) — then Status is the live truth
+// (Scheduled, Invoiced, Paid...). (2) there's no Stripe Quote ID at all, so there's
+// nothing else to go on. Otherwise — a combo Inspection/Repair WO carrying a
+// follow-up quote, or a genuine not-yet-converted estimate WO — the WO's Status
+// reflects an unrelated visit/job lifecycle, so prefer the live Stripe quote status
+// once it's been fetched.
+function estimateDisplayStatus(wo) {
+  const f = wo.fields;
+  const isJob = !!((f['Source Estimate'] || []).length);
+  if (isJob) return { status: f['Status'] || 'Scheduled', isJob: true };
+
+  const sqId = f['Stripe Quote ID'];
+  const liveStatus = sqId ? _quoteStatusCache[sqId] : null;
+  const mapped = { draft: 'Draft', open: 'Estimate Sent', accepted: 'Estimate Approved', canceled: 'Estimate Declined' }[liveStatus];
+  if (mapped) return { status: mapped, isJob: false };
+  return { status: f['Status'] || 'Draft', isJob: false };
+}
+
+function estimatePillClass(status, isJob) {
+  if (isJob) return ['Invoiced', 'Paid', 'Complete'].includes(status) ? 'est-pill-jobdone' : 'est-pill-scheduled';
+  return status === 'Estimate Sent' ? 'est-pill-sent'
+    : status === 'Estimate Approved' ? 'est-pill-approved'
+    : status === 'Estimate Declined' ? 'est-pill-declined'
+    : status === 'Estimate Expired'  ? 'est-pill-expired'
+    : 'est-pill-draft';
+}
+
 function renderEstimatesList() {
   const el = document.getElementById('est-list');
   let filtered;
   if (_estFilter === 'active') {
     filtered = _allEstimates.filter(r => {
-      // Already converted into a real job (tracked via the reverse Source Estimate
-      // link) — this estimate is resolved regardless of its own Status field, which
-      // can say 'Complete' just because the site visit happened, long after the job
-      // it spawned has already been invoiced/paid.
-      const convertedToJob = !!((r.fields['From field: Source Estimate'] || []).length);
-      if (convertedToJob) return false;
+      const { status: s, isJob } = estimateDisplayStatus(r);
+
+      // A converted job is "active" until it's fully closed out — the original
+      // estimate/approval status no longer matters once it's a real job.
+      if (isJob) return !['Invoiced', 'Paid', 'Cancelled'].includes(s);
 
       // Our own 30-day-from-visit staleness window — once we'd show "Expired" in
       // the days chip, drop it from Active even if Stripe/Airtable's own status
       // hasn't caught up yet (it still stays visible on the customer profile).
-      const s = r.fields['Status'] || '';
       if (r.fields['Scheduled Date'] && !['Estimate Approved','Estimate Declined','Estimate Expired'].includes(s)) {
         const created = new Date(r.fields['Scheduled Date']);
         const expires = new Date(created.getTime() + 30 * 24 * 3600000);
@@ -7328,9 +7366,15 @@ function renderEstimatesList() {
       return !s || s === 'Draft' || s === 'Estimate Sent';
     });
   } else if (_estFilter === 'approved') {
-    filtered = _allEstimates.filter(r => r.fields['Status'] === 'Estimate Approved');
+    filtered = _allEstimates.filter(r => {
+      const { status: s, isJob } = estimateDisplayStatus(r);
+      return !isJob && s === 'Estimate Approved';
+    });
   } else if (_estFilter === 'declined') {
-    filtered = _allEstimates.filter(r => r.fields['Status'] === 'Estimate Declined' || r.fields['Status'] === 'Estimate Expired');
+    filtered = _allEstimates.filter(r => {
+      const { status: s, isJob } = estimateDisplayStatus(r);
+      return !isJob && (s === 'Estimate Declined' || s === 'Estimate Expired');
+    });
   } else {
     // All: always show WOs that have a quote, regardless of WO invoice status
     filtered = _allEstimates.filter(r => {
@@ -7354,18 +7398,15 @@ function renderEstimatesList() {
     const sqId     = f['Stripe Quote ID'] || '';
     const totalAmt = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : f['Total Amount'];
     const total    = totalAmt != null ? fmt$(totalAmt) : '';
-    const status   = f['Status'] || 'Draft';
+    const { status, isJob } = estimateDisplayStatus(wo);
     const isSelected = _selectedEst && _selectedEst.id === wo.id;
 
-    const pillClass = status === 'Estimate Sent' ? 'est-pill-sent'
-      : status === 'Estimate Approved' ? 'est-pill-approved'
-      : status === 'Estimate Declined' ? 'est-pill-declined'
-      : status === 'Estimate Expired'  ? 'est-pill-expired'
-      : 'est-pill-draft';
+    const pillClass = estimatePillClass(status, isJob);
 
-    // Days-remaining chip: 30-day window from Scheduled Date
+    // Days-remaining chip: 30-day window from Scheduled Date — doesn't apply once
+    // this is a converted job, jobs don't "expire."
     let daysChip = '';
-    if (f['Scheduled Date'] && status !== 'Estimate Approved' && status !== 'Estimate Declined' && status !== 'Estimate Expired') {
+    if (!isJob && f['Scheduled Date'] && status !== 'Estimate Approved' && status !== 'Estimate Declined' && status !== 'Estimate Expired') {
       const created = new Date(f['Scheduled Date']);
       const expires = new Date(created.getTime() + 30 * 24 * 3600000);
       const now     = new Date();
@@ -7426,21 +7467,21 @@ function renderEstimateDetail(quoteTotalOverride, quoteStatusOverride) {
   const f  = wo.fields;
   const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || '(no customer)');
   const addr     = Array.isArray(f['Service Address']) ? f['Service Address'][0] : (f['Service Address'] || '');
-  const status   = f['Status'] || 'Draft';
+  // If a live quote-status fetch just resolved for this exact record, prefer it;
+  // otherwise fall back to whatever estimateDisplayStatus can resolve from cache.
+  const sqIdForStatus = f['Stripe Quote ID'];
+  if (quoteStatusOverride && sqIdForStatus) _quoteStatusCache[sqIdForStatus] = quoteStatusOverride;
+  const { status, isJob } = estimateDisplayStatus(wo);
   // Prefer the live Stripe quote total over the WO's Total Amount field,
   // which gets overwritten by the invoice flow when both exist on the same WO.
   const totalAmt = quoteTotalOverride ?? f['Total Amount'];
   const total    = totalAmt != null ? '$' + Number(totalAmt).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
   const custId   = (f['Customer'] || [])[0] || null;
 
-  const pillClass = status === 'Estimate Sent' ? 'est-pill-sent'
-    : status === 'Estimate Approved' ? 'est-pill-approved'
-    : status === 'Estimate Declined' ? 'est-pill-declined'
-    : status === 'Estimate Expired'  ? 'est-pill-expired'
-    : 'est-pill-draft';
+  const pillClass = estimatePillClass(status, isJob);
 
   let daysChip = '';
-  if (f['Scheduled Date'] && status !== 'Estimate Approved' && status !== 'Estimate Declined' && status !== 'Estimate Expired') {
+  if (!isJob && f['Scheduled Date'] && status !== 'Estimate Approved' && status !== 'Estimate Declined' && status !== 'Estimate Expired') {
     const created  = new Date(f['Scheduled Date']);
     const expires  = new Date(created.getTime() + 30 * 24 * 3600000);
     const now      = new Date();
@@ -7460,22 +7501,23 @@ function renderEstimateDetail(quoteTotalOverride, quoteStatusOverride) {
     ? new Date(f['Scheduled Date']).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
     : '—';
 
-  // A WO's own Status (e.g. an Inspection that's been Paid) can be totally unrelated
-  // to the lifecycle of a follow-up estimate sitting on that same WO — trust the real
-  // Stripe quote status once we have it, and only fall back to the WO's Status as a
-  // first-paint guess before that fetch resolves.
-  const liveQuoteStatus = quoteStatusOverride ?? (f['Stripe Quote ID'] ? _quoteStatusCache[f['Stripe Quote ID']] : null);
-  const quoteResolved   = liveQuoteStatus != null ? ['accepted','canceled'].includes(liveQuoteStatus) : null;
-  const isClosedWO = quoteResolved != null ? quoteResolved : ['Invoiced','Paid'].includes(status);
-  const actionBtns = isClosedWO && f['Stripe Quote ID']
-    ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}',true)">View Quote</button>`
-    : status === 'Estimate Approved'
-    ? `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>
-       <button class="btn btn-red" onclick="convertEstimateToJob('${wo.id}')">Convert to Job →</button>`
-    : status === 'Estimate Sent'
-    ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Update &amp; Resend</button>
-       <button class="btn btn-sm" style="background:#d97706;color:#fff;" onclick="markEstimateApproved('${wo.id}')">✓ Mark Approved</button>`
-    : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>`;
+  let actionBtns;
+  if (isJob) {
+    // Already a real job — billing/scheduling actions live on the customer profile;
+    // this view is just for tracking it and referencing what was quoted.
+    actionBtns = `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}',true)">View Quote</button>
+       <button class="btn btn-blue btn-sm" onclick="switchTab('customers');selectCustomer('${custId || ''}')">Open Customer →</button>`;
+  } else {
+    actionBtns = status === 'Estimate Declined'
+      ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}',true)">View Quote</button>`
+      : status === 'Estimate Approved'
+      ? `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>
+         <button class="btn btn-red" onclick="convertEstimateToJob('${wo.id}')">Convert to Job →</button>`
+      : status === 'Estimate Sent'
+      ? `<button class="btn btn-gray btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Update &amp; Resend</button>
+         <button class="btn btn-sm" style="background:#d97706;color:#fff;" onclick="markEstimateApproved('${wo.id}')">✓ Mark Approved</button>`
+      : `<button class="btn btn-blue btn-sm" onclick="openQuoteModal('${wo.id}','${custId || ''}')">Edit / View Estimate</button>`;
+  }
 
   det.innerHTML = `
     <div class="cust-card">
@@ -7697,6 +7739,10 @@ async function convertEstimateToJob(woId) {
   if (custId)        fields['Customer']        = [custId];
   if (propId)        fields['Property']        = [propId];
   if (stripeQuoteId) fields['Stripe Quote ID'] = stripeQuoteId;
+  // Links this job back to the estimate it came from — the Estimates tab uses this
+  // to know the original estimate is superseded and to track the job's own live
+  // status (Scheduled, deposit paid, Invoiced...) instead of a frozen approval label.
+  fields['Source Estimate'] = [woId];
 
   try {
     const res  = await fetch(`${PROXY}/Work%20Orders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields}) });
