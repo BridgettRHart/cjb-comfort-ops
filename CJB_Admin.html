@@ -1878,7 +1878,11 @@ async function loadDashboard(force) {
       // Outstanding AR / Collected / Avg Job Value read real invoice data — Balance
       // Due, Amount Paid, Paid Date — instead of a Work Order's own Total Amount
       // field, which is known to get overwritten once the invoice flow runs on it.
-      fetchAll('Invoices', `filterByFormula=${encodeURIComponent('NOT({Active}=FALSE())')}`)
+      // No Active filter here: unlike Work Orders, the Invoices table's Active
+      // checkbox is never actually set by anything that creates an invoice — it's
+      // blank on effectively every record, so filtering on it excluded almost the
+      // entire table. The dataset is small enough to just fetch it all.
+      fetchAll('Invoices', '')
     ]);
     // Batch-fetch the Jobs linked from each Follow-Up for notes + service dates
     _fuLinkedJobs = await _loadFuLinkedJobs(_dashFuRecords);
