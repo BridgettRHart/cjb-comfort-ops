@@ -2907,8 +2907,14 @@ function renderDetail(customer, props, wos, contacts) {
 
         // Invoice button
         const depositPaid = !!(wf['Deposit Paid']);
+        // An approved estimate that's already been converted into a real Job/Installation WO
+        // (tracked via the reverse Source Estimate link) is superseded — all billing actions
+        // belong on the job WO now, not here, or both show "Send Final Balance" at once.
+        const supersededByJob = !!((wf['From field: Source Estimate'] || []).length);
         let invoiceBtn = '';
-        if (depositPaid && !['Invoiced','Paid','Cancelled'].includes(status)) {
+        if (supersededByJob) {
+          invoiceBtn = '';
+        } else if (depositPaid && !['Invoiced','Paid','Cancelled'].includes(status)) {
           // Deposit was collected — show button to send the final balance invoice
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openFinalInvoiceModal('${wo.id}','${customer.id}')">Send Final Balance</button>`;
         } else if (['Complete','Estimate Approved','Estimate Declined'].includes(status)) {
@@ -3046,7 +3052,11 @@ function renderDetail(customer, props, wos, contacts) {
       const outstandingEstimates = wos.filter(wo => {
         const s = wo.fields['Stripe Quote ID'];
         const st = wo.fields['Status'] || '';
-        return s && !['Estimate Declined','Estimate Expired','Estimate Approved'].includes(st);
+        const woType = wo.fields['Work Order Type'] || '';
+        // Only true estimate-type WOs belong here — a converted Job/Installation WO inherits
+        // the same Stripe Quote ID (for final-invoice prefill) but isn't itself "outstanding."
+        const isEstimateType = ['Install Estimate','Estimate Only'].includes(woType);
+        return s && isEstimateType && !['Estimate Declined','Estimate Expired','Estimate Approved','Complete','Invoiced','Paid','Cancelled'].includes(st);
       });
       if (!outstandingEstimates.length) return '';
       const rows = outstandingEstimates.map(wo => {
