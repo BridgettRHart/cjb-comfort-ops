@@ -450,6 +450,7 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .est-pill-approved { background: #dcfce7; color: #166534; }
 .est-pill-declined { background: #fee2e2; color: #991b1b; }
 .est-pill-expired  { background: #f3f4f6; color: #9ca3af; }
+.est-pill-finalized { background: #fef3c7; color: #92400e; }
 .est-pill-scheduled { background: #e3f0ff; color: #1a4f8a; }
 .est-pill-jobdone   { background: #c3e6cb; color: #0d4a1f; }
 .est-days-chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 5px; }
@@ -7358,8 +7359,14 @@ function estimateDisplayStatus(entry) {
   const isEstimateTypeWO = ['Install Estimate', 'Estimate Only'].includes(woType);
   const woStatus = wo.fields['Status'] || '';
 
+  // This is the one genuine ambiguity Stripe never resolves: 'Open' just means
+  // "finalized," which happens on a real send AND on a finalize-for-PDF-only action
+  // (e.g. an EA program submission that needs a locked-price PDF before the customer
+  // ever sees it). Give it its own clear label instead of leaking the WO's own
+  // visit-lifecycle status (Complete/New/Scheduled...) into the Estimates tab — that
+  // vocabulary doesn't mean anything here and was falling through every tab filter.
   if (quoteStatus === 'Open' && isEstimateTypeWO && woStatus !== 'Estimate Sent') {
-    return { status: woStatus || 'Draft', isJob: false };
+    return { status: 'Finalized — Not Sent', isJob: false };
   }
 
   // Once a quote is Accepted, "what stage of doing the work are we at" is the Work
@@ -7382,6 +7389,7 @@ function estimatePillClass(status, isJob) {
     : status === 'Estimate Approved' ? 'est-pill-approved'
     : status === 'Estimate Declined' ? 'est-pill-declined'
     : status === 'Estimate Expired'  ? 'est-pill-expired'
+    : status === 'Finalized — Not Sent' ? 'est-pill-finalized'
     : 'est-pill-draft';
 }
 
@@ -7413,7 +7421,7 @@ function renderEstimatesList() {
       if (expStr && !['Estimate Approved','Estimate Declined','Estimate Expired'].includes(s)) {
         if (Date.now() > new Date(expStr).getTime()) return false;
       }
-      return s === 'Draft' || s === 'Estimate Sent';
+      return s === 'Draft' || s === 'Estimate Sent' || s === 'Finalized — Not Sent';
     });
   } else if (_estFilter === 'approved') {
     filtered = _allEstimates.filter(entry => {
