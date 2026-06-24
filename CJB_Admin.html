@@ -1816,6 +1816,7 @@ let _dashFuRecords = null;   // Follow-Up records (Status="Open") — replaces _
 let _fuLinkedJobs  = {};     // jobId → Job record map for notes + dates
 let _dashContracts = null;
 let _dashEstEntries = null; // shared Quotes-joined entries — see getEstimateEntries()
+let _dashInvoices  = null;  // Invoices table — AR/Collected/Avg Job Value source of truth
 let _dashLoadedAt = 0;
 let _weekOffset   = 0;      // 0 = current week, -1 = last week, +1 = next week
 let _selectedDay  = null;   // YYYY-MM-DD of clicked day, null = auto (today or week's first job day)
@@ -1859,7 +1860,7 @@ async function _loadFuLinkedJobs(fuRecords) {
 
 async function loadDashboard(force) {
   if (!force && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries);
+    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries, _dashInvoices);
     return;
   }
   document.getElementById('dash-content').innerHTML =
@@ -1867,13 +1868,17 @@ async function loadDashboard(force) {
   try {
     const woFormula  = encodeURIComponent(`NOT({Status}="Cancelled")`);
     const fuFormula  = encodeURIComponent(`{Status}="Open"`);
-    [_dashWOs, _dashFuRecords, _dashContracts] = await Promise.all([
+    [_dashWOs, _dashFuRecords, _dashContracts, _dashInvoices] = await Promise.all([
       fetchAll('Work Orders',
         `filterByFormula=${woFormula}&sort[0][field]=Scheduled Date&sort[0][direction]=asc`),
       fetchAll('Follow-Ups',
         `filterByFormula=${fuFormula}&fields[]=Title&fields[]=Status&fields[]=Customer&fields[]=Work Order&fields[]=Job&fields[]=Notes&fields[]=Due Date`),
       fetchAll('Maintenance Contracts',
-        `filterByFormula=${encodeURIComponent('NOT({Status}="Cancelled")')}`)
+        `filterByFormula=${encodeURIComponent('NOT({Status}="Cancelled")')}`),
+      // Outstanding AR / Collected / Avg Job Value read real invoice data — Balance
+      // Due, Amount Paid, Paid Date — instead of a Work Order's own Total Amount
+      // field, which is known to get overwritten once the invoice flow runs on it.
+      fetchAll('Invoices', `filterByFormula=${encodeURIComponent('NOT({Active}=FALSE())')}`)
     ]);
     // Batch-fetch the Jobs linked from each Follow-Up for notes + service dates
     _fuLinkedJobs = await _loadFuLinkedJobs(_dashFuRecords);
@@ -1883,7 +1888,7 @@ async function loadDashboard(force) {
     _dashLoadedAt = Date.now();
     _weekOffset  = 0;
     _selectedDay = null;
-    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries);
+    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries, _dashInvoices);
     // Keep the Follow-Up badge in sync whenever the dashboard refreshes
     updateFollowUpBadge((_dashFuRecords || []).length);
     // Pre-fetch Stripe quote totals for pipeline accuracy — re-render when they arrive
@@ -1897,7 +1902,7 @@ async function loadDashboard(force) {
         return fetch(`${PROXY}/quote/${sqId}`).then(r => r.json())
           .then(d => { if (d.amountTotal != null) _quoteTotalCache[sqId] = d.amountTotal; })
           .catch(() => {});
-      })).then(() => renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries));
+      })).then(() => renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries, _dashInvoices));
     }
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
@@ -1907,11 +1912,12 @@ async function loadDashboard(force) {
 
 function toggleConvRateWindow() {
   _convRateWindow = _convRateWindow === '30d' ? 'all' : '30d';
-  renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries);
+  renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries, _dashInvoices);
 }
 
-function renderDashboard(wos, fuRecords, contracts, estEntries) {
+function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   estEntries = estEntries || [];
+  invoices   = invoices || [];
   const now      = new Date();
   const todayStr = _azDate(now.toISOString());
   const monthStr = todayStr.substring(0, 7);
@@ -1962,23 +1968,32 @@ function renderDashboard(wos, fuRecords, contracts, estEntries) {
   });
 
   // Stats
-  const yearStr        = todayStr.substring(0, 4);
-  const completedCount = thisMonthWOs.filter(w => ['Complete','Invoiced','Paid'].includes(w.fields['Status'])).length;
-  const invoicedAmt    = thisMonthWOs.filter(w => ['Invoiced','Paid'].includes(w.fields['Status']))
-                           .reduce((s, w) => s + (Number(w.fields['Total Amount']) || 0), 0);
-  const collectedAmt   = thisMonthWOs.filter(w => w.fields['Status'] === 'Paid')
-                           .reduce((s, w) => s + (Number(w.fields['Total Amount']) || 0), 0);
+  const yearStr   = todayStr.substring(0, 4);
   const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()];
 
-  // Row 1 — Outstanding AR
-  const arWOs    = wos.filter(w => w.fields['Status'] === 'Invoiced');
-  const arTotal  = arWOs.reduce((s,w) => s + (Number(w.fields['Total Amount'])||0), 0);
+  // Outstanding AR / Collected / Avg Job Value read real Invoice records (Balance
+  // Due, Amount Paid, Paid Date, Total) instead of a Work Order's own Total Amount
+  // field gated by its Status string — that field is known to get overwritten once
+  // the invoice flow runs on a WO, and "Invoiced"/"Paid" describe the WO's own
+  // lifecycle, not verified billing state (no partial-payment handling, no real
+  // cross-check against what was actually collected).
+  const arInvoices = invoices.filter(i => Number(i.fields['Balance Due']) > 0);
+  const arTotal     = arInvoices.reduce((s, i) => s + Number(i.fields['Balance Due'] || 0), 0);
 
-  // Revenue
-  const paidMTD    = thisMonthWOs.filter(w => w.fields['Status'] === 'Paid');
-  const paidYTD    = wos.filter(w => w.fields['Status'] === 'Paid' && (_azDate(w.fields['Scheduled Date']||'')).startsWith(yearStr));
-  const revenueYTD = paidYTD.reduce((s,w) => s + (Number(w.fields['Total Amount'])||0), 0);
+  const paidThisMonth = invoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(monthStr));
+  const collectedAmt  = paidThisMonth.reduce((s, i) => s + Number(i.fields['Amount Paid'] != null ? i.fields['Amount Paid'] : (i.fields['Total'] || 0)), 0);
+  const completedCount = paidThisMonth.length;
+  const invoicedThisMonth = invoices.filter(i => i.fields['Invoice Date'] && _azDate(i.fields['Invoice Date']).startsWith(monthStr));
+  const invoicedAmt   = invoicedThisMonth.reduce((s, i) => s + Number(i.fields['Total'] || 0), 0);
+
+  const paidYTD    = invoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(yearStr));
+  const revenueYTD = paidYTD.reduce((s, i) => s + Number(i.fields['Total'] || 0), 0);
   const avgJobYTD  = paidYTD.length ? revenueYTD / paidYTD.length : null;
+
+  // Outstanding Invoices worklist further down stays Work-Order-based on purpose —
+  // it is a "which jobs still need office action" list, not a dollar-accuracy
+  // widget, and the WO is what dashGoCustomer() and the row's own fields key off.
+  const unbilledWOs = wos.filter(w => w.fields['Status'] === 'Invoiced');
 
   // Row 3 — Estimates. All three widgets read through estimateDisplayStatus() and the
   // Quotes table — the same resolver the Estimates tab uses — instead of each
@@ -2059,7 +2074,7 @@ function renderDashboard(wos, fuRecords, contracts, estEntries) {
       <div class="stat-card clickable ${arTotal > 0 ? 'alert' : ''}" onclick="document.getElementById('ar-widget').scrollIntoView({behavior:'smooth'})">
         <div class="stat-label">Outstanding AR</div>
         <div class="stat-value">${fmt$(arTotal)}</div>
-        <div class="stat-sub">${arWOs.length} invoice${arWOs.length !== 1 ? 's' : ''} unpaid</div>
+        <div class="stat-sub">${arInvoices.length} invoice${arInvoices.length !== 1 ? 's' : ''} unpaid</div>
       </div>
       <div class="stat-card good">
         <div class="stat-label">Collected — ${monthName}</div>
@@ -2211,11 +2226,11 @@ function renderDashboard(wos, fuRecords, contracts, estEntries) {
   const arHtml = `<div class="widget" id="ar-widget">
     <div class="widget-hd">
       <div class="widget-title">Outstanding Invoices</div>
-      <span class="widget-count${arWOs.length ? ' gold' : ''}">${arWOs.length}</span>
+      <span class="widget-count${unbilledWOs.length ? ' gold' : ''}">${unbilledWOs.length}</span>
     </div>
-    ${!arWOs.length
+    ${!unbilledWOs.length
       ? '<div class="widget-empty">No outstanding invoices</div>'
-      : arWOs.map(w => {
+      : unbilledWOs.map(w => {
           const f = w.fields;
           const amt = f['Total Amount'] != null ? ' · $' + Number(f['Total Amount']).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
           return `<div class="inv-row">
