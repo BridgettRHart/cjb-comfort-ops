@@ -2794,16 +2794,16 @@ async function selectCustomer(id) {
 
 // Collapsible section wrapper used throughout the customer detail page —
 // keeps long lists (equipment, work orders, etc.) from forcing endless scroll.
-function sectionHtml(id, titleText, btnsHtml, bodyHtml) {
+function sectionHtml(id, titleText, btnsHtml, bodyHtml, startOpen) {
   return `<div class="section">
     <div class="section-title-row">
       <div class="section-title-click" onclick="toggleSection('${id}')">
-        <span class="section-chevron" id="${id}-chev">▾</span>
+        <span class="section-chevron" id="${id}-chev">${startOpen ? '▾' : '▸'}</span>
         <div class="section-title">${titleText}</div>
       </div>
       ${btnsHtml || ''}
     </div>
-    <div class="section-body" id="${id}-body">${bodyHtml}</div>
+    <div class="section-body" id="${id}-body"${startOpen ? '' : ' style="display:none;"'}>${bodyHtml}</div>
   </div>`;
 }
 

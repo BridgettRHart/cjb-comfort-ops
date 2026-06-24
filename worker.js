@@ -1036,91 +1036,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               }
             }
 
-            // Fetch Stripe line items from the accepted quote
-            const liData   = await stripeGet(STRIPE_KEY, `/v1/quotes/${stripeQuoteId}/line_items?limit=50`);
-            const lineItems = liData.data || [];
-            const stripeCustId = typeof quote.customer === 'string' ? quote.customer : quote.customer?.id;
-
-            if (stripeCustId && lineItems.length) {
-              // Clean up floating pending items
-              try {
-                const pendRes  = await fetch(
-                  `https://api.stripe.com/v1/invoiceitems?customer=${stripeCustId}&limit=100`,
-                  { headers: { Authorization: `Bearer ${STRIPE_KEY}` } }
-                );
-                const pendData = await pendRes.json();
-                for (const p of (pendData.data || [])) {
-                  if (!p.invoice) await stripeDelete(STRIPE_KEY, `/v1/invoiceitems/${p.id}`);
-                }
-              } catch (e) {}
-
-              // Create invoice items from quote line items
-              for (const li of lineItems) {
-                const unitAmt = li.price?.unit_amount
-                  ?? Math.round((li.amount_subtotal || 0) / (li.quantity || 1));
-                await stripePost(STRIPE_KEY, '/v1/invoiceitems', {
-                  customer:              stripeCustId,
-                  unit_amount_decimal:   String(unitAmt),
-                  quantity:              String(li.quantity || 1),
-                  currency:              'usd',
-                  description:           li.description || 'Service'
-                });
-              }
-
-              // Determine due days from customer type
-              let daysUntilDue = '0';
-              if (custId) {
-                try {
-                  const cr = await airtableGetById('Customers', custId);
-                  if ((cr.fields['Type'] || '').toLowerCase() === 'commercial') daysUntilDue = '30';
-                } catch (e) {}
-              }
-
-              // Create draft Stripe invoice
-              const invParams = {
-                customer:          stripeCustId,
-                auto_advance:      'false',
-                collection_method: 'send_invoice',
-                days_until_due:    daysUntilDue,
-                'metadata[quote_id]': stripeQuoteId
-              };
-              if (woId) invParams['metadata[work_order_airtable_id]'] = woId;
-              const inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
-
-              // Update WO with Stripe Invoice ID
-              if (woId) await airtablePatch('Work Orders', woId, { 'Stripe Invoice ID': inv.id });
-
-              // Create or update Airtable Invoice record
-              const subtotal = lineItems.reduce((s, li) => {
-                return s + ((li.price?.unit_amount || 0) * (li.quantity || 1)) / 100;
-              }, 0);
-              const custName = atQuote.fields['Quote Title']?.split(' — ')[0] || '';
-              const atInvFields = {
-                'Invoice Name': `${custName} — ${today}`,
-                'Status':       'Draft',
-                'Invoice Type': 'Standard',
-                'Invoice Date': today,
-                'Subtotal':     subtotal,
-                'Internal Notes': `From Quote: ${stripeQuoteId}\nStripe Invoice ID: ${inv.id}`
-              };
-              if (custId) atInvFields['Customers']     = [custId];
-              if (woId)   atInvFields['Work Orders']   = [woId];
-
-              if (woId) {
-                const woRec = await airtableGetById('Work Orders', woId);
-                const existingAtInvId = (woRec.fields['Invoice'] || [])[0];
-                if (existingAtInvId) {
-                  await airtablePatch('Invoices', existingAtInvId, atInvFields);
-                } else {
-                  await airtablePost('Invoices', atInvFields);
-                }
-              } else {
-                await airtablePost('Invoices', atInvFields);
-              }
-
-              // Mark quote as converted
-              await airtablePatch('Quotes', atQuote.id, { 'Converted to Invoice': true });
-            }
+            // NOTE: this used to also auto-create a "head start" draft Stripe invoice +
+            // matching Airtable Invoice record on every accepted quote. Removed 2026-06-24 —
+            // Bridgett never sends invoices directly from Stripe (only for overdue reminders),
+            // always going through the dedicated Send Deposit / Send Final Balance / Create
+            // Invoice flows instead, each of which creates its own invoice. The auto-draft was
+            // never touched after creation, so it just accumulated as permanent dead weight in
+            // the Stripe Drafts list for every quote ever accepted.
           }
         }
 
