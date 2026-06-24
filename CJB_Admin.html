@@ -2807,6 +2807,15 @@ function sectionHtml(id, titleText, btnsHtml, bodyHtml, startOpen) {
   </div>`;
 }
 
+function toggleVisitDetails(id) {
+  const body = document.getElementById(id);
+  const chev = document.getElementById(id + '-chev');
+  if (!body) return;
+  const opening = body.style.display === 'none';
+  body.style.display = opening ? 'flex' : 'none';
+  if (chev) chev.textContent = opening ? '▾' : '▸';
+}
+
 function toggleSection(id) {
   const body = document.getElementById(id + '-body');
   const chev = document.getElementById(id + '-chev');
@@ -2822,6 +2831,10 @@ function renderDetail(customer, props, wos, contacts) {
   // ── Build job-linkage maps from currentJobs ──────────────────────────────
   // woEquipment: WO id → [{id, name}] of equipment serviced in that WO's jobs
   const woEquipment = {};
+  // woJobs: WO id → [job record] — actual visit jobs only, skipping the
+  // "Not This Visit" placeholders Cornell leaves Cancelled for every other
+  // unit on a multi-unit property.
+  const woJobs = {};
   // eqLastJob: equipment id → most-recent job record
   const eqLastJob = {};
   currentJobs.forEach(j => {
@@ -2836,6 +2849,12 @@ function renderDetail(customer, props, wos, contacts) {
         if (!woEquipment[woId]) woEquipment[woId] = [];
         if (!woEquipment[woId].find(x => x.id === eqId)) woEquipment[woId].push({ id: eqId, name: eqName });
       }
+    }
+    // WO → real visit jobs (has actual notes, wasn't skipped this visit)
+    if (woId && jf['Status'] !== 'Cancelled' &&
+        (jf['Diagnosis'] || jf['Work Performed'] || jf['Recommendations'] || jf['Problem Description'])) {
+      if (!woJobs[woId]) woJobs[woId] = [];
+      woJobs[woId].push(j);
     }
     // Equipment → last job (prefer most-recent Scheduled Start)
     if (eqId) {
@@ -2950,6 +2969,34 @@ function renderDetail(customer, props, wos, contacts) {
         const eqChipsHtml = eqChips.length
           ? `<div class="wo-eq-chips">${eqChips.slice(0,4).map(e => `<span class="wo-eq-chip">${e.name}</span>`).join('')}${eqChips.length > 4 ? `<span class="wo-eq-chip">+${eqChips.length - 4}</span>` : ''}</div>`
           : '';
+
+        // Visit details — the technician's actual notes from the field app (diagnosis,
+        // work performed, recommendations), previously only viewable by querying Airtable directly.
+        const realJobs = woJobs[wo.id] || [];
+        const visitDetailsId = `vd-${wo.id}`;
+        const visitDetailsHtml = realJobs.length ? `
+          <div style="margin-top:6px;">
+            <span style="font-size:11px;font-weight:700;color:#2563eb;cursor:pointer;" onclick="toggleVisitDetails('${visitDetailsId}')">
+              <span id="${visitDetailsId}-chev">▸</span> Visit Details (${realJobs.length})
+            </span>
+            <div id="${visitDetailsId}" style="display:none;margin-top:6px;flex-direction:column;gap:6px;">
+              ${realJobs.map(j => {
+                const jf = j.fields;
+                const eqRec = currentEquipment.find(e => e.id === (jf['Equipment'] || [])[0]);
+                const jobLabel = [eqRec?.fields['Equipment Name'], jf['Job Type']].filter(Boolean).join(' — ');
+                const rows = [
+                  jf['Diagnosis']        ? ['Diagnosis', jf['Diagnosis']] : null,
+                  jf['Work Performed']   ? ['Work Performed', jf['Work Performed']] : null,
+                  jf['Recommendations']  ? ['Recommendations', jf['Recommendations']] : null,
+                  jf['Problem Description'] ? ['Reported Issue', jf['Problem Description']] : null,
+                ].filter(Boolean);
+                return `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;font-size:12px;">
+                  ${jobLabel ? `<div style="font-weight:700;color:#374151;margin-bottom:4px;">${esc(jobLabel)}</div>` : ''}
+                  ${rows.map(([label, val]) => `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${esc(label)}:</span> ${esc(val)}</div>`).join('')}
+                </div>`;
+              }).join('')}
+            </div>
+          </div>` : '';
         let eaPanel = '';
         if (wf['Efficiency Arizona Job']) {
           // Look up linked EA project from cache
@@ -3003,6 +3050,7 @@ function renderDetail(customer, props, wos, contacts) {
             <div class="wo-meta">${esc(date)}${wf['Work Order Type'] ? ' · ' + wf['Work Order Type'] : ''}${total}</div>
             ${woRowAddrStr ? `<div class="wo-meta" style="color:#9ca3af;">📍 ${esc(woRowAddrStr)}</div>` : ''}
             ${eqChipsHtml}
+            ${visitDetailsHtml}
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
           <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
