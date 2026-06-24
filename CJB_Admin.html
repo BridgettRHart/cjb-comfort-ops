@@ -7318,11 +7318,25 @@ function estimateDisplayStatus(wo) {
   const isJob = !!((f['Source Estimate'] || []).length);
   if (isJob) return { status: f['Status'] || 'Scheduled', isJob: true };
 
+  const woType = f['Work Order Type'] || '';
+  const isEstimateTypeWO = ['Install Estimate', 'Estimate Only'].includes(woType);
+  const woStatus = f['Status'] || '';
   const sqId = f['Stripe Quote ID'];
   const liveStatus = sqId ? _quoteStatusCache[sqId] : null;
+
+  // Stripe's 'open' status just means "finalized" — that happens both on a real
+  // send AND on a finalize-for-PDF-only action with no email (e.g. an EA program
+  // submission), and Stripe has no separate flag for which one occurred. The WO's
+  // own Status only ever gets flipped to 'Estimate Sent' on a real send, so for
+  // genuine estimate-type WOs, don't let a live 'open' status claim "sent" unless
+  // that's already true — otherwise just show the WO's own honest status.
+  if (liveStatus === 'open' && isEstimateTypeWO && woStatus !== 'Estimate Sent') {
+    return { status: woStatus || 'Draft', isJob: false };
+  }
+
   const mapped = { draft: 'Draft', open: 'Estimate Sent', accepted: 'Estimate Approved', canceled: 'Estimate Declined' }[liveStatus];
   if (mapped) return { status: mapped, isJob: false };
-  return { status: f['Status'] || 'Draft', isJob: false };
+  return { status: woStatus || 'Draft', isJob: false };
 }
 
 function estimatePillClass(status, isJob) {
