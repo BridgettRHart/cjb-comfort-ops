@@ -2915,7 +2915,10 @@ function renderDetail(customer, props, wos, contacts) {
         // An approved estimate that's already been converted into a real Job/Installation WO
         // (tracked via the reverse Source Estimate link) is superseded — all billing actions
         // belong on the job WO now, not here, or both show "Send Final Balance" at once.
-        const supersededByJob = !!((wf['From field: Source Estimate'] || []).length);
+        // Only suppress while still sitting at 'Estimate Approved' — a WO that's already
+        // Paid/Invoiced has its own resolved billing and must keep showing it, even if it
+        // also happens to be the source estimate for a separate, later job.
+        const supersededByJob = status === 'Estimate Approved' && !!((wf['From field: Source Estimate'] || []).length);
         let invoiceBtn = '';
         if (supersededByJob) {
           invoiceBtn = '';
