@@ -2716,9 +2716,12 @@ function buildJobCard(record, overdueLabel) {
 // ═══════════════════════
 // JOB DETAIL
 // ═══════════════════════
+let _currentAccessInstructions = '';
+
 async function openJob(recordId) {
   _estimateApprovedRepair = false; // reset any prior repair-from-estimate session
   _backfillActualDate = null; // reset late-entry state for the newly opened job
+  _currentAccessInstructions = '';
   showScreen('detail');
   const content = document.getElementById('detail-content');
   content.innerHTML = '<div class="loading-state" role="status"><div class="spinner" aria-hidden="true"></div><div>Loading job...</div></div>';
@@ -2735,6 +2738,13 @@ async function openJob(recordId) {
       } catch(e) { /* non-fatal — show panel without status */ }
     }
     _currentEaStatus = eaStatus;
+    const propLinks = data.fields['Property'];
+    if (propLinks && propLinks.length > 0) {
+      try {
+        const propData = await apiGet(`Properties/${propLinks[0]}`);
+        _currentAccessInstructions = propData.fields['Access Instructions'] || '';
+      } catch(e) { /* non-fatal — show job without access info */ }
+    }
     renderJobDetail(data, eaStatus);
   } catch (err) {
     content.innerHTML = `<div class="empty-state"><h3>Could not load job</h3><p>${escHtml(err.message)}</p></div>`;
@@ -2852,8 +2862,15 @@ function renderJobDetail(record, eaStatus) {
     </button>`;
   }
 
+  const accessHtml = _currentAccessInstructions ? `
+    <div role="region" aria-label="Access instructions" style="background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.02em;margin-bottom:4px;">🔑 Access Instructions</div>
+      <div style="font-size:15px;color:#451a03;font-weight:600;white-space:pre-wrap;">${escHtml(_currentAccessInstructions)}</div>
+    </div>` : '';
+
   content.innerHTML = `
     <div class="error-banner" id="detail-error" role="alert"></div>
+    ${accessHtml}
 
     <div class="status-action-bar" role="region" aria-label="Job status actions">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
