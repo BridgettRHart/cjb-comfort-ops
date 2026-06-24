@@ -7292,7 +7292,23 @@ function renderEstimatesList() {
   let filtered;
   if (_estFilter === 'active') {
     filtered = _allEstimates.filter(r => {
+      // Already converted into a real job (tracked via the reverse Source Estimate
+      // link) — this estimate is resolved regardless of its own Status field, which
+      // can say 'Complete' just because the site visit happened, long after the job
+      // it spawned has already been invoiced/paid.
+      const convertedToJob = !!((r.fields['From field: Source Estimate'] || []).length);
+      if (convertedToJob) return false;
+
+      // Our own 30-day-from-visit staleness window — once we'd show "Expired" in
+      // the days chip, drop it from Active even if Stripe/Airtable's own status
+      // hasn't caught up yet (it still stays visible on the customer profile).
       const s = r.fields['Status'] || '';
+      if (r.fields['Scheduled Date'] && !['Estimate Approved','Estimate Declined','Estimate Expired'].includes(s)) {
+        const created = new Date(r.fields['Scheduled Date']);
+        const expires = new Date(created.getTime() + 30 * 24 * 3600000);
+        if (Date.now() > expires.getTime()) return false;
+      }
+
       // A WO with a Stripe Quote ID has an estimate in flight — show it unless
       // the estimate itself reached a terminal state
       const woType = r.fields['Work Order Type'] || '';
