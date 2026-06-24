@@ -7269,7 +7269,14 @@ async function loadEstimates() {
   try {
     const res = await fetch(`${PROXY}/Work%20Orders?${qs}`);
     const data = await res.json();
-    _allEstimates = (data.records || []).filter(r => r.fields['Active'] !== false);
+    _allEstimates = (data.records || []).filter(r =>
+      r.fields['Active'] !== false &&
+      // Converted job WOs (Terry Mahan's Installation, etc.) inherit their source
+      // estimate's Stripe Quote ID purely for invoice-prefill — that makes them match
+      // the query above, but they're not estimates in their own right. The real
+      // estimate WO is what should show; this one belongs only on the customer page.
+      !((r.fields['Source Estimate'] || []).length)
+    );
     document.getElementById('est-count').textContent = '(' + _allEstimates.length + ')';
     renderEstimatesList();
     // Pre-fetch Stripe quote totals in the background so sidebar amounts are correct on load
