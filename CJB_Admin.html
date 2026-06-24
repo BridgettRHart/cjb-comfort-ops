@@ -1986,7 +1986,11 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   // so without this check a voided deposit can still get counted as collected cash.
   const liveInvoices = invoices.filter(i => i.fields['Status'] !== 'Void');
 
-  const arInvoices = liveInvoices.filter(i => Number(i.fields['Balance Due']) > 0);
+  // A Draft invoice is a placeholder that hasn't actually been sent to the customer
+  // yet (e.g. pre-built ahead of an installation, before the balance is really due) —
+  // it can carry a real-looking Balance Due despite never being issued. Only count
+  // money actually owed on an invoice that's gone out.
+  const arInvoices = liveInvoices.filter(i => i.fields['Status'] !== 'Draft' && Number(i.fields['Balance Due']) > 0);
   const arTotal     = arInvoices.reduce((s, i) => s + Number(i.fields['Balance Due'] || 0), 0);
 
   const paidThisMonth = liveInvoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(monthStr));
