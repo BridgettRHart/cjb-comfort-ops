@@ -1721,6 +1721,8 @@ let _allEstimates  = [];
 let _estFilter     = 'active';
 let _selectedEst   = null;
 let _quoteTotalCache = {}; // stripeQuoteId -> amountTotal (fetched from Stripe)
+let _estEntriesCache     = null; // shared Quotes-joined entries — see getEstimateEntries()
+let _estEntriesCacheTime = 0;
 let _estWizCustId  = null;
 let _estWizCust    = null;
 
@@ -1813,9 +1815,11 @@ let _dashWOs       = null;
 let _dashFuRecords = null;   // Follow-Up records (Status="Open") — replaces _dashFuRecords
 let _fuLinkedJobs  = {};     // jobId → Job record map for notes + dates
 let _dashContracts = null;
+let _dashEstEntries = null; // shared Quotes-joined entries — see getEstimateEntries()
 let _dashLoadedAt = 0;
 let _weekOffset   = 0;      // 0 = current week, -1 = last week, +1 = next week
 let _selectedDay  = null;   // YYYY-MM-DD of clicked day, null = auto (today or week's first job day)
+let _convRateWindow = 'all'; // 'all' or '30d' — toggled on the Conversion Rate stat card
 
 const _pad = n => String(n).padStart(2, '0');
 const _azDate = iso => {
@@ -1855,7 +1859,7 @@ async function _loadFuLinkedJobs(fuRecords) {
 
 async function loadDashboard(force) {
   if (!force && _dashWOs && Date.now() - _dashLoadedAt < 120000) {
-    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
+    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries);
     return;
   }
   document.getElementById('dash-content').innerHTML =
@@ -1873,21 +1877,27 @@ async function loadDashboard(force) {
     ]);
     // Batch-fetch the Jobs linked from each Follow-Up for notes + service dates
     _fuLinkedJobs = await _loadFuLinkedJobs(_dashFuRecords);
+    // Pipeline / Approved / Conversion Rate read through the same Quotes-based
+    // resolver the Estimates tab uses — see getEstimateEntries().
+    _dashEstEntries = await getEstimateEntries(force);
     _dashLoadedAt = Date.now();
     _weekOffset  = 0;
     _selectedDay = null;
-    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
+    renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries);
     // Keep the Follow-Up badge in sync whenever the dashboard refreshes
     updateFollowUpBadge((_dashFuRecords || []).length);
     // Pre-fetch Stripe quote totals for pipeline accuracy — re-render when they arrive
-    const _wosWithQuotes = (_dashWOs || []).filter(w => w.fields['Stripe Quote ID'] && _quoteTotalCache[w.fields['Stripe Quote ID']] == null);
-    if (_wosWithQuotes.length) {
-      Promise.all(_wosWithQuotes.map(w => {
-        const sqId = w.fields['Stripe Quote ID'];
+    const _entriesNeedingTotal = (_dashEstEntries || []).filter(e => {
+      const sqId = e.quote.fields['Stripe Quote ID'];
+      return sqId && _quoteTotalCache[sqId] == null;
+    });
+    if (_entriesNeedingTotal.length) {
+      Promise.all(_entriesNeedingTotal.map(e => {
+        const sqId = e.quote.fields['Stripe Quote ID'];
         return fetch(`${PROXY}/quote/${sqId}`).then(r => r.json())
           .then(d => { if (d.amountTotal != null) _quoteTotalCache[sqId] = d.amountTotal; })
           .catch(() => {});
-      })).then(() => renderDashboard(_dashWOs, _dashFuRecords, _dashContracts));
+      })).then(() => renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries));
     }
   } catch(err) {
     document.getElementById('dash-content').innerHTML =
@@ -1895,7 +1905,13 @@ async function loadDashboard(force) {
   }
 }
 
-function renderDashboard(wos, fuRecords, contracts) {
+function toggleConvRateWindow() {
+  _convRateWindow = _convRateWindow === '30d' ? 'all' : '30d';
+  renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries);
+}
+
+function renderDashboard(wos, fuRecords, contracts, estEntries) {
+  estEntries = estEntries || [];
   const now      = new Date();
   const todayStr = _azDate(now.toISOString());
   const monthStr = todayStr.substring(0, 7);
@@ -1964,54 +1980,55 @@ function renderDashboard(wos, fuRecords, contracts) {
   const revenueYTD = paidYTD.reduce((s,w) => s + (Number(w.fields['Total Amount'])||0), 0);
   const avgJobYTD  = paidYTD.length ? revenueYTD / paidYTD.length : null;
 
-  // Row 3 — Estimates
+  // Row 3 — Estimates. All three widgets read through estimateDisplayStatus() and the
+  // Quotes table — the same resolver the Estimates tab uses — instead of each
+  // independently guessing at WO status strings, which is how this drifted out of
+  // sync with reality (an approved job whose WO status moved past "Estimate Approved"
+  // would silently vanish from these widgets even though it was correct in any
+  // other view).
   const d30ago         = new Date(now); d30ago.setDate(now.getDate() - 30);
-  const d14ago         = new Date(now); d14ago.setDate(now.getDate() - 14);
-  const d30agoStr      = _azDate(d30ago.toISOString());
-  const d14agoStr      = _azDate(d14ago.toISOString());
-  // Pipeline = any WO with a quote still pending (not yet resolved or invoiced)
-  const openEstimates  = wos.filter(w => {
-    if (!w.fields['Stripe Quote ID']) return false;
-    const s = w.fields['Status'] || '';
-    const woType = w.fields['Work Order Type'] || '';
-    const isEstimateType = ['Install Estimate','Estimate Only'].includes(woType);
-    const resolved = ['Estimate Declined','Estimate Expired','Estimate Approved','Invoiced','Paid'];
-    if (!isEstimateType) resolved.push('Complete');
-    return !resolved.includes(s);
+  const d30agoStr       = _azDate(d30ago.toISOString());
+  const _estAmt = entry => {
+    const sqId = entry.quote.fields['Stripe Quote ID'];
+    return Number((sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (entry.quote.fields['Total Amount'] || 0));
+  };
+
+  // Pipeline = quotes still genuinely undecided — not yet accepted, declined, or
+  // expired, and not already tracked as a job.
+  const openEstimates = estEntries.filter(e => {
+    const { status, isJob } = estimateDisplayStatus(e);
+    return !isJob && ['Draft', 'Estimate Sent', 'Finalized — Not Sent'].includes(status);
   });
-  const pipelineAmt    = openEstimates.reduce((s,w) => {
-    const sqId = w.fields['Stripe Quote ID'];
-    const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
-    return s + Number(amt);
-  }, 0);
-  // Approved & Booked = estimate approved (known $ value) but work not yet invoiced —
-  // the gap between Pipeline (still open) and Outstanding AR (already invoiced).
-  // Split by Deposit Paid so the label matches reality — money already collected
-  // looks identical to money still owed unless we separate them here.
-  const approvedAllWOs    = wos.filter(w => w.fields['Stripe Quote ID'] && w.fields['Status'] === 'Estimate Approved');
-  const approvedBookedWOs = approvedAllWOs.filter(w => !w.fields['Deposit Paid']);
-  const depositInWOs      = approvedAllWOs.filter(w => !!w.fields['Deposit Paid']);
-  const _approvedAmt = list => list.reduce((s,w) => {
-    const sqId = w.fields['Stripe Quote ID'];
-    const amt  = (sqId && _quoteTotalCache[sqId] != null) ? _quoteTotalCache[sqId] : (w.fields['Total Amount'] || 0);
-    return s + Number(amt);
-  }, 0);
-  const approvedBookedAmt = _approvedAmt(approvedBookedWOs);
-  const depositInAmt      = _approvedAmt(depositInWOs);
-  const followupNeeded = openEstimates.filter(w => {
-    const d = _azDate(w.fields['Scheduled Date']||'');
-    return d && d <= d14agoStr;
+  const pipelineAmt = openEstimates.reduce((s, e) => s + _estAmt(e), 0);
+
+  // Approved = quote reached Accepted, and — if it's since become a job — that job
+  // hasn't already been fully Invoiced/Paid (once billed, that's realized revenue,
+  // not approved work still ahead). Split by Deposit Paid so money already
+  // collected doesn't look identical to money still owed.
+  const approvedAll = estEntries.filter(e => {
+    if (e.quote.fields['Status'] !== 'Accepted') return false;
+    if (e.job) return !['Invoiced', 'Paid', 'Cancelled'].includes(e.job.fields['Status'] || '');
+    return true;
   });
-  // Approved = any WO with a quote that reached Estimate Approved, Complete, Invoiced, or Paid
-  // (once past "Estimate Approved" the WO status moves on, so only checking that one status was missing most wins)
-  const approvedEst    = wos.filter(w => {
-    if (!w.fields['Stripe Quote ID']) return false;
-    const s = w.fields['Status'] || '';
-    return ['Estimate Approved','Complete','Invoiced','Paid'].includes(s) && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr;
-  });
-  const declinedEst    = wos.filter(w => w.fields['Status'] === 'Estimate Declined' && (_azDate(w.fields['Scheduled Date']||'')) >= d30agoStr);
-  const convDenom      = approvedEst.length + declinedEst.length;
-  const convRate       = convDenom > 0 ? Math.round((approvedEst.length / convDenom) * 100) : null;
+  const approvedBooked    = approvedAll.filter(e => !(e.job && e.job.fields['Deposit Paid']));
+  const depositIn         = approvedAll.filter(e => e.job && e.job.fields['Deposit Paid']);
+  const approvedBookedAmt = approvedBooked.reduce((s, e) => s + _estAmt(e), 0);
+  const depositInAmt      = depositIn.reduce((s, e) => s + _estAmt(e), 0);
+
+  // Conversion Rate — anchored on the quote's own decision date (Accepted/Declined
+  // Date), not the job's Scheduled Date. Declined estimates routinely have no
+  // Scheduled Date at all, which was silently excluding them from the 30-day window
+  // and inflating the apparent rate. Defaults to all-time; toggle to 30d on the card.
+  const convDecided = estEntries.filter(e => ['Accepted', 'Declined', 'Expired'].includes(e.quote.fields['Status']));
+  const convFiltered = _convRateWindow === '30d'
+    ? convDecided.filter(e => {
+        const d = e.quote.fields['Accepted Date'] || e.quote.fields['Declined Date'] || '';
+        return d && d >= d30agoStr;
+      })
+    : convDecided;
+  const convWon  = convFiltered.filter(e => e.quote.fields['Status'] === 'Accepted');
+  const convLost = convFiltered.filter(e => e.quote.fields['Status'] !== 'Accepted');
+  const convRate = convFiltered.length > 0 ? Math.round((convWon.length / convFiltered.length) * 100) : null;
 
   // Row 4 — Contracts
   const d60fwd         = new Date(now); d60fwd.setDate(now.getDate() + 60);
@@ -2064,12 +2081,15 @@ function renderDashboard(wos, fuRecords, contracts) {
       <div class="stat-card clickable" onclick="switchTab('estimates');setEstFilter('approved')">
         <div class="stat-label">Approved</div>
         <div class="stat-value">${(approvedBookedAmt + depositInAmt) > 0 ? fmt$(approvedBookedAmt + depositInAmt) : '—'}</div>
-        <div class="stat-sub">${approvedAllWOs.length} job${approvedAllWOs.length !== 1 ? 's' : ''} booked</div>
+        <div class="stat-sub">${approvedAll.length} job${approvedAll.length !== 1 ? 's' : ''} booked</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Conversion Rate — 30d</div>
+        <div class="stat-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Conversion Rate — ${_convRateWindow === '30d' ? '30d' : 'All-time'}</span>
+          <span onclick="toggleConvRateWindow()" style="cursor:pointer;font-size:10px;font-weight:600;color:#888;text-decoration:underline;text-transform:none;">${_convRateWindow === '30d' ? 'view all-time' : 'view 30d'}</span>
+        </div>
         <div class="stat-value">${convRate != null ? convRate + '%' : '—'}</div>
-        <div class="stat-sub">${approvedEst.length} approved · ${declinedEst.length} declined</div>
+        <div class="stat-sub">${convWon.length} approved · ${convLost.length} declined</div>
       </div>
     </div>`;
 
@@ -7276,38 +7296,53 @@ function ctrMobileBack() {
 //   wo    — the Work Order the quote lives on. Always present.
 //   job   — if that WO has since been converted into a real job (tracked via the
 //           reverse Source Estimate link), the job's own WO record. Null otherwise.
+// Single source of truth for "what's an estimate, what's its current status, has it
+// become a job yet." Both the Estimates tab and the Dashboard read through this, so
+// the two can never drift into separately-computed, inconsistent answers again —
+// which is exactly how the Dashboard's widgets went stale after the Estimates tab
+// was rearchitected to read from Quotes instead of Work Orders.
+async function getEstimateEntries(forceRefresh) {
+  if (!forceRefresh && _estEntriesCache && Date.now() - _estEntriesCacheTime < 60000) {
+    return _estEntriesCache;
+  }
+  const qRes  = await fetch(`${PROXY}/Quotes?maxRecords=200`);
+  const qData = await qRes.json();
+  const quotes = (qData.records || []);
+
+  const woIds = [...new Set(quotes.map(q => (q.fields['Work Order'] || [])[0]).filter(Boolean))];
+  const woMap = await _fetchWOsByIds(woIds);
+
+  // Any of those quotes already converted into a real job — batch-fetch the jobs too,
+  // so we can track the job's own live status instead of a frozen approval label.
+  // Quotes.Job is the direct, canonical link (set atomically by /api/convert-to-job);
+  // the WO reverse-link hop is a fallback for older conversions made before that field
+  // existed.
+  const directJobIds = quotes.map(q => (q.fields['Job'] || [])[0]).filter(Boolean);
+  const legacyJobIds = Object.values(woMap).flatMap(w => (w.fields['From field: Source Estimate'] || []).map(x => x.id));
+  const jobIds = [...new Set([...directJobIds, ...legacyJobIds])];
+  const jobMap = jobIds.length ? await _fetchWOsByIds(jobIds) : {};
+
+  const entries = quotes
+    .map(q => {
+      const woId = (q.fields['Work Order'] || [])[0] || null;
+      const wo   = woId ? woMap[woId] : null;
+      if (!wo) return null; // orphaned quote with no linked WO — shouldn't normally happen
+      const jobId = (q.fields['Job'] || [])[0] || (wo.fields['From field: Source Estimate'] || [])[0]?.id || null;
+      const job   = jobId ? jobMap[jobId] : null;
+      return { id: q.id, quote: q, wo, job };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.wo.fields['Work Order Number'] || 0) - (a.wo.fields['Work Order Number'] || 0));
+
+  _estEntriesCache = entries;
+  _estEntriesCacheTime = Date.now();
+  return entries;
+}
+
 async function loadEstimates() {
   document.getElementById('est-list').innerHTML = '<div class="empty-list">Loading…</div>';
   try {
-    const qRes  = await fetch(`${PROXY}/Quotes?maxRecords=200`);
-    const qData = await qRes.json();
-    const quotes = (qData.records || []);
-
-    const woIds = [...new Set(quotes.map(q => (q.fields['Work Order'] || [])[0]).filter(Boolean))];
-    const woMap = await _fetchWOsByIds(woIds);
-
-    // Any of those quotes already converted into a real job — batch-fetch the jobs too,
-    // so we can track the job's own live status instead of a frozen approval label.
-    // Quotes.Job is the direct, canonical link (set atomically by /api/convert-to-job);
-    // the WO reverse-link hop is a fallback for older conversions made before that field
-    // existed.
-    const directJobIds = quotes.map(q => (q.fields['Job'] || [])[0]).filter(Boolean);
-    const legacyJobIds = Object.values(woMap).flatMap(w => (w.fields['From field: Source Estimate'] || []).map(x => x.id));
-    const jobIds = [...new Set([...directJobIds, ...legacyJobIds])];
-    const jobMap = jobIds.length ? await _fetchWOsByIds(jobIds) : {};
-
-    _allEstimates = quotes
-      .map(q => {
-        const woId = (q.fields['Work Order'] || [])[0] || null;
-        const wo   = woId ? woMap[woId] : null;
-        if (!wo) return null; // orphaned quote with no linked WO — shouldn't normally happen
-        const jobId = (q.fields['Job'] || [])[0] || (wo.fields['From field: Source Estimate'] || [])[0]?.id || null;
-        const job   = jobId ? jobMap[jobId] : null;
-        return { id: q.id, quote: q, wo, job };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b.wo.fields['Work Order Number'] || 0) - (a.wo.fields['Work Order Number'] || 0));
-
+    _allEstimates = await getEstimateEntries(true);
     document.getElementById('est-count').textContent = '(' + _allEstimates.length + ')';
     renderEstimatesList();
 
