@@ -2275,7 +2275,12 @@ async function dashInvoice(woId) {
   }
   selectedCustomer  = cust;
   currentWorkOrders = [wo];
-  openInvoiceModal(woId, cust.id);
+  // A deposit was already collected on this WO — must subtract it, not re-invoice the full amount.
+  if (wo.fields['Deposit Paid']) {
+    openFinalInvoiceModal(woId, cust.id);
+  } else {
+    openInvoiceModal(woId, cust.id);
+  }
 }
 
 // Open quote modal directly from dashboard (handles existing or new estimate)
