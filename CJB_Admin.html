@@ -4532,7 +4532,7 @@ async function submitQuote(mode) {
         body: JSON.stringify({
           stripeQuoteId: quoteStripeId, airtableQuoteId: quoteAirtableId,
           workOrderId: quoteWOId, customerId: quoteCustId,
-          lineItems, notes: description + (notes ? '\n' + notes : ''),
+          lineItems, description, notes,
           finalize: sendNow,
           finalizeOnly: pdfOnly,
           ccEmails: sendNow && _ccEmails.length ? _ccEmails : undefined,

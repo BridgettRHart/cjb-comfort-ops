@@ -2389,8 +2389,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           expires_at: String(expiresAt),
           line_items: stripeLineItems,
         };
-        // Stripe quote description is capped at 500 chars; full text is stored in Airtable Notes
-        if (description || notes) quoteParamsObj.description = (description || notes).slice(0, 500);
+        // description (short WO context blurb, e.g. site notes) and notes (whatever was
+        // typed into the customer-visible Notes box - which can run long, e.g. an EA
+        // disclosure block) go to two different places on the rendered PDF. Cramming both
+        // into description's 500-char header area was truncating long Notes content
+        // mid-sentence; footer has real room (5000 chars) and renders at the bottom of the
+        // document, where there's actually space.
+        if (description) quoteParamsObj.description = description.slice(0, 500);
+        if (notes)        quoteParamsObj.footer      = notes.slice(0, 5000);
         if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
         // Apply discount via Stripe coupon if provided
@@ -2546,7 +2552,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     if (path === '/api/quote' && request.method === 'PATCH') {
       try {
         const body2 = await request.json();
-        const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes } = body2;
+        const { stripeQuoteId, airtableQuoteId, workOrderId, customerId, lineItems, notes, description } = body2;
         const discountTypePatch  = body2.discountType  || '';
         const discountValuePatch = Number(body2.discountValue) || 0;
         const finalizePatch     = body2.finalize === true;
@@ -2600,8 +2606,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           expires_at: String(expiresAt),
           line_items: patchLineItems
         };
-        if (notes)       quoteParamsObj.description                         = notes.slice(0, 500);
-        if (workOrderId) quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
+        // Same split as the POST handler: description is the short WO context blurb,
+        // notes (which can be a long EA disclosure block) goes to footer instead, where
+        // there's real room rather than a 500-char header area that truncates mid-sentence.
+        if (description)  quoteParamsObj.description                         = description.slice(0, 500);
+        if (notes)         quoteParamsObj.footer                              = notes.slice(0, 5000);
+        if (workOrderId)  quoteParamsObj['metadata[work_order_airtable_id]'] = workOrderId;
 
         if (discountValuePatch > 0 && (discountTypePatch === 'pct' || discountTypePatch === 'fixed')) {
           const couponParamsPatch = { duration: 'once' };
@@ -2638,7 +2648,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'Total Amount':    discountedTotalPatch,
             'Stripe Quote URL': patchApproveUrl || ''
           };
-          if (notes !== undefined) upd['Notes'] = notes;
+          if (notes)       upd['Notes'] = notes;
+          if (description) upd['Notes'] = description + (notes ? '\n' + notes : '');
           await airtablePatch('Quotes', airtableQuoteId, upd);
         }
 
