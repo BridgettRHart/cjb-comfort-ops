@@ -2049,6 +2049,19 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   const approvedBookedAmt = approvedBooked.reduce((s, e) => s + _estAmt(e), 0);
   const depositInAmt      = depositIn.reduce((s, e) => s + _estAmt(e), 0);
 
+  // Real dollars already collected toward these approved jobs - not the same as
+  // depositInAmt above, which is the job's full estimate value, not the deposit
+  // amount itself. Sums actual Amount Paid on non-void invoices linked to each
+  // approved job's Work Order, so this tells you how much of the Approved total
+  // is already sitting in Collected.
+  const approvedCollectedAmt = approvedAll.reduce((sum, e) => {
+    if (!e.job) return sum;
+    const paidForJob = invoices
+      .filter(i => i.fields['Status'] !== 'Void' && (i.fields['Work Orders'] || []).some(w => w.id === e.job.id))
+      .reduce((s, i) => s + Number(i.fields['Amount Paid'] || 0), 0);
+    return sum + paidForJob;
+  }, 0);
+
   // Conversion Rate — anchored on the quote's own decision date (Accepted/Declined
   // Date), not the job's Scheduled Date. Declined estimates routinely have no
   // Scheduled Date at all, which was silently excluding them from the 30-day window
@@ -2115,7 +2128,7 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
       <div class="stat-card clickable" onclick="switchTab('estimates');setEstFilter('approved')">
         <div class="stat-label">Approved</div>
         <div class="stat-value">${(approvedBookedAmt + depositInAmt) > 0 ? fmt$(approvedBookedAmt + depositInAmt) : '—'}</div>
-        <div class="stat-sub">${approvedAll.length} job${approvedAll.length !== 1 ? 's' : ''} booked</div>
+        <div class="stat-sub">${approvedAll.length} job${approvedAll.length !== 1 ? 's' : ''} booked${approvedCollectedAmt > 0 ? ` · ${fmt$(approvedCollectedAmt)} collected` : ''}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label" style="display:flex;align-items:center;justify-content:space-between;">
