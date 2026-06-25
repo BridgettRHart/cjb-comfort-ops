@@ -1436,6 +1436,28 @@ body.dispatch-dragging .dg-placed-card:not(.dragging) { pointer-events:none; }
         </div>
         <div style="font-size:11px;color:#6b7280;margin-top:4px;">EA reimburses ~4–6 weeks after final paperwork approval</div>
       </div>
+
+      <!-- EA-required disclosure details — every HEAR program estimate needs these on the
+           customer-facing document. Filled in here once, then "Generate" assembles them into
+           the Notes field below instead of hand-typing the same boilerplate every time. -->
+      <div style="border-top:1.5px solid #86efac;margin-top:12px;padding-top:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#166534;margin-bottom:8px;">EA Project Details — for customer disclosure</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:8px;">EA Project #: <span id="ea-cf-projnum" style="font-weight:600;">—</span></div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;">
+            <label style="font-size:11px;color:#6b7280;">Install start (est.)</label>
+            <input type="date" id="ea-cf-start-date" style="width:100%;padding:4px 6px;border:1px solid #86efac;border-radius:4px;font-size:12px;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:11px;color:#6b7280;">Install completion (est.)</label>
+            <input type="date" id="ea-cf-end-date" style="width:100%;padding:4px 6px;border:1px solid #86efac;border-radius:4px;font-size:12px;">
+          </div>
+        </div>
+        <label style="font-size:11px;color:#6b7280;">Equipment details (model #s, serials, ENERGY STAR ID, AHRI ref, etc.)</label>
+        <textarea id="ea-cf-equipment" rows="3" placeholder="Outdoor Unit Model: ...&#10;Indoor Unit Model: ...&#10;ENERGY STAR ID: ... | AHRI Reference: ..."
+          style="width:100%;padding:6px 8px;border:1px solid #86efac;border-radius:4px;font-size:12px;margin-bottom:8px;resize:vertical;"></textarea>
+        <button type="button" class="btn btn-sm" style="background:#166534;color:#fff;" onclick="generateEADisclosure()">Generate EA Disclosure → Notes</button>
+      </div>
     </div>
 
     <textarea class="notes-inp" id="quote-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
@@ -4235,8 +4257,32 @@ function updateEACashFlow() {
                 (parseFloat(document.getElementById('qlip-' + idx)?.value) || 0);
   });
 
-  const rebateCap = Number(ef['HVAC Heat Pump Rebate'] || 8000);
-  const rebate    = tierPct > 0 ? Math.min(subtotal * tierPct, rebateCap) : 0;
+  // A project can have rebates across several measures (HVAC, electrical wiring, water
+  // heater, etc.) — sum whichever of these are actually filled in on the EA Project record
+  // rather than just the HVAC one. Those amounts are the EA-approved, already-capped figures
+  // straight from the SOW, so they're used directly rather than re-deriving via tierPct.
+  // Only fall back to a rough tier-based estimate when no specific rebate has been entered
+  // yet (e.g. while still waiting on SOW approval).
+  const REBATE_FIELDS = [
+    ['HVAC Heat Pump Rebate',   'HVAC Heat Pump'],
+    ['Water Heater Rebate',     'Water Heater'],
+    ['Dryer Rebate',            'Dryer'],
+    ['Home Efficiency Rebate',  'Home Efficiency'],
+    ['Electrical Wiring Rebate','Electrical Wiring'],
+    ['Electrical Panel Rebate', 'Electrical Panel'],
+  ];
+  const rebateBreakdown = REBATE_FIELDS
+    .map(([field, label]) => ({ label, amount: Number(ef[field] || 0) }))
+    .filter(r => r.amount > 0);
+
+  let rebate;
+  if (rebateBreakdown.length) {
+    // Combined rebates can never exceed the total project cost — clamp as a sanity check
+    // rather than let a stale/duplicate entry make it look like EA is overpaying.
+    rebate = Math.min(rebateBreakdown.reduce((s, r) => s + r.amount, 0), subtotal);
+  } else {
+    rebate = tierPct > 0 ? subtotal * tierPct : 0;
+  }
   const netCustomer = Math.max(0, subtotal - rebate);
 
   const depositPct = parseFloat(document.getElementById('ea-cf-deposit-pct')?.value) || 0;
@@ -4248,11 +4294,20 @@ function updateEACashFlow() {
   const fmt = n => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   document.getElementById('ea-cf-tier-label').textContent = tierLabel;
   document.getElementById('ea-cf-total').textContent    = fmt(subtotal);
-  document.getElementById('ea-cf-rebate').textContent   = tierPct > 0 ? '-' + fmt(rebate) : 'Not eligible';
+  document.getElementById('ea-cf-rebate').textContent   = rebate > 0
+    ? '-' + fmt(rebate) + (rebateBreakdown.length > 1 ? ` (${rebateBreakdown.map(r => r.label).join(' + ')})` : '')
+    : 'Not eligible';
   document.getElementById('ea-cf-net').textContent      = fmt(netCustomer);
   document.getElementById('ea-cf-deposit').textContent  = fmt(depositAmt);
   document.getElementById('ea-cf-upfront').textContent  = fmt(upfrontNeeded);
   document.getElementById('ea-cf-exposure').textContent = fmt(floatAmt);
+
+  const projNumEl = document.getElementById('ea-cf-projnum');
+  if (projNumEl) projNumEl.textContent = ef['EA Project Number'] || '—';
+
+  // Stash the figures just computed so generateEADisclosure() can reuse them without
+  // re-deriving the same math from scratch.
+  _eaCashFlowState = { subtotal, rebate, netCustomer, rebateBreakdown };
 
   // Save deposit % to EA project record so it persists across sessions
   if (_eaProjectForQuote?.id && depositPct !== (_eaProjectForQuote.fields?.['EA Deposit Pct'] ?? 50)) {
@@ -4263,6 +4318,53 @@ function updateEACashFlow() {
       body: JSON.stringify({ fields: { 'EA Deposit Pct': depositPct } })
     }).catch(() => {});
   }
+}
+
+let _eaCashFlowState = null;
+
+function generateEADisclosure() {
+  if (!_eaProjectForQuote) { alert('No EA project linked to this estimate.'); return; }
+  updateEACashFlow();
+  const s = _eaCashFlowState;
+  if (!s) return;
+
+  const ef       = _eaProjectForQuote.fields || {};
+  const projNum  = ef['EA Project Number'] || '';
+  const custName = selectedCustomer?.fields?.['Customer Name'] || '';
+  const wo = currentWorkOrders.find(w => w.id === quoteWOId) || _allEstimates.find(e => e.wo.id === quoteWOId)?.wo;
+  const wf = wo?.fields || {};
+  const address = [_ddUnwrap(wf['Service Address']), _ddUnwrap(wf['City']), _ddUnwrap(wf['State']), _ddUnwrap(wf['Zip'])]
+    .filter(Boolean).join(', ');
+
+  const startDate = document.getElementById('ea-cf-start-date')?.value || '[TBD]';
+  const endDate   = document.getElementById('ea-cf-end-date')?.value   || '[TBD]';
+  const equipment = (document.getElementById('ea-cf-equipment')?.value || '').trim();
+
+  const fmt = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rebateLines = s.rebateBreakdown.length
+    ? s.rebateBreakdown.map(r => `Efficiency Arizona HEAR Rebate — ${r.label}: -${fmt(r.amount)}`).join('\n')
+    : `Efficiency Arizona HEAR Rebate: -${fmt(s.rebate)}`;
+
+  const block = `EFFICIENCY ARIZONA HEAR PROGRAM — PROJECT DISCLOSURE
+${projNum ? `EA Project #: ${projNum}\n` : ''}Customer: ${custName}
+Service Address: ${address}
+Contractor: CJB Comfort LLC, 2875 West Ray Road, Suite 6 PMB #320, Chandler, AZ 85224, (480) 900-7882
+
+Estimated Installation Start: ${startDate}
+Estimated Installation Completion: ${endDate}
+${equipment ? `\nEQUIPMENT INSTALLED\n${equipment}\n` : ''}
+TOTAL PROJECT COST (before rebates): ${fmt(s.subtotal)}
+${rebateLines}
+TOTAL EA/HEAR REBATE: -${fmt(s.rebate)}
+
+CUSTOMER OUT-OF-POCKET TOTAL: ${fmt(s.netCustomer)}
+BALANCE DUE AFTER REBATES: $0.00 (due upon completion per payment terms above)
+
+Customer Signature: _________________________________________  Date: _______________`;
+
+  const notesEl = document.getElementById('quote-notes');
+  notesEl.value = notesEl.value.trim() ? notesEl.value.trim() + '\n\n' + block : block;
+  showToast('EA disclosure added to Notes ✓');
 }
 
 function toggleAddon(btn) {
