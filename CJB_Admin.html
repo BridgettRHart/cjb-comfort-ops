@@ -2079,15 +2079,18 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   // carried the quote directly (no separate conversion, e.g. FEI) has no e.job at
   // all - estimateDisplayStatus still treats it as isJob via the WO's own status,
   // so fall back to e.wo in that case rather than silently skipping it.
+  // A combo WO can read isJob:true (no separate conversion step exists for combo WOs)
+  // while its own Status field still sits in pre-scheduling limbo - either "Estimate
+  // Approved" (never progressed), or "New" (the state every auto-converted job starts in
+  // until a date/time gets assigned - see the quote.accepted webhook fix). Any already-paid
+  // invoice on a WO in one of these states - e.g. a diagnostic/inspection fee collected
+  // before the estimate even existed - isn't a deposit toward booked work; it predates the
+  // work being booked at all. Once a WO reaches any of these, it's genuinely underway and
+  // its paid invoices count normally.
+  const NOT_YET_BOOKED_STATUSES = ['Estimate Approved', 'New', 'Estimate Sent', 'Estimate Declined'];
   const approvedCollectedAmt = approvedAll.reduce((sum, e) => {
     const { isJob, status } = estimateDisplayStatus(e);
-    // A combo WO whose own status string is still literally "Estimate Approved" hasn't
-    // actually been scheduled/started yet, even though isJob reads true here (no separate
-    // conversion step exists for combo WOs). Any already-paid invoice on it - e.g. a
-    // diagnostic/inspection fee collected before the estimate even existed - isn't a
-    // deposit toward booked work; it predates the work being booked at all. Real jobs that
-    // have moved on (Scheduled, In Progress, etc.) still count normally.
-    if (isJob && status === 'Estimate Approved') return sum;
+    if (isJob && NOT_YET_BOOKED_STATUSES.includes(status)) return sum;
     const jobWoId = e.job ? e.job.id : (isJob ? e.wo.id : null);
     if (!jobWoId) return sum;
     const paidForJob = invoices
