@@ -4039,6 +4039,23 @@ async function openQuoteModal(woId, custId, readOnly = false) {
         }
         if (!quoteData.lines?.length) addQuoteLi();
 
+        // Restore an existing discount. openQuoteModal() always resets the discount row to
+        // blank on open (so a fresh new quote starts clean), but that means reopening an
+        // ALREADY-discounted quote silently drops the discount unless it's re-entered before
+        // "Update & Resend" — which recreates the Stripe quote from these line items with
+        // whatever discount is (or isn't) currently in the form. Stripe's GET quote response
+        // doesn't expose the original coupon, but amountTotal is already post-discount, so
+        // the gap between that and the line-item subtotal IS the discount — restore it as a
+        // fixed dollar amount, which preserves the actual effect regardless of how it was
+        // originally entered (% or $).
+        const lineSubtotal = (quoteData.lines || []).reduce((sum, l) => sum + (l.quantity || 1) * (l.unitPrice || 0), 0);
+        const existingDiscount = lineSubtotal - (quoteData.amountTotal || 0);
+        if (existingDiscount > 0.01) {
+          document.getElementById('quote-discount-row').style.display = 'flex';
+          document.getElementById('quote-discount-val').value = existingDiscount.toFixed(2);
+          setQuoteDiscountType('fixed'); // also calls updateQuoteTotal()
+        }
+
         // Restore description from Airtable Quote Notes (strip ---PHOTOS--- section)
         if (atData.records?.length) {
           const rawNotes = atData.records[0].fields['Notes'] || '';
