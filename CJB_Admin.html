@@ -2053,11 +2053,16 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   // depositInAmt above, which is the job's full estimate value, not the deposit
   // amount itself. Sums actual Amount Paid on non-void invoices linked to each
   // approved job's Work Order, so this tells you how much of the Approved total
-  // is already sitting in Collected.
+  // is already sitting in Collected. A converted job uses e.job; a combo WO that
+  // carried the quote directly (no separate conversion, e.g. FEI) has no e.job at
+  // all - estimateDisplayStatus still treats it as isJob via the WO's own status,
+  // so fall back to e.wo in that case rather than silently skipping it.
   const approvedCollectedAmt = approvedAll.reduce((sum, e) => {
-    if (!e.job) return sum;
+    const { isJob } = estimateDisplayStatus(e);
+    const jobWoId = e.job ? e.job.id : (isJob ? e.wo.id : null);
+    if (!jobWoId) return sum;
     const paidForJob = invoices
-      .filter(i => i.fields['Status'] !== 'Void' && (i.fields['Work Orders'] || []).includes(e.job.id))
+      .filter(i => i.fields['Status'] !== 'Void' && (i.fields['Work Orders'] || []).includes(jobWoId))
       .reduce((s, i) => s + Number(i.fields['Amount Paid'] || 0), 0);
     return sum + paidForJob;
   }, 0);
