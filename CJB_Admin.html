@@ -4330,7 +4330,12 @@ function generateEADisclosure() {
 
   const ef       = _eaProjectForQuote.fields || {};
   const projNum  = ef['EA Project Number'] || '';
-  const custName = selectedCustomer?.fields?.['Customer Name'] || '';
+  // selectedCustomer is only populated via the Customers tab - it's stale/null when this
+  // estimate was reopened via "Update & Resend" from the Estimates tab instead. quoteCustId
+  // is always set correctly by openQuoteModal(), so look the customer up by that instead.
+  const custRecForName = (selectedCustomer?.id === quoteCustId ? selectedCustomer : null)
+    || allCustomers.find(c => c.id === quoteCustId);
+  const custName = custRecForName?.fields?.['Customer Name'] || '';
   const wo = currentWorkOrders.find(w => w.id === quoteWOId) || _allEstimates.find(e => e.wo.id === quoteWOId)?.wo;
   const wf = wo?.fields || {};
   const address = [_ddUnwrap(wf['Service Address']), _ddUnwrap(wf['City']), _ddUnwrap(wf['State']), _ddUnwrap(wf['Zip'])]
