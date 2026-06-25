@@ -1060,9 +1060,18 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             } else {
               // Service WO — create a new Repair WO and notify Bridgett
               const quoteNotes = atQuote.fields?.['Notes'] || '';
+              const custRec  = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+              const custName = custRec?.fields?.['Customer Name'] || 'Customer';
+              const todayLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
               const newWoFields = {
+                // Matches the manual /api/convert-to-job naming convention — an unnamed
+                // WO doesn't show up meaningfully anywhere (Dispatch, Customer profile).
+                'Work Order Name': `${custName} — Job — ${todayLabel}`,
                 'Work Order Type': 'Repair',
-                'Status':          'Scheduled',
+                // 'New', not 'Scheduled' - this WO has no date/time yet, so marking it
+                // Scheduled hid it from the Dispatch board (which expects a Scheduled WO
+                // to actually have a scheduled date) without it ever being seen.
+                'Status':          'New',
                 'Problem Description': quoteNotes.split('---PHOTOS---')[0].trim() || 'Repair from approved estimate',
                 'Internal Notes': `Auto-created from approved repair estimate — Quote: ${atQuote.fields?.['Quote Number'] || stripeQuoteId}`,
               };
@@ -1070,12 +1079,16 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               if (acceptedWoPropIds.length)   newWoFields['Property']   = acceptedWoPropIds;
               if (acceptedWoTechIds.length)   newWoFields['Technician'] = acceptedWoTechIds;
               if (woId)                       newWoFields['Source Estimate'] = [woId];
-              try { await airtablePost('Work Orders', newWoFields); } catch(e) { console.error('New Repair WO creation failed:', e.message); }
+              try {
+                const newJobWO = await airtablePost('Work Orders', newWoFields);
+                // Same direct link the manual conversion flow sets, so the Estimates tab
+                // and dashboard widgets resolve this job in one hop instead of relying on
+                // just the reverse Source Estimate link.
+                await airtablePatch('Quotes', atQuote.id, { 'Job': [newJobWO.id] }).catch(() => {});
+              } catch(e) { console.error('New Repair WO creation failed:', e.message); }
 
               // SMS Bridgett
               if (env.OWNER_PHONE && env.QUO_API_KEY) {
-                const custRec = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
-                const custName = custRec?.fields?.['Customer Name'] || 'A customer';
                 sendSms(env.QUO_API_KEY, env.OWNER_PHONE,
                   `✅ Repair estimate approved — ${custName}. New Repair WO created in Airtable, ready to schedule.`
                 ).catch(() => {});
