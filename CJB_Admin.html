@@ -4307,7 +4307,7 @@ function updateEACashFlow() {
 
   // Stash the figures just computed so generateEADisclosure() can reuse them without
   // re-deriving the same math from scratch.
-  _eaCashFlowState = { subtotal, rebate, netCustomer, rebateBreakdown };
+  _eaCashFlowState = { subtotal, rebate, netCustomer, rebateBreakdown, depositPct, depositAmt };
 
   // Save deposit % to EA project record so it persists across sessions
   if (_eaProjectForQuote?.id && depositPct !== (_eaProjectForQuote.fields?.['EA Deposit Pct'] ?? 50)) {
@@ -4358,7 +4358,8 @@ ${rebateLines}
 TOTAL EA/HEAR REBATE: -${fmt(s.rebate)}
 
 CUSTOMER OUT-OF-POCKET TOTAL: ${fmt(s.netCustomer)}
-BALANCE DUE AFTER REBATES: $0.00 (due upon completion per payment terms above)
+Deposit Due to Schedule (${s.depositPct}%): ${fmt(s.depositAmt)}
+Remaining Balance Due Upon Completion: ${fmt(s.netCustomer - s.depositAmt)}
 
 Customer Signature: _________________________________________  Date: _______________`;
 
