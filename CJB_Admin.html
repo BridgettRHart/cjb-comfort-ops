@@ -4350,27 +4350,42 @@ function generateEADisclosure() {
     ? s.rebateBreakdown.map(r => `Efficiency Arizona HEAR Rebate — ${r.label}: -${fmt(r.amount)}`).join('\n')
     : `Efficiency Arizona HEAR Rebate: -${fmt(s.rebate)}`;
 
-  const block = `EFFICIENCY ARIZONA HEAR PROGRAM — PROJECT DISCLOSURE
-${projNum ? `EA Project #: ${projNum}\n` : ''}Customer: ${custName}
-Service Address: ${address}
-Contractor: CJB Comfort LLC, 2875 West Ray Road, Suite 6 PMB #320, Chandler, AZ 85224, (480) 900-7882
+  // Stripe caps BOTH the quote's description AND footer at 500 characters each (confirmed
+  // against Stripe's API docs - footer is not the larger field it is on Invoices). There's
+  // no single field with room for the whole disclosure, so it's split across both: project/
+  // equipment identity goes to description, financial breakdown + signature goes to footer
+  // (sent via the notes field below). Each half is checked against the real 500-char limit
+  // before it's written in, so a too-long entry is caught here instead of failing at Stripe.
+  const partA = `EA Project #${projNum || '?'} — ${custName}
+${address}
+CJB Comfort LLC, 2875 W Ray Rd Ste 6 PMB 320, Chandler AZ 85224, (480) 900-7882
+Install: ${startDate} to ${endDate}${equipment ? `\n${equipment}` : ''}`;
 
-Estimated Installation Start: ${startDate}
-Estimated Installation Completion: ${endDate}
-${equipment ? `\nEQUIPMENT INSTALLED\n${equipment}\n` : ''}
-TOTAL PROJECT COST (before rebates): ${fmt(s.subtotal)}
+  const partB = `EFFICIENCY ARIZONA HEAR PROGRAM DISCLOSURE
+Total project cost: ${fmt(s.subtotal)}
 ${rebateLines}
-TOTAL EA/HEAR REBATE: -${fmt(s.rebate)}
+Total EA/HEAR rebate: -${fmt(s.rebate)}
+Customer out-of-pocket total: ${fmt(s.netCustomer)}
+Deposit due to schedule (${s.depositPct}%): ${fmt(s.depositAmt)}
+Balance due on completion: ${fmt(s.netCustomer - s.depositAmt)}
+Customer Signature: _______________________  Date: __________`;
 
-CUSTOMER OUT-OF-POCKET TOTAL: ${fmt(s.netCustomer)}
-Deposit Due to Schedule (${s.depositPct}%): ${fmt(s.depositAmt)}
-Remaining Balance Due Upon Completion: ${fmt(s.netCustomer - s.depositAmt)}
+  const overA = partA.length - 500;
+  const overB = partB.length - 500;
+  if (overA > 0 || overB > 0) {
+    alert(
+      'This won\'t fit in Stripe\'s 500-character limit per field:\n' +
+      (overA > 0 ? `- Project/equipment details are ${overA} characters too long — shorten the Equipment details box above.\n` : '') +
+      (overB > 0 ? `- Financial/signature block is ${overB} characters too long.\n` : '') +
+      '\nNothing was changed.'
+    );
+    return;
+  }
 
-Customer Signature: _________________________________________  Date: _______________`;
-
+  document.getElementById('quote-description').value = partA;
   const notesEl = document.getElementById('quote-notes');
-  notesEl.value = notesEl.value.trim() ? notesEl.value.trim() + '\n\n' + block : block;
-  showToast('EA disclosure added to Notes ✓');
+  notesEl.value = partB;
+  showToast('EA disclosure added — split across Description and Notes ✓');
 }
 
 function toggleAddon(btn) {
