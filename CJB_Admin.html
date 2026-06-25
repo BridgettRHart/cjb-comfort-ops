@@ -2034,9 +2034,9 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   // not approved work still ahead). Split by Deposit Paid so money already
   // collected doesn't look identical to money still owed.
   const approvedAll = estEntries.filter(e => {
-    if (e.quote.fields['Status'] !== 'Accepted') return false;
-    if (e.job) return !['Invoiced', 'Paid', 'Cancelled'].includes(e.job.fields['Status'] || '');
-    return true;
+    const { status, isJob } = estimateDisplayStatus(e);
+    if (isJob) return !['Invoiced', 'Paid', 'Cancelled'].includes(status);
+    return status === 'Estimate Approved';
   });
   const approvedBooked    = approvedAll.filter(e => !(e.job && e.job.fields['Deposit Paid']));
   const depositIn         = approvedAll.filter(e => e.job && e.job.fields['Deposit Paid']);
