@@ -2057,7 +2057,7 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   const approvedCollectedAmt = approvedAll.reduce((sum, e) => {
     if (!e.job) return sum;
     const paidForJob = invoices
-      .filter(i => i.fields['Status'] !== 'Void' && (i.fields['Work Orders'] || []).some(w => w.id === e.job.id))
+      .filter(i => i.fields['Status'] !== 'Void' && (i.fields['Work Orders'] || []).includes(e.job.id))
       .reduce((s, i) => s + Number(i.fields['Amount Paid'] || 0), 0);
     return sum + paidForJob;
   }, 0);
