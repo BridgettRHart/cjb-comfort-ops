@@ -7473,12 +7473,13 @@ function renderEstimatesList() {
   const el = document.getElementById('est-list');
   let filtered;
   if (_estFilter === 'active') {
+    // Active = still genuinely undecided — not yet accepted, declined, or expired.
+    // Once a quote is Accepted (whether or not it's been converted to a job yet),
+    // it belongs in the Approved tab instead — matching the Dashboard's Approved
+    // widget exactly, so clicking through from there shows the same set it counted.
     filtered = _allEstimates.filter(entry => {
       const { status: s, isJob } = estimateDisplayStatus(entry);
-
-      // A converted job is "active" until it's fully closed out — the original
-      // estimate/approval status no longer matters once it's a real job.
-      if (isJob) return !['Invoiced', 'Paid', 'Cancelled'].includes(s);
+      if (isJob) return false;
 
       const expStr = entry.quote?.fields['Expiration Date'];
       if (expStr && !['Estimate Approved','Estimate Declined','Estimate Expired'].includes(s)) {
@@ -7487,9 +7488,13 @@ function renderEstimatesList() {
       return s === 'Draft' || s === 'Estimate Sent' || s === 'Finalized — Not Sent';
     });
   } else if (_estFilter === 'approved') {
+    // Approved = accepted and not yet fully closed out — covers both a quote still
+    // waiting to be converted to a job, and a converted job still in progress
+    // (Scheduled, Deposit Paid...). Once Invoiced/Paid/Cancelled, it drops off here.
     filtered = _allEstimates.filter(entry => {
       const { status: s, isJob } = estimateDisplayStatus(entry);
-      return !isJob && s === 'Estimate Approved';
+      if (isJob) return !['Invoiced', 'Paid', 'Cancelled'].includes(s);
+      return s === 'Estimate Approved';
     });
   } else if (_estFilter === 'declined') {
     filtered = _allEstimates.filter(entry => {
