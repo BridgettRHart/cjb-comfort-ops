@@ -2080,7 +2080,14 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   // all - estimateDisplayStatus still treats it as isJob via the WO's own status,
   // so fall back to e.wo in that case rather than silently skipping it.
   const approvedCollectedAmt = approvedAll.reduce((sum, e) => {
-    const { isJob } = estimateDisplayStatus(e);
+    const { isJob, status } = estimateDisplayStatus(e);
+    // A combo WO whose own status string is still literally "Estimate Approved" hasn't
+    // actually been scheduled/started yet, even though isJob reads true here (no separate
+    // conversion step exists for combo WOs). Any already-paid invoice on it - e.g. a
+    // diagnostic/inspection fee collected before the estimate even existed - isn't a
+    // deposit toward booked work; it predates the work being booked at all. Real jobs that
+    // have moved on (Scheduled, In Progress, etc.) still count normally.
+    if (isJob && status === 'Estimate Approved') return sum;
     const jobWoId = e.job ? e.job.id : (isJob ? e.wo.id : null);
     if (!jobWoId) return sum;
     const paidForJob = invoices
