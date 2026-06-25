@@ -1996,7 +1996,13 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   const paidThisMonth = liveInvoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(monthStr));
   const collectedAmt  = paidThisMonth.reduce((s, i) => s + Number(i.fields['Amount Paid'] != null ? i.fields['Amount Paid'] : (i.fields['Total'] || 0)), 0);
   const completedCount = paidThisMonth.length;
-  const invoicedThisMonth = liveInvoices.filter(i => i.fields['Invoice Date'] && _azDate(i.fields['Invoice Date']).startsWith(monthStr));
+  // Same Draft exclusion as AR above, for the same reason: a Draft final invoice
+  // commonly still carries the job's full price because its deposit credit hasn't
+  // been applied yet (the deposit was already billed and counted separately on its
+  // own paid invoice). Counting the Draft here double-counts that deposit. Excluding
+  // Drafts means a final invoice only ever counts once it's actually sent - by which
+  // point it should already reflect the real, net amount.
+  const invoicedThisMonth = liveInvoices.filter(i => i.fields['Status'] !== 'Draft' && i.fields['Invoice Date'] && _azDate(i.fields['Invoice Date']).startsWith(monthStr));
   const invoicedAmt   = invoicedThisMonth.reduce((s, i) => s + Number(i.fields['Total'] || 0), 0);
 
   const paidYTD    = liveInvoices.filter(i => i.fields['Paid Date'] && _azDate(i.fields['Paid Date']).startsWith(yearStr));
