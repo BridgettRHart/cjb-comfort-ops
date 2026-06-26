@@ -3537,17 +3537,32 @@ async function submitEquipmentForm() {
 
 // ── Invoice modal ───────────────────────────────────────────────────────────
 // Combines what the customer reported, what the tech found, and what was done
-// into the text that auto-fills the invoice's customer-facing notes.
-function buildJobNotesText(jobs) {
-  return jobs.map(j => {
+// into the text that auto-fills the invoice's customer-facing notes. Diagnosis/
+// Work Performed/Recommendations are protected — if the combined text has to be
+// cut to fit (worker.js caps the full description incl. service address at 500
+// chars), the "Reported" section gets shortened or dropped first.
+function buildJobNotesText(jobs, maxLen = 440) {
+  const reportedParts = [];
+  const detailParts   = [];
+  jobs.forEach(j => {
     const jf = j.fields;
+    if (jf['Problem Description']) reportedParts.push(`Reported: ${jf['Problem Description']}`);
     const segs = [];
-    if (jf['Problem Description']) segs.push(`Reported: ${jf['Problem Description']}`);
-    if (jf['Diagnosis'])           segs.push(`Diagnosis: ${jf['Diagnosis']}`);
-    if (jf['Work Performed'])      segs.push(`Work performed: ${jf['Work Performed']}`);
-    if (jf['Recommendations'])     segs.push(`Recommendations: ${jf['Recommendations']}`);
-    return segs.join('\n');
-  }).filter(Boolean).join('\n\n');
+    if (jf['Diagnosis'])       segs.push(`Diagnosis: ${jf['Diagnosis']}`);
+    if (jf['Work Performed'])  segs.push(`Work performed: ${jf['Work Performed']}`);
+    if (jf['Recommendations']) segs.push(`Recommendations: ${jf['Recommendations']}`);
+    if (segs.length) detailParts.push(segs.join('\n'));
+  });
+  const detailText   = detailParts.join('\n\n');
+  const reportedText = reportedParts.join('\n\n');
+  if (!reportedText) return detailText;
+
+  const sep    = detailText ? 2 : 0; // '\n\n' between Reported and the protected detail block
+  const budget = maxLen - detailText.length - sep;
+  const reportedFinal = budget >= reportedText.length ? reportedText
+    : budget > 10 ? reportedText.slice(0, budget - 1) + '…'
+    : '';
+  return [reportedFinal, detailText].filter(Boolean).join('\n\n');
 }
 
 async function openInvoiceModal(workOrderId, customerId) {
