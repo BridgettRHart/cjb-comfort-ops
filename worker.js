@@ -20,6 +20,7 @@ const APPROVE_BASE_URL = 'https://app.cjbcomfort.com/approve.html';
 const RESEND_FROM      = 'CJB Comfort <office@mail.cjbcomfort.com>';
 const REPLY_TO_EMAIL   = 'service@cjbcomfort.com'; // customer replies land here
 const PORTAL_URL       = 'https://portal.cjbcomfort.com';
+const EA_REBATE_CUSTOMER_ID = 'recv1gOnHklRXsfoQ'; // "Efficiency Arizona — HEAR Program" — shared internal billing entity for all EA rebate receivables
 const MANAGE_BASE_URL  = 'https://app.cjbcomfort.com/manage.html';
 const ADMIN_EMAIL      = 'bridgett@cjbcomfort.com'; // admin notification destination
 const OFFICE_PHONE     = '(480) 604-8622';
@@ -1213,6 +1214,28 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 }).catch(() => {});
               }
 
+            } else if (stripeInvType === 'ea_rebate') {
+              // ── EA rebate reimbursement received ──────────────────────────
+              // This is CJB's own receivable from the EA program, not a customer payment -
+              // never touch the WO's Status, never touch linked Jobs, never email the
+              // Stripe customer on file (that's the shared internal EA billing contact, not
+              // the actual job's customer - emailing them a "thank you for your payment"
+              // would be a real, visible mistake).
+              const linkedEAInvIds = wo.fields['Invoice'] || [];
+              let matchedEAInvId = null;
+              for (const invId of linkedEAInvIds) {
+                try {
+                  const atInv = await airtableGetById('Invoices', invId);
+                  if (atInv.fields['Stripe Invoice ID'] === stripeInvId) { matchedEAInvId = invId; break; }
+                } catch(e) { /* skip */ }
+              }
+              if (matchedEAInvId) {
+                await airtablePatch('Invoices', matchedEAInvId, {
+                  'Status':      'Paid in Full',
+                  'Paid Date':   paidDate,
+                  'Amount Paid': amountPaid,
+                });
+              }
             } else {
               // ── Standard or final balance paid ───────────────────────────
               await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
@@ -1702,12 +1725,17 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     // ── Mark invoice paid out-of-band (cash / check) ─────────────────────
     if (path === '/api/invoice/pay-offline' && request.method === 'POST') {
       try {
-        const { workOrderId, method, checkNumber, amount } = await request.json();
+        const { workOrderId, method, checkNumber, amount, slot = 'standard' } = await request.json();
         if (!workOrderId) throw new Error('workOrderId required');
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
 
         const wo = await airtableGetById('Work Orders', workOrderId);
-        const stripeInvoiceId = (wo.fields['Stripe Invoice ID'] || '').trim();
+        // A WO can have up to three invoices linked simultaneously (customer deposit, customer
+        // final balance/standard, and the internal EA rebate receivable) — slot picks which one.
+        const stripeInvoiceIdField = slot === 'deposit'   ? 'Deposit Invoice Stripe ID'
+                                    : slot === 'ea_rebate' ? 'EA Rebate Invoice Stripe ID'
+                                    : 'Stripe Invoice ID';
+        const stripeInvoiceId = (wo.fields[stripeInvoiceIdField] || '').trim();
         if (!stripeInvoiceId) {
           // No Stripe invoice on this WO — nothing to do, not an error
           return new Response(JSON.stringify({ ok: true, skipped: true }),
@@ -1727,12 +1755,27 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // by Stripe immediately on send, so calling /pay again would throw an error.
         const stripeInv  = await stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`);
         const paidDate   = new Date().toISOString().split('T')[0];
-        const atInvId    = (wo.fields['Invoice'] || [])[0] || null;
+        // A WO can have up to three Invoice records linked at once (deposit, final/standard,
+        // EA rebate) — match the one whose own Stripe Invoice ID matches the invoice we're
+        // actually acting on here, rather than blindly taking the first link.
+        const linkedInvIdsForSlot = wo.fields['Invoice'] || [];
+        let atInvId = null;
+        for (const invId of linkedInvIdsForSlot) {
+          try {
+            const candidate = await airtableGetById('Invoices', invId);
+            if (candidate.fields['Stripe Invoice ID'] === stripeInvoiceId) { atInvId = invId; break; }
+          } catch(e) { /* skip */ }
+        }
+        if (!atInvId) atInvId = linkedInvIdsForSlot[0] || null; // legacy fallback
 
         if (stripeInv.status === 'paid') {
-          // Already paid (auto-paid $0 or previously collected) — just sync Airtable
-          await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
-          await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
+          // Already paid (auto-paid $0 or previously collected) — just sync Airtable.
+          // Never flip the WO/Jobs to Paid for the EA rebate slot — that's CJB's own
+          // receivable, not the customer's job-completion state.
+          if (slot !== 'ea_rebate') {
+            await airtablePatch('Work Orders', wo.id, { 'Status': 'Paid' });
+            await patchBillableJobs(wo.fields['Jobs'] || [], 'Paid');
+          }
           if (atInvId) {
             await airtablePatch('Invoices', atInvId, {
               'Status':         'Paid in Full',
@@ -1845,8 +1888,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     if (path === '/api/invoice' && request.method === 'POST') {
       try {
         const body = await request.json();
-        const { workOrderId, customerId, notes, sendNow } = body;
-        const invoiceType    = body.invoiceType   || 'standard'; // 'standard' | 'deposit' | 'final_balance'
+        const { workOrderId, notes } = body;
+        const invoiceType    = body.invoiceType   || 'standard'; // 'standard' | 'deposit' | 'final_balance' | 'ea_rebate'
+        // EA rebate invoices are an internal receivable (EA owes CJB, not the customer) - always
+        // billed to the shared EA customer record regardless of what's passed in, and never sent
+        // by email (sendNow forced false) since there's no one to email it to.
+        const customerId = invoiceType === 'ea_rebate' ? EA_REBATE_CUSTOMER_ID : body.customerId;
+        const sendNow     = invoiceType === 'ea_rebate' ? false : body.sendNow;
         const depositAmount  = body.depositAmount || 0;          // dollar amount for deposit invoices
         const discountType   = body.discountType  || 'pct';      // 'pct' | 'dollar'
         const discountValue  = Number(body.discountValue) || 0;  // percent (0-100) or dollar amount
@@ -1948,7 +1996,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         //    Stripe silently keeps items in some cases, causing doubles on every save.
         //    Deleting the whole draft and recreating is simpler and always correct.
         //    The new ID gets written back to Airtable immediately after creation.
-        const existingStripeId = (woRecord?.fields?.['Stripe Invoice ID'] || '').trim();
+        const existingStripeId = invoiceType === 'ea_rebate'
+          ? (woRecord?.fields?.['EA Rebate Invoice Stripe ID'] || '').trim()
+          : (woRecord?.fields?.['Stripe Invoice ID'] || '').trim();
         let inv = null;
 
         if (existingStripeId) {
@@ -2115,13 +2165,14 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         // 10. Create or update Airtable Invoice record
 
-        // Map invoiceType to Airtable Invoice Type select value
+        // Map invoiceType to Airtable Invoice Type select value. ea_rebate reuses 'Standard' —
+        // it's already unambiguous via the Customer link (Efficiency Arizona) and Invoice Name.
         const atInvoiceType = invoiceType === 'deposit'        ? 'Deposit'
                             : invoiceType === 'final_balance'  ? 'Final — Balance Due'
                             : 'Standard';
 
         const atFields = {
-          'Invoice Name':   `${custName} — ${today}${invoiceType === 'deposit' ? ' (Deposit)' : invoiceType === 'final_balance' ? ' (Final)' : ''}`,
+          'Invoice Name':   `${custName} — ${today}${invoiceType === 'deposit' ? ' (Deposit)' : invoiceType === 'final_balance' ? ' (Final)' : invoiceType === 'ea_rebate' ? ' (EA Rebate)' : ''}`,
           'Customers':      [customerId],
           'Status':         sendNow ? 'Sent' : 'Draft',
           'Invoice Type':   atInvoiceType,
@@ -2150,7 +2201,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // For final_balance: also create a new record (second invoice on the same WO)
         // For standard: check for existing draft invoice to update in place
         let atInvId;
-        const isNewInvoiceType = invoiceType === 'deposit' || invoiceType === 'final_balance';
+        const isNewInvoiceType = invoiceType === 'deposit' || invoiceType === 'final_balance' || invoiceType === 'ea_rebate';
         const existingAtInvoiceId = isNewInvoiceType ? null :
           (woRecord?.fields?.['Invoice'] || [])[0] || null;
 
@@ -2166,13 +2217,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // For $0 invoices Stripe auto-pays immediately on send (status='paid').
         const zeroDollarAutoPaid = sendNow && finalInv.status === 'paid';
         if (workOrderId) {
-          // Deposit invoices write to a dedicated field so the main Stripe Invoice ID
-          // stays clean for the standard / final balance invoice.
-          const stripeIdField = invoiceType === 'deposit' ? 'Deposit Invoice Stripe ID' : 'Stripe Invoice ID';
+          // Deposit and EA rebate invoices each write to their own dedicated field so the
+          // main Stripe Invoice ID stays clean for the standard / final balance invoice —
+          // a WO can have all three open at once (customer deposit, customer final balance,
+          // and the internal EA rebate receivable) without them colliding.
+          const stripeIdField = invoiceType === 'deposit'   ? 'Deposit Invoice Stripe ID'
+                              : invoiceType === 'ea_rebate'  ? 'EA Rebate Invoice Stripe ID'
+                              : 'Stripe Invoice ID';
           const woUpdate = { [stripeIdField]: finalInv.id };
-          // Only set Total Amount on standard / final invoices (not deposit alone)
-          if (invoiceType !== 'deposit') woUpdate['Total Amount'] = subtotal;
-          if (finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
+          // Only set Total Amount on standard / final invoices billed to the actual customer —
+          // not deposit (partial) or EA rebate (a different payer entirely, not part of what
+          // the customer owes).
+          if (invoiceType !== 'deposit' && invoiceType !== 'ea_rebate') woUpdate['Total Amount'] = subtotal;
+          if (invoiceType !== 'ea_rebate' && finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
           if (sendNow) {
             if (invoiceType === 'deposit') {
               // Deposit sent — don't flip WO to Invoiced; keep current status

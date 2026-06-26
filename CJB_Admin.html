@@ -1457,6 +1457,9 @@ body.dispatch-dragging .dg-placed-card:not(.dragging) { pointer-events:none; }
         <textarea id="ea-cf-equipment" rows="3" placeholder="Outdoor Unit Model: ...&#10;Indoor Unit Model: ...&#10;ENERGY STAR ID: ... | AHRI Reference: ..."
           style="width:100%;padding:6px 8px;border:1px solid #86efac;border-radius:4px;font-size:12px;margin-bottom:8px;resize:vertical;"></textarea>
         <button type="button" class="btn btn-sm" style="background:#166534;color:#fff;" onclick="generateEADisclosure()">Generate EA Disclosure → Notes</button>
+        <button type="button" class="btn btn-sm" style="background:#0f766e;color:#fff;margin-left:6px;" onclick="applyEARebate()">Apply EA Rebate</button>
+        <button type="button" class="btn btn-sm" style="background:#fff;color:#0f766e;border:1px solid #0f766e;margin-left:6px;" onclick="openAdminPayModal(quoteWOId,'ea_rebate')">Collect EA Rebate</button>
+        <div id="ea-rebate-applied-note" style="display:none;font-size:11px;color:#0f766e;margin-top:6px;"></div>
       </div>
     </div>
 
@@ -4413,6 +4416,50 @@ Customer Signature: _______________________  Date: __________`;
   const notesEl = document.getElementById('quote-notes');
   notesEl.value = partB;
   showToast('EA disclosure added — split across Description and Notes ✓');
+}
+
+// Applies the EA rebate as a real discount on the customer's quote AND creates/refreshes
+// the internal EA Rebate receivable invoice (billed to the shared "Efficiency Arizona —
+// HEAR Program" customer record, never emailed) - both driven by the same rebate total so
+// it's only ever entered once. Functionally a discount, but it also creates a real invoice
+// CJB can later collect against once the EA reimbursement check arrives - customer-facing
+// copy never uses the word "invoice" for this, only "EA/HEAR Program Rebate".
+async function applyEARebate() {
+  if (!_eaProjectForQuote) { alert('No EA project linked to this estimate.'); return; }
+  if (!quoteWOId) { alert('Open or save this estimate first.'); return; }
+  updateEACashFlow();
+  const s = _eaCashFlowState;
+  if (!s || !(s.rebate > 0)) { alert('No rebate amount to apply — check the EA Project\'s rebate fields.'); return; }
+
+  // 1. Apply as a dollar discount on the quote itself (same mechanism as a manual discount).
+  showDiscountSection();
+  document.getElementById('quote-discount-val').value = s.rebate.toFixed(2);
+  setQuoteDiscountType('fixed');
+
+  // 2. Create/refresh the internal EA rebate invoice for the same amount.
+  const btn = document.querySelector('button[onclick="applyEARebate()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+  try {
+    const res = await fetch(`${PROXY}/invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workOrderId: quoteWOId,
+        invoiceType: 'ea_rebate',
+        lineItems: [{ productName: 'EA HEAR Program Rebate', quantity: 1, unitPrice: s.rebate }],
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+    const noteEl = document.getElementById('ea-rebate-applied-note');
+    noteEl.style.display = '';
+    noteEl.textContent = `✓ $${s.rebate.toFixed(2)} discount applied to quote, and EA rebate invoice created (Draft) — finalize/collect it from Stripe once the reimbursement check arrives.`;
+    showToast('EA rebate applied ✓');
+  } catch(e) {
+    showToast('⚠ Discount applied, but EA rebate invoice failed: ' + (e.message || 'try again'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Apply EA Rebate'; }
+  }
 }
 
 function toggleAddon(btn) {
@@ -8035,9 +8082,11 @@ let _apmTotalNumeric   = 0;    // numeric balance due (updated after partial-pay
 let _apmStripe         = null; // Stripe.js instance
 let _apmStripeCard     = null; // mounted Card Element
 let _apmStripePkPromise = null; // cache the PK fetch
+let _apmSlot           = 'standard'; // 'standard' | 'deposit' | 'ea_rebate' — which of a WO's up-to-3 invoices this acts on
 
-async function openAdminPayModal(woId) {
+async function openAdminPayModal(woId, slot = 'standard') {
   _apmWoId = woId;
+  _apmSlot = slot;
   _apmMethod = 'card';
 
   // Reset UI
@@ -8065,21 +8114,49 @@ async function openAdminPayModal(woId) {
     const wo   = await res.json();
     const f    = wo.fields || {};
 
+    const stripeIdField = _apmSlot === 'deposit'   ? 'Deposit Invoice Stripe ID'
+                         : _apmSlot === 'ea_rebate' ? 'EA Rebate Invoice Stripe ID'
+                         : 'Stripe Invoice ID';
     const custName   = f['Customer Name'] || 'Customer';
     const invoiceUrl = extractStripeUrl(f['Internal Notes'] || '');
-    _apmInvoiceId    = (f['Stripe Invoice ID'] || '').trim();
+    _apmInvoiceId    = (f[stripeIdField] || '').trim();
     _apmInvoiceUrl   = invoiceUrl || '';
-    _apmTotalNumeric = f['Total Amount'] ? Number(f['Total Amount']) : 0;
 
-    document.getElementById('apm-customer').textContent = custName;
+    if (_apmSlot === 'ea_rebate') {
+      // EA rebate's amount isn't on the WO's own Total Amount field (that's the customer's
+      // billed total, a different number entirely) — read it from the invoice itself.
+      document.getElementById('apm-customer').textContent = `${custName} — EA Rebate`;
+      _apmTotalNumeric = 0;
+      if (_apmInvoiceId) {
+        try {
+          const eaRes  = await fetch(`${PROXY}/invoice/${encodeURIComponent(_apmInvoiceId)}`);
+          const eaData = eaRes.ok ? await eaRes.json() : null;
+          _apmTotalNumeric = (eaData?.lines || []).reduce((s, l) => s + (l.quantity || 1) * (l.unitPrice || 0), 0);
+        } catch(e) { /* non-fatal */ }
+      }
+    } else {
+      document.getElementById('apm-customer').textContent = custName;
+      _apmTotalNumeric = f['Total Amount'] ? Number(f['Total Amount']) : 0;
+    }
+
     document.getElementById('apm-amount').textContent   = _apmTotalNumeric > 0
       ? '$' + _apmTotalNumeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : '—';
     document.getElementById('apm-balance-note').textContent = '';
     setFullAmount();
 
-    // Fetch Airtable Invoice record to check for prior partial payments
-    const atInvId = ((f['Invoice'] || [])[0] || (f['Invoices'] || [])[0] || '').trim();
+    // Fetch the Airtable Invoice record matching THIS slot's Stripe Invoice ID (a WO can
+    // have up to 3 linked at once — deposit, final/standard, EA rebate — so don't just
+    // grab the first link) to check for prior partial payments.
+    const linkedInvIds = [...(f['Invoice'] || []), ...(f['Invoices'] || [])];
+    let atInvId = null;
+    for (const candId of linkedInvIds) {
+      try {
+        const candRes  = await fetch(`${PROXY}/Invoices/${candId}`);
+        const candData = await candRes.json();
+        if ((candData.fields?.['Stripe Invoice ID'] || '') === _apmInvoiceId) { atInvId = candId; break; }
+      } catch(e) { /* skip */ }
+    }
     if (atInvId && _apmTotalNumeric > 0) {
       try {
         const invRes   = await fetch(`${PROXY}/Invoices/${atInvId}`);
@@ -8165,7 +8242,7 @@ async function submitAdminPayment(method) {
     const res = await fetch(`${PROXY}/invoice/pay-offline`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workOrderId: _apmWoId, method, checkNumber: checkNo, amount: amountVal }),
+      body: JSON.stringify({ workOrderId: _apmWoId, method, checkNumber: checkNo, amount: amountVal, slot: _apmSlot }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Server error');
