@@ -2365,12 +2365,12 @@ function dashNavWeek(dir) {
     _weekOffset = Math.max(-2, Math.min(2, _weekOffset + dir));
     _selectedDay = null; // will auto-set to first job day or Monday
   }
-  if (_dashWOs) renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries, _dashInvoices);
 }
 
 function dashSelectDay(ds) {
   _selectedDay = ds;
-  if (_dashWOs) renderDashboard(_dashWOs, _dashFuRecords, _dashContracts);
+  if (_dashWOs) renderDashboard(_dashWOs, _dashFuRecords, _dashContracts, _dashEstEntries, _dashInvoices);
 }
 
 async function dashInvoice(woId) {
