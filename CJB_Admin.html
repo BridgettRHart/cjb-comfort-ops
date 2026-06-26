@@ -3536,33 +3536,49 @@ async function submitEquipmentForm() {
 }
 
 // ── Invoice modal ───────────────────────────────────────────────────────────
-// Combines what the customer reported, what the tech found, and what was done
-// into the text that auto-fills the invoice's customer-facing notes. Diagnosis/
-// Work Performed/Recommendations are protected — if the combined text has to be
-// cut to fit (worker.js caps the full description incl. service address at 500
-// chars), the "Reported" section gets shortened or dropped first.
-function buildJobNotesText(jobs, maxLen = 440) {
-  const reportedParts = [];
-  const detailParts   = [];
-  jobs.forEach(j => {
-    const jf = j.fields;
-    if (jf['Problem Description']) reportedParts.push(`Reported: ${jf['Problem Description']}`);
-    const segs = [];
-    if (jf['Diagnosis'])       segs.push(`Diagnosis: ${jf['Diagnosis']}`);
-    if (jf['Work Performed'])  segs.push(`Work performed: ${jf['Work Performed']}`);
-    if (jf['Recommendations']) segs.push(`Recommendations: ${jf['Recommendations']}`);
-    if (segs.length) detailParts.push(segs.join('\n'));
-  });
-  const detailText   = detailParts.join('\n\n');
-  const reportedText = reportedParts.join('\n\n');
+// Builds the text that auto-fills the invoice's customer-facing notes. The
+// work order's own Problem Description (how the call originated) always comes
+// first — Stripe's 500-char description cap can never fit a full per-unit
+// write-up once there's more than a couple of jobs, so 1-3 jobs get a compact
+// one-line summary each, and 4+ collapse to an equipment-type tally with a
+// note to request full detail, rather than truncating mid-job. Full per-unit
+// diagnosis/work-performed/recommendations stay viewable in the Visit Details
+// panel regardless — this is only about what's worth fitting on the invoice
+// itself until the customer portal can link out to the full job record.
+function buildJobNotesText(wo, jobs, maxLen = 440) {
+  const reportedText = wo?.fields?.['Problem Description'] ? `Reported: ${wo.fields['Problem Description']}` : '';
+  const detailText = !jobs.length ? ''
+    : jobs.length <= 3 ? buildPerUnitLines(jobs)
+    : buildUnitTallyNote(jobs);
   if (!reportedText) return detailText;
 
-  const sep    = detailText ? 2 : 0; // '\n\n' between Reported and the protected detail block
+  const sep    = detailText ? 2 : 0; // '\n\n' between Reported and the unit detail below it
   const budget = maxLen - detailText.length - sep;
   const reportedFinal = budget >= reportedText.length ? reportedText
     : budget > 10 ? reportedText.slice(0, budget - 1) + '…'
     : '';
   return [reportedFinal, detailText].filter(Boolean).join('\n\n');
+}
+
+function buildPerUnitLines(jobs) {
+  const lineCap = 70;
+  return jobs.map(j => {
+    const jf      = j.fields;
+    const label   = jf['Job Name'] || jf['Job Type'] || 'Unit';
+    const summary = jf['Work Performed'] || jf['Diagnosis'] || '';
+    const line    = summary ? `${label}: ${summary}` : label;
+    return line.length > lineCap ? line.slice(0, lineCap - 1) + '…' : line;
+  }).join('\n');
+}
+
+function buildUnitTallyNote(jobs) {
+  const tally = {};
+  jobs.forEach(j => {
+    const type = j.fields['Job Type'] || 'Unit';
+    tally[type] = (tally[type] || 0) + 1;
+  });
+  const breakdown = Object.entries(tally).map(([type, count]) => `${count}x ${type}`).join(', ');
+  return `${jobs.length} units serviced (${breakdown}). Email or call for detailed job notes on each unit.`;
 }
 
 async function openInvoiceModal(workOrderId, customerId) {
@@ -3632,9 +3648,10 @@ async function openInvoiceModal(workOrderId, customerId) {
 
     renderJobSummary(jobs);
 
-    // Auto-fill customer notes from job details (new invoices only)
-    if (!existingStripeId && jobs.length > 0) {
-      const full = buildJobNotesText(jobs);
+    // Auto-fill customer notes from job details (new invoices only) — WO's own
+    // Problem Description should show even before any Job record exists yet.
+    if (!existingStripeId) {
+      const full = buildJobNotesText(woForModal, jobs);
       if (full) {
         document.getElementById('inv-notes').value = full.length > 500 ? full.slice(0, 497) + '…' : full;
       }
@@ -3699,9 +3716,8 @@ async function openInvoiceModal(workOrderId, customerId) {
           addServiceCallItem(jobs, woForModal?.fields['Scheduled Date']);
           addLaborItem(jobs);
           for (const job of jobs) addPartsFromJob(job);
-          const parts = jobs.map(j => j.fields['Diagnosis']).filter(Boolean);
-          if (parts.length) {
-            const full = parts.join('\n\n');
+          const full = buildJobNotesText(woForModal, jobs);
+          if (full) {
             document.getElementById('inv-notes').value = full.length > 500 ? full.slice(0, 497) + '…' : full;
           }
         } else {
