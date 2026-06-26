@@ -2165,10 +2165,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         // 10. Create or update Airtable Invoice record
 
-        // Map invoiceType to Airtable Invoice Type select value. ea_rebate reuses 'Standard' —
-        // it's already unambiguous via the Customer link (Efficiency Arizona) and Invoice Name.
+        // Map invoiceType to Airtable Invoice Type select value.
         const atInvoiceType = invoiceType === 'deposit'        ? 'Deposit'
                             : invoiceType === 'final_balance'  ? 'Final — Balance Due'
+                            : invoiceType === 'ea_rebate'       ? 'EA Rebate'
                             : 'Standard';
 
         const atFields = {
