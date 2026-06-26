@@ -4902,6 +4902,20 @@ async function openFinalInvoiceModal(workOrderId, customerId) {
         for (const line of qData.lines) {
           fillLineItem(line.description || 'Service', line.quantity || 1, line.unitPrice || 0, null);
         }
+        // Stripe's quote line items are always full, undiscounted price - any coupon
+        // applied to the quote (e.g. an EA rebate) lives outside the line items, so a
+        // discounted quote would otherwise silently re-inflate back to the full
+        // pre-discount total here. amountTotal is already post-discount, so the gap
+        // between that and the line-item subtotal IS the discount - carry it forward
+        // as a dollar-amount discount on this invoice too.
+        const lineSubtotal = qData.lines.reduce((s, l) => s + (l.quantity || 1) * (l.unitPrice || 0), 0);
+        const quoteDiscount = lineSubtotal - (qData.amountTotal || 0);
+        if (quoteDiscount > 0.01) {
+          showDiscountSection();
+          setDiscountType('dollar');
+          document.getElementById('inv-discount-val').value = quoteDiscount.toFixed(2);
+          document.getElementById('inv-discount-reason').value = 'Discount carried over from approved estimate';
+        }
       }
     } catch(e) { /* non-fatal — Bridgett can fill manually */ }
   }
