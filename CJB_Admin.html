@@ -3536,6 +3536,20 @@ async function submitEquipmentForm() {
 }
 
 // ── Invoice modal ───────────────────────────────────────────────────────────
+// Combines what the customer reported, what the tech found, and what was done
+// into the text that auto-fills the invoice's customer-facing notes.
+function buildJobNotesText(jobs) {
+  return jobs.map(j => {
+    const jf = j.fields;
+    const segs = [];
+    if (jf['Problem Description']) segs.push(`Reported: ${jf['Problem Description']}`);
+    if (jf['Diagnosis'])           segs.push(`Diagnosis: ${jf['Diagnosis']}`);
+    if (jf['Work Performed'])      segs.push(`Work performed: ${jf['Work Performed']}`);
+    if (jf['Recommendations'])     segs.push(`Recommendations: ${jf['Recommendations']}`);
+    return segs.join('\n');
+  }).filter(Boolean).join('\n\n');
+}
+
 async function openInvoiceModal(workOrderId, customerId) {
   invoiceWOId   = workOrderId;
   invoiceCustId = customerId;
@@ -3596,7 +3610,7 @@ async function openInvoiceModal(workOrderId, customerId) {
       const jobData = await fetch(
         `${PROXY}/Jobs?filterByFormula=${encodeURIComponent(formula)}` +
         '&fields[]=Job Name&fields[]=Job Type&fields[]=Status' +
-        '&fields[]=Work Performed&fields[]=Parts Used&fields[]=Diagnosis&fields[]=Labor Hours&fields[]=Recommendations'
+        '&fields[]=Work Performed&fields[]=Parts Used&fields[]=Diagnosis&fields[]=Labor Hours&fields[]=Recommendations&fields[]=Problem Description'
       ).then(r => r.json());
       jobs = jobData.records || [];
     }
@@ -3605,9 +3619,8 @@ async function openInvoiceModal(workOrderId, customerId) {
 
     // Auto-fill customer notes from job details (new invoices only)
     if (!existingStripeId && jobs.length > 0) {
-      const parts = jobs.map(j => j.fields['Diagnosis']).filter(Boolean);
-      if (parts.length) {
-        const full = parts.join('\n\n');
+      const full = buildJobNotesText(jobs);
+      if (full) {
         document.getElementById('inv-notes').value = full.length > 500 ? full.slice(0, 497) + '…' : full;
       }
     }
