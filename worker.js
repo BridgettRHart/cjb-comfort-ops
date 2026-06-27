@@ -817,6 +817,56 @@ export default {
       }
     }
 
+    // ── Notify a customer a no-charge visit is complete — no Stripe/Invoice object ──
+    // For jobs flagged "No Invoice Needed" (warranty, no-charge, or billed on a
+    // different Work Order) — this is the only customer-facing action they need,
+    // instead of creating a $0 invoice just to trigger a notification.
+    if (path === '/api/wo/send-status-update' && request.method === 'POST') {
+      try {
+        const { workOrderId } = await request.json();
+        if (!workOrderId) return new Response(JSON.stringify({ error: 'Missing workOrderId' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo = await airtableGetById('Work Orders', workOrderId);
+        const wf = wo.fields;
+        const custIds = wf['Customer'] || [];
+        if (!custIds.length) return new Response(JSON.stringify({ error: 'Work Order has no linked Customer' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const cust      = await airtableGetById('Customers', custIds[0]);
+        const custEmail = (cust.fields['Email'] || '').trim();
+        const custPhone = (cust.fields['Phone'] || '').trim();
+        const custName  = cust.fields['Customer Name'] || 'there';
+        const custFirst = custName.trim().split(' ')[0] || 'there';
+
+        const addrParts = [wf['Service Address'], wf['City']].filter(Boolean);
+        const address   = addrParts.join(', ');
+        const woType    = wf['Work Order Type'] || '';
+        const summary   = wf['Problem Description'] || '';
+
+        if (!custEmail && !custPhone) {
+          return new Response(JSON.stringify({ error: 'Customer has no email or phone on file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        if (custEmail && env.RESEND_API_KEY) {
+          const subject = 'Your CJB Comfort service call is complete';
+          await sendEmail(env.RESEND_API_KEY, {
+            to: custEmail, subject,
+            html: emailServiceCompleteHtml({ customerName: custFirst, woType, address, summary }),
+          });
+          logCommunication(env, { type: 'Email', trigger: 'Service Complete (No Invoice)', sentTo: custEmail, subject, customerId: custIds[0], workOrderId }).catch(() => {});
+        }
+
+        if (custPhone && env.QUO_API_KEY) {
+          const smsText = `Hi ${custFirst} — your CJB Comfort service call${address ? ` at ${address}` : ''} is complete, no charge. Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`;
+          await sendSms(env.QUO_API_KEY, custPhone, smsText);
+          logCommunication(env, { type: 'SMS', trigger: 'Service Complete (No Invoice)', sentTo: custPhone, subject: 'Service complete SMS', customerId: custIds[0], workOrderId }).catch(() => {});
+        }
+
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Convert an approved estimate into a real Job Work Order ────────────
     // Single source of truth for this business rule — any client (admin app,
     // future mobile/automations) gets the same correct linking every time,
@@ -4253,6 +4303,24 @@ function emailDepositReceivedHtml({ customerName, amountPaid, invoiceNumber }) {
       <p style="font-size:14px;color:#374151;line-height:1.65;margin:0 0 8px;">&#10003;&nbsp; After the work is complete, we&rsquo;ll send a final balance invoice for the remaining amount.</p>
       <p style="font-size:14px;color:#374151;line-height:1.65;margin:0;">&#10003;&nbsp; You&rsquo;ll get a reminder before your appointment.</p>
     </div>
+
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us anytime at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+// ── Service complete, no invoice (warranty / no-charge / billed elsewhere) ────
+function emailServiceCompleteHtml({ customerName, woType, address, summary }) {
+  const preheader = 'Your service call is complete — no charge.';
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">Just letting you know your ${woType || 'service'} visit${address ? ` at ${address}` : ''} is complete &mdash; no charge for this one.</p>
+
+    ${summary ? `
+    <div style="background:#f9fafb;border-radius:10px;padding:20px 22px;margin-bottom:24px;">
+      <p style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:0 0 10px;">What we did</p>
+      <p style="font-size:14px;color:#374151;line-height:1.65;margin:0;white-space:pre-line;">${summary}</p>
+    </div>` : ''}
 
     <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us anytime at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 

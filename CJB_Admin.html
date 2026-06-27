@@ -1978,7 +1978,8 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
   const estimateTypes = ['Install Estimate', 'Estimate Only'];
   const needsInvoice = wos.filter(w =>
     w.fields['Status'] === 'Complete' &&
-    !estimateTypes.includes(w.fields['Work Order Type'] || '')
+    !estimateTypes.includes(w.fields['Work Order Type'] || '') &&
+    !w.fields['No Invoice Needed']
   );
   const needsEstimate = wos.filter(w =>
     w.fields['Status'] === 'Complete' &&
@@ -3048,8 +3049,14 @@ function renderDetail(customer, props, wos, contacts) {
         // Paid/Invoiced has its own resolved billing and must keep showing it, even if it
         // also happens to be the source estimate for a separate, later job.
         const supersededByJob = status === 'Estimate Approved' && !!((wf['From field: Source Estimate'] || []).length);
+        // No-charge / billed-elsewhere jobs (warranty, one leg of a multi-visit job billed
+        // on a different WO) shouldn't be nagged about creating an invoice at all — they
+        // just need a way to notify the customer the visit is done.
+        const noInvoiceNeeded = !!(wf['No Invoice Needed']);
         let invoiceBtn = '';
-        if (supersededByJob) {
+        if (noInvoiceNeeded) {
+          invoiceBtn = `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="sendWOStatusUpdate('${wo.id}')">Send Update</button>`;
+        } else if (supersededByJob) {
           invoiceBtn = '';
         } else if (depositPaid && !['Invoiced','Paid','Cancelled'].includes(status)) {
           // Deposit was collected — show button to send the final balance invoice
@@ -3164,6 +3171,10 @@ function renderDetail(customer, props, wos, contacts) {
           </div>
           <span class="badge ${cls}">${esc(status)}</span>
           <button class="btn-edit" onclick="editWorkOrder('${wo.id}')">Edit WO</button>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#6b7280;cursor:pointer;margin:0 2px;" title="No charge, or billed on a different work order — stop prompting for an invoice here">
+            <input type="checkbox" ${noInvoiceNeeded ? 'checked' : ''} onchange="toggleNoInvoiceNeeded('${wo.id}', this.checked)" style="cursor:pointer;">
+            No invoice
+          </label>
           ${quoteBtn}
           ${approveOverrideBtn}
           ${invoiceBtn}
@@ -4774,6 +4785,33 @@ async function markEstimateApproved(woId) {
     showToast('Estimate marked approved ✓');
     if (selectedCustomer) selectCustomer(selectedCustomer.id);
     if (_allEstimates.length) loadEstimates(); // keep the Estimates tab from going stale if this was clicked from there
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function toggleNoInvoiceNeeded(woId, checked) {
+  try {
+    const res = await fetch(`${PROXY}/Work%20Orders/${woId}`,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { 'No Invoice Needed': checked } }) });
+    if (!res.ok) throw new Error((await res.json()).error?.message || 'Failed to save');
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function sendWOStatusUpdate(woId) {
+  if (!confirm('Send the customer a "your service call is complete" email/text? No invoice or charge is created.')) return;
+  try {
+    const res  = await fetch(`${PROXY}/wo/send-status-update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workOrderId: woId })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Failed to send');
+    showToast('Status update sent ✓');
   } catch (err) {
     alert('Error: ' + err.message);
   }
