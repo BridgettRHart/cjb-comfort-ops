@@ -2235,7 +2235,9 @@ function renderDashboard(wos, fuRecords, contracts, estEntries, invoices) {
           const tech   = Array.isArray(f['Technician Name']) ? f['Technician Name'][0] : (f['Technician Name'] || '');
           const isEstimateType = estimateTypes.includes(f['Work Order Type'] || '');
           const invBtn = f['No Invoice Needed']
-            ? `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="sendWOStatusUpdate('${w.id}')">Send Update</button>`
+            ? (f['Status Update Sent']
+                ? `<button class="btn btn-sm" style="background:#e5e7eb;color:#4b5563;" onclick="sendWOStatusUpdate('${w.id}',true)">✓ Update Sent</button>`
+                : `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="sendWOStatusUpdate('${w.id}',false)">Send Update</button>`)
             : status === 'Complete'
               ? (isEstimateType
                   ? `<button class="btn btn-blue btn-sm" onclick="dashBuildEstimate('${w.id}')">Build Estimate</button>`
@@ -3057,7 +3059,9 @@ function renderDetail(customer, props, wos, contacts) {
         const noInvoiceNeeded = !!(wf['No Invoice Needed']);
         let invoiceBtn = '';
         if (noInvoiceNeeded) {
-          invoiceBtn = `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="sendWOStatusUpdate('${wo.id}')">Send Update</button>`;
+          invoiceBtn = wf['Status Update Sent']
+            ? `<button class="btn btn-sm" style="background:#e5e7eb;color:#4b5563;" onclick="sendWOStatusUpdate('${wo.id}',true)">✓ Update Sent</button>`
+            : `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="sendWOStatusUpdate('${wo.id}',false)">Send Update</button>`;
         } else if (supersededByJob) {
           invoiceBtn = '';
         } else if (depositPaid && !['Invoiced','Paid','Cancelled'].includes(status)) {
@@ -4804,8 +4808,11 @@ async function toggleNoInvoiceNeeded(woId, checked) {
   }
 }
 
-async function sendWOStatusUpdate(woId) {
-  if (!confirm('Send the customer a "your service call is complete" email/text? No invoice or charge is created.')) return;
+async function sendWOStatusUpdate(woId, alreadySent) {
+  const msg = alreadySent
+    ? 'An update was already sent for this work order. Send it again?'
+    : 'Send the customer a "your service call is complete" email/text? No invoice or charge is created.';
+  if (!confirm(msg)) return;
   try {
     const res  = await fetch(`${PROXY}/wo/send-status-update`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4814,6 +4821,8 @@ async function sendWOStatusUpdate(woId) {
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'Failed to send');
     showToast('Status update sent ✓');
+    if (selectedCustomer) selectCustomer(selectedCustomer.id);
+    if (_dashWOs) loadDashboard(true);
   } catch (err) {
     alert('Error: ' + err.message);
   }

@@ -861,6 +861,8 @@ export default {
           logCommunication(env, { type: 'SMS', trigger: 'Service Complete (No Invoice)', sentTo: custPhone, subject: 'Service complete SMS', customerId: custIds[0], workOrderId }).catch(() => {});
         }
 
+        await airtablePatch('Work Orders', workOrderId, { 'Status Update Sent': true });
+
         return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
