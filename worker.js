@@ -840,7 +840,20 @@ export default {
         const addrParts = [wf['Service Address'], wf['City']].filter(Boolean);
         const address   = addrParts.join(', ');
         const woType    = wf['Work Order Type'] || '';
-        const summary   = wf['Problem Description'] || '';
+
+        // Pull Work Performed from the linked Job(s) alongside the WO's own
+        // Problem Description — same Reported/Work performed labeling used on
+        // invoice notes, so the two stay consistent.
+        const jobIds = wf['Jobs'] || [];
+        let workPerformed = '';
+        if (jobIds.length) {
+          const jobs = await Promise.all(jobIds.map(id => airtableGetById('Jobs', id).catch(() => null)));
+          workPerformed = jobs.filter(Boolean).map(j => j.fields['Work Performed']).filter(Boolean).join('\n\n');
+        }
+        const summaryParts = [];
+        if (wf['Problem Description']) summaryParts.push(`Reported: ${wf['Problem Description']}`);
+        if (workPerformed)             summaryParts.push(`Work performed: ${workPerformed}`);
+        const summary = summaryParts.join('\n\n');
 
         if (!custEmail && !custPhone) {
           return new Response(JSON.stringify({ error: 'Customer has no email or phone on file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
