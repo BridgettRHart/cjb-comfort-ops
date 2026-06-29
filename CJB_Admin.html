@@ -9121,7 +9121,7 @@ async function _loadDispatchData() {
         fetchAll('Work Orders', `filterByFormula=${unschF}&sort[0][field]=Work Order Name&sort[0][direction]=asc&${fields}`)
       ]);
       _dispatchWeekWOs     = weekWOs;
-      _dispatchDayWOs      = weekWOs.filter(wo => (wo.fields['Scheduled Date']||'').slice(0,10) === ds);
+      _dispatchDayWOs      = weekWOs.filter(wo => _azDate(wo.fields['Scheduled Date']) === ds);
       _dispatchUnscheduled = unscheduled;
       if (!_dispatchMapDay) _dispatchMapDay = ds;
       const allWOs = [...weekWOs, ...unscheduled];
@@ -9263,7 +9263,7 @@ function renderDispatchGridWeek() {
     const ds = _ddStr(day);
     const isToday    = ds === today;
     const isSelected = ds === selectedDay;
-    const dayWOs = _dispatchWeekWOs.filter(wo => (wo.fields['Scheduled Date']||'').slice(0,10) === ds);
+    const dayWOs = _dispatchWeekWOs.filter(wo => _azDate(wo.fields['Scheduled Date']) === ds);
     const dayLabel = day.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
     const slotRows = slots.map((s, i) =>
@@ -9500,7 +9500,7 @@ async function _assignDispatchJob(woId, techId, startH, startM, dateStr) {
     if (_dispatchView === 'week') {
       _dispatchWeekWOs = [..._dispatchWeekWOs.filter(w => w.id !== woId), wo];
       _dispatchWeekWOs.sort((a,b) => (a.fields['Scheduled Date']||'').localeCompare(b.fields['Scheduled Date']||''));
-      _dispatchDayWOs = _dispatchWeekWOs.filter(w => (w.fields['Scheduled Date']||'').slice(0,10) === _ddStr(_dispatchDate));
+      _dispatchDayWOs = _dispatchWeekWOs.filter(w => _azDate(w.fields['Scheduled Date']) === _ddStr(_dispatchDate));
     } else {
       _dispatchDayWOs = [..._dispatchDayWOs.filter(w => w.id !== woId), wo];
       _dispatchDayWOs.sort((a,b) => (a.fields['Scheduled Date']||'').localeCompare(b.fields['Scheduled Date']||''));
@@ -9655,7 +9655,7 @@ function updateDispatchMap() {
   let all;
   if (_dispatchView === 'week') {
     const mapDay = _dispatchMapDay || _ddStr(new Date());
-    all = _dispatchWeekWOs.filter(wo => (wo.fields['Scheduled Date']||'').slice(0,10) === mapDay);
+    all = _dispatchWeekWOs.filter(wo => _azDate(wo.fields['Scheduled Date']) === mapDay);
   } else {
     all = [..._dispatchDayWOs, ..._dispatchUnscheduled];
   }
