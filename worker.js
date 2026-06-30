@@ -2293,7 +2293,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           // Only set Total Amount on standard / final invoices billed to the actual customer —
           // not deposit (partial) or EA rebate (a different payer entirely, not part of what
           // the customer owes).
-          if (invoiceType !== 'deposit' && invoiceType !== 'ea_rebate') woUpdate['Total Amount'] = subtotal;
+          if (invoiceType !== 'deposit' && invoiceType !== 'ea_rebate') woUpdate['Total Amount'] = subtotal - discountAmt;
           if (invoiceType !== 'ea_rebate' && finalInv.hosted_invoice_url) woUpdate['Internal Notes'] = finalInv.hosted_invoice_url;
           if (sendNow) {
             if (invoiceType === 'deposit') {
