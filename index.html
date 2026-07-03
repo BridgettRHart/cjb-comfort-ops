@@ -3063,7 +3063,8 @@ let pendingSkipEqName = null;
 let isContractVisit = false;
 let currentContractId = null;
 let selectedUrgency = '';
-let _sessionJobIds = new Set(); // job IDs created/touched in this session (not yet on currentJob.fields['Jobs'])
+let _sessionJobIds     = new Set(); // job IDs created/touched in this session (not yet on currentJob.fields['Jobs'])
+let _sessionSkippedEqIds = new Set(); // eq IDs skipped in-memory this session (non-All-Units mode — no Airtable record)
 let _renameEqId    = null;      // equipment ID being renamed in the rename overlay
 let _omwSent = false;           // tracks whether "on my way" SMS was already sent this visit
 
@@ -3118,7 +3119,8 @@ async function sendOnMyWay() {
 // ACTIVATE JOB SCREEN
 // ═══════════════════════
 async function activateJobScreen(record) {
-  _sessionJobIds = new Set(); // reset for new job context
+  _sessionJobIds     = new Set(); // reset for new job context
+  _sessionSkippedEqIds = new Set(); // reset in-memory skips for new job context
   const woType = record.fields['Work Order Type'] || '';
   if (woType === 'Install Estimate' || woType === 'Estimate Only') {
     await showInstallEstimateScreen(record);
@@ -3314,7 +3316,7 @@ async function renderActiveEquipmentList(refreshJobs = false) {
   const completedCount = Object.values(jobsByEquipment).filter(j =>
     j.fields['Status'] === 'Complete').length;
   const skippedCount = Object.values(jobsByEquipment).filter(j =>
-    j.fields['Status'] === 'Cancelled').length;
+    j.fields['Status'] === 'Cancelled').length + _sessionSkippedEqIds.size;
   const doneCount = completedCount + skippedCount;
 
   // Progress bar
@@ -3359,7 +3361,7 @@ async function renderActiveEquipmentList(refreshJobs = false) {
 
       const jobRecord = jobsByEquipment[eq.id];
       const isComplete = jobRecord && jobRecord.fields['Status'] === 'Complete';
-      const isSkipped = jobRecord && jobRecord.fields['Status'] === 'Cancelled';
+      const isSkipped = (jobRecord && jobRecord.fields['Status'] === 'Cancelled') || _sessionSkippedEqIds.has(eq.id);
 
       let cardClass = 'unit-action-card';
       let dot = '<div class="unit-status-dot pending"></div>';
@@ -3375,7 +3377,8 @@ async function renderActiveEquipmentList(refreshJobs = false) {
       } else if (isSkipped) {
         cardClass += ' not-this-visit';
         dot = '<div class="unit-status-dot skipped">—</div>';
-        actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit(\'' + eq.id + '\', \'' + escAttr(jobRecord.id) + '\')">Undo Skip</button></div>';
+        const skipJobId = (jobRecord && jobRecord.fields['Status'] === 'Cancelled') ? jobRecord.id : '';
+        actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit(\'' + eq.id + '\', \'' + escAttr(skipJobId) + '\')">Undo Skip</button></div>';
       } else {
         const woServiceMode = (currentJob && currentJob.fields['Service Mode'] || '').toLowerCase().trim();
         // Hide skip only when exactly one unit is designated (specific unit mode with a linked unit).
@@ -3532,6 +3535,17 @@ async function executeSkip(eqId, eqName, reason) {
   if (!currentJob) return;
   const woId = currentJob.id;
   const woFields = currentJob.fields;
+  const serviceMode = (woFields['Service Mode'] || '').toLowerCase().trim();
+
+  // Non-All-Units skips are session-only — no Cancelled job record in Airtable.
+  // Only "All Units" visits need a documented record of why a unit was skipped.
+  if (serviceMode !== 'all units') {
+    _sessionSkippedEqIds.add(eqId);
+    showToast('Unit skipped', 'success');
+    await renderActiveEquipmentList(false);
+    return;
+  }
+
   try {
     showToast('Skipping unit...');
     const now = new Date();
@@ -3562,10 +3576,17 @@ async function executeSkip(eqId, eqName, reason) {
 async function unskipUnit(eqId, jobId) {
   try {
     showToast('Undoing skip...');
-    // Soft-delete: worker blocks DELETE, so mark the job inactive instead
-    await apiPatch('Jobs', jobId, { Active: false });
-    showToast('✓ Unskipped', 'success');
-    await renderActiveEquipmentList(true); // job deactivated — refresh
+    if (jobId) {
+      // Real Cancelled record in Airtable (All Units mode) — soft-delete it
+      await apiPatch('Jobs', jobId, { Active: false });
+      showToast('✓ Unskipped', 'success');
+      await renderActiveEquipmentList(true);
+    } else {
+      // In-memory skip only — just remove from session set, no Airtable call
+      _sessionSkippedEqIds.delete(eqId);
+      showToast('✓ Unskipped', 'success');
+      await renderActiveEquipmentList(false);
+    }
   } catch(err) {
     showToast('⚠ Could not undo skip', 'error');
   }
