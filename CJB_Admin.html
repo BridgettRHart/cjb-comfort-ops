@@ -273,9 +273,9 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .header h1 { font-size: 15px; }
   .header-sub { font-size: 11px; }
 
-  /* Tab bar */
-  .tab-bar { padding: 0; }
-  .tab-btn { flex: 1; text-align: center; padding: 12px 8px; font-size: 13px; }
+  /* Tab bar — scrollable row on mobile (7 tabs won't fit at flex:1) */
+  .tab-bar { padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  .tab-btn { flex: none; white-space: nowrap; padding: 12px 14px; font-size: 12px; }
 
   /* Dashboard */
   .dash { padding: 12px; }
@@ -701,6 +701,15 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
   .fu-summary-stat { padding: 10px 12px; }
   .fu-stat-val { font-size: 22px; }
   .fu-btn-dismiss { margin-left: 0; }
+
+  /* Dispatch board — narrow sidebar so the grid gets usable width */
+  .dispatch-sidebar { width: 155px; }
+  .dispatch-sidebar-hd { font-size: 10px; padding: 8px 8px; letter-spacing: 0; }
+  .dispatch-assign-card { padding: 6px 8px; }
+  .dispatch-assign-card-name { font-size: 11px; }
+  .dispatch-assign-card-date, .dispatch-assign-card-type { font-size: 10px; }
+  .dispatch-nav { padding: 8px 10px; gap: 6px; }
+  .dispatch-nav-date { font-size: 14px; min-width: 110px; }
 }
 
 /* ── Dispatch Board ──────────────────────────────────────────────────────── */

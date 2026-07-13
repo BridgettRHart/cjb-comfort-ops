@@ -570,6 +570,10 @@
 
   /* Parts search results dropdown */
   .parts-search-results {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 200;
     border: 2px solid var(--gray-border);
     border-top: none;
     border-radius: 0 0 8px 8px;
@@ -1397,6 +1401,19 @@
   .iest-product-item:active {
     background: #f5f5f5;
   }
+
+  /* ── Mobile overrides ──────────────────────────────────────────── */
+  @media (max-width: 767px) {
+    /* Prevent iOS auto-zoom: all text inputs must be >= 16px */
+    .form-input, .form-textarea, input[type="text"], input[type="number"],
+    input[type="search"], input[type="email"], input[type="tel"], textarea, select {
+      font-size: 16px !important;
+    }
+    /* Compact the parts search dropdown on mobile so keyboard doesn't bury it */
+    .parts-search-results {
+      max-height: 160px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -1508,7 +1525,7 @@
         <div class="form-label" style="margin-bottom:10px;">Parts Used</div>
         <div id="pw-parts-chips" style="margin-bottom:10px;"></div>
         <div class="parts-grid" id="pw-parts-grid" role="group" aria-label="Common parts quick select"></div>
-        <div style="margin-top:12px;">
+        <div style="margin-top:12px;position:relative;">
           <label class="form-label" for="pw-parts-search">Search products:</label>
           <input type="text" class="form-input" id="pw-parts-search" placeholder="Type 2+ characters…" autocomplete="off" oninput="pwSearchProducts(this.value)">
           <div id="pw-parts-results" class="parts-search-results" style="display:none;"></div>
@@ -1748,7 +1765,7 @@
           </div>
           <div class="form-label" style="margin-bottom:6px;">Quick select:</div>
           <div class="parts-grid" id="parts-grid" role="group" aria-label="Common parts quick select"></div>
-          <div style="margin-top:12px;">
+          <div style="margin-top:12px;position:relative;">
             <label class="form-label" for="parts-search">Search all products:</label>
             <input type="text" class="form-input" id="parts-search" placeholder="Type 2+ characters to search…" autocomplete="off" oninput="searchProducts(this.value)">
             <div id="parts-search-results" class="parts-search-results" style="display:none;"></div>
