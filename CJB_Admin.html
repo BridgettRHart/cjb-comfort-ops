@@ -781,7 +781,9 @@ textarea.form-inp { resize: vertical; min-height: 58px; }
 .dg-slot:nth-child(even) { background:#fafafa; }
 .dg-slot.drag-over { background:#dbeafe !important; }
 body.dispatch-dragging .dg-week-card:not(.dragging),
-body.dispatch-dragging .dg-placed-card:not(.dragging) { pointer-events:none; }
+body.dispatch-dragging .dg-placed-card:not(.dragging),
+body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:none; }
+.dispatch-assign-card.dragging { opacity:0.4; }
 .dg-slot.half-hour { border-bottom-style:dashed; border-bottom-color:#e5e7eb; }
 
 /* Job cards */
@@ -9220,7 +9222,11 @@ function renderDispatchSidebar() {
     const d      = f['Scheduled Date'] ? new Date(f['Scheduled Date']) : null;
     const dateLabel = d ? d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) : '';
     const timeLabel = d ? _ddTime(d.getHours(), d.getMinutes()) : '';
-    return `<div class="dispatch-assign-card" onclick="dispatchNavToDate('${f['Scheduled Date'] || ''}')">
+    const assignTechId = _ddUnwrap(f['Technician']) || '';
+    return `<div class="dispatch-assign-card" draggable="true" data-wo-id="${wo.id}"
+      ondragstart="dispatchDragStart(event,'${wo.id}','assign','${assignTechId}')"
+      ondragend="dispatchDragEnd(event)"
+      onclick="dispatchNavToDate('${f['Scheduled Date'] || ''}')">
       <div class="dispatch-assign-card-name">${esc(name)}</div>
       <div class="dispatch-assign-card-date">${esc(dateLabel)} · ${esc(timeLabel)}</div>
       <div class="dispatch-assign-card-type">${esc(woType)}</div>
@@ -9434,6 +9440,8 @@ function dispatchDragEnd() {
   document.querySelectorAll('[data-wo-id]').forEach(el => el.classList.remove('dragging'));
   document.querySelectorAll('.dg-slot.drag-over').forEach(el => el.classList.remove('drag-over'));
 }
+// Safety net: clear drag state even if the card's own dragend doesn't fire
+document.addEventListener('dragend', dispatchDragEnd);
 
 function dispatchSlotDragOver(event) {
   event.preventDefault();
