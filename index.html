@@ -93,6 +93,18 @@
     font-weight: 600;
     color: var(--white);
   }
+  .owner-admin-link {
+    display: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gold);
+    text-decoration: none;
+    padding: 3px 8px;
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 6px;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+  }
 
   /* ── BACK BUTTON ── */
   .back-btn {
@@ -1398,7 +1410,10 @@
     <div class="logo" aria-label="CJB Comfort">
       <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
-    <div class="header-name" id="header-tech-name" aria-label="Logged in as Technician"></div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="header-name" id="header-tech-name" aria-label="Logged in as Technician"></div>
+      <a class="owner-admin-link" href="https://app.cjbcomfort.com/CJB_Admin.html" target="_blank" rel="noopener" aria-label="Open admin dashboard">Admin ↗</a>
+    </div>
   </header>
 
   <div class="greeting-strip" role="region" aria-label="Schedule summary">
@@ -1841,6 +1856,7 @@
     <div class="logo" aria-hidden="true">
       <img src="CJB_Comfort_Logo_wht_2026.svg" alt="CJB Comfort" class="logo-img">
     </div>
+    <a class="owner-admin-link" href="https://app.cjbcomfort.com/CJB_Admin.html" target="_blank" rel="noopener" aria-label="Open admin dashboard">Admin ↗</a>
   </header>
 
   <div class="scroll-content">
@@ -2452,23 +2468,26 @@ document.addEventListener('DOMContentLoaded', () => {
   _startAutoRefresh();
 });
 
-// Loaded once at startup; used by on-my-way SMS so the customer gets the real name
-let _currentTechName = '';
+// Loaded once at startup; used by on-my-way SMS and owner-feature checks
+let _currentTechName    = '';
+let _currentTechIsOwner = false;
 
 async function loadTechName() {
   try {
-    const data = await apiGet('Technicians', {
-      filterByFormula: '{Active}=1',
-      'fields[]': 'Technician Name',
-      maxRecords: '1',
-    });
-    const rec  = (data.records || [])[0];
-    const name = rec?.fields?.['Technician Name'] || 'Technician';
-    _currentTechName = name; // store full name for on-my-way SMS
-    // Show first name only in the header
+    const url = `${PROXY}/Technicians?filterByFormula=${encodeURIComponent('{Active}=1')}&fields[]=Technician Name&fields[]=Is Owner&maxRecords=1`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    const rec     = (data.records || [])[0];
+    const name    = rec?.fields?.['Technician Name'] || 'Technician';
+    const isOwner = !!(rec?.fields?.['Is Owner']);
+    _currentTechName    = name;
+    _currentTechIsOwner = isOwner;
     const firstName = name.split(' ')[0];
     const el = document.getElementById('header-tech-name');
     if (el) el.textContent = firstName;
+    if (isOwner) {
+      document.querySelectorAll('.owner-admin-link').forEach(a => a.style.display = 'inline-block');
+    }
   } catch {
     const el = document.getElementById('header-tech-name');
     if (el) el.textContent = 'Technician';
@@ -5075,6 +5094,8 @@ function showEstimateState(state) {
 
 async function sendUnitEstimate() {
   if (!currentJob) return;
+  // Owner gets the full editable estimate builder (price editing, all units aggregated)
+  if (_currentTechIsOwner) { openEstimateModal(); return; }
   const diagnosis       = (document.getElementById('field-diagnosis')?.value || '').trim();
   const recommendations = (document.getElementById('field-recommendations')?.value || '').trim();
   const notes           = (document.getElementById('eu-notes')?.value || '').trim();
