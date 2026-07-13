@@ -1853,6 +1853,9 @@
 
     <div id="summary-jobs-list" style="margin-bottom:16px;"></div>
 
+    <!-- Repair estimate — shown when completed units have repair items or estimate already sent -->
+    <div id="summary-estimate-section" style="display:none;margin-bottom:12px;"></div>
+
     <!-- Payment collection — shown when invoice URL is available -->
     <div id="summary-payment-section" style="display:none;margin-bottom:12px;">
       <button class="btn btn-success btn-full" id="summary-pay-btn" onclick="openSummaryPayment()" style="font-size:16px;padding:16px;">
@@ -1945,6 +1948,69 @@
     </div>
 
     <button class="btn-pay-close" id="pay-close-btn" onclick="closePaymentOverlay()">Close</button>
+  </div>
+</div>
+
+<!-- ESTIMATE BUILD OVERLAY -->
+<div id="estimate-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:900;overflow-y:auto;" role="dialog" aria-modal="true" aria-label="Send repair estimate">
+  <div style="background:white;min-height:100%;max-width:480px;margin:0 auto;padding:24px 20px 56px;">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--charcoal);">Repair Estimate</div>
+      <button onclick="closeEstimateModal()" style="background:none;border:none;font-size:28px;line-height:1;color:var(--gray-text);cursor:pointer;padding:0;" aria-label="Close">×</button>
+    </div>
+    <div id="fq-customer-info" style="font-size:13px;color:var(--gray-text);margin-bottom:18px;"></div>
+
+    <!-- Build state -->
+    <div id="fq-build-state">
+      <div style="margin-bottom:14px;">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray-text);display:block;margin-bottom:6px;">Findings &amp; Notes for Customer</label>
+        <textarea id="fq-description" rows="5" style="width:100%;border:1.5px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:14px;font-family:'Barlow',sans-serif;resize:vertical;box-sizing:border-box;" placeholder="Describe the issue and recommended repairs…"></textarea>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray-text);margin-bottom:8px;">Line Items</div>
+        <div id="fq-lines"></div>
+        <button onclick="fqAddLine()" style="width:100%;background:none;border:2px dashed #93c5fd;border-radius:8px;padding:10px;font-size:13px;color:#1e40af;cursor:pointer;margin-top:6px;">+ Add Line Item</button>
+      </div>
+
+      <!-- Product search -->
+      <div id="fq-search-wrap" style="display:none;background:#f0f4ff;border-radius:10px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#1e40af;margin-bottom:6px;">Search Products</div>
+        <input id="fq-search" type="search" placeholder="Type product name…" autocomplete="off"
+          style="width:100%;border:1.5px solid #93c5fd;border-radius:8px;padding:9px 12px;font-size:14px;margin-bottom:8px;box-sizing:border-box;"
+          oninput="fqSearchProducts(this.value)">
+        <div id="fq-search-results" style="display:none;max-height:200px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;background:white;"></div>
+        <button onclick="fqCloseSearch()" style="margin-top:8px;background:none;border:none;color:var(--gray-text);font-size:13px;cursor:pointer;">✕ Close search</button>
+      </div>
+
+      <div style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--charcoal);margin-bottom:14px;">
+        Estimated Total: <span id="fq-total">$0.00</span>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray-text);display:block;margin-bottom:6px;">Internal Notes (not shown to customer)</label>
+        <textarea id="fq-notes" rows="2" style="width:100%;border:1.5px solid #d1d5db;border-radius:8px;padding:10px 12px;font-size:14px;font-family:'Barlow',sans-serif;resize:vertical;box-sizing:border-box;" placeholder="Scheduling, parts to order, office notes…"></textarea>
+      </div>
+
+      <div id="fq-error" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;color:var(--red);font-size:13px;margin-bottom:12px;"></div>
+
+      <button id="fq-send-btn" class="btn btn-full" style="background:#1e40af;color:#fff;font-size:16px;padding:16px;" onclick="submitFieldEstimate()">
+        📋 Send Estimate to Customer
+      </button>
+      <button onclick="closeEstimateModal()" style="width:100%;background:none;border:none;color:var(--gray-text);font-size:15px;padding:12px;cursor:pointer;margin-top:4px;">Cancel</button>
+    </div>
+
+    <!-- Sent state -->
+    <div id="fq-sent-state" style="display:none;text-align:center;padding:24px 0;">
+      <div style="font-size:52px;margin-bottom:12px;">✉️</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;color:#059669;margin-bottom:8px;">Estimate Sent!</div>
+      <div style="font-size:14px;color:var(--gray-text);margin-bottom:18px;">Customer will receive an email to review and approve.</div>
+      <div id="fq-quote-url" style="font-size:11px;color:#6b7280;word-break:break-all;margin-bottom:16px;"></div>
+      <button onclick="fqCopyLink()" style="background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;padding:10px 24px;font-size:14px;color:var(--charcoal);cursor:pointer;">Copy Link</button><br>
+      <button onclick="closeEstimateModal()" style="margin-top:14px;background:none;border:none;color:var(--gray-text);font-size:14px;cursor:pointer;">Close</button>
+    </div>
+
   </div>
 </div>
 
@@ -5178,18 +5244,58 @@ function openEstimateModal() {
   // Reset build state
   fieldQuoteLines = [];
   fqActiveLineIdx  = -1;
-  // Pre-fill: Problem Description from WO (what customer reported) +
-  // Recommendations from completed job records (what tech is recommending)
+
+  // Pre-populate line items from ALL completed units that have Parts Used.
+  // This is the fix for multi-unit jobs where each unit's parts were saved
+  // to its own Job record — aggregate them all into one estimate.
+  const jobsWithParts = Object.entries(currentJobsByEquipment || {})
+    .filter(([, j]) => j.fields['Status'] === 'Complete' && j.fields['Parts Used']);
+  const multiUnit = jobsWithParts.length > 1;
+
+  jobsWithParts.forEach(([eqId, job]) => {
+    const eq        = (currentWorkOrderEquipment || []).find(e => e.id === eqId);
+    const unitLabel = eq ? (eq.fields['Equipment Name'] || '') : '';
+    job.fields['Parts Used'].split('\n').filter(Boolean).forEach(line => {
+      if (line.startsWith('Custom: ')) {
+        const customName = line.replace('Custom: ', '') + (multiUnit && unitLabel ? ` (${unitLabel})` : '');
+        fieldQuoteLines.push({ name: customName, unitAmount: 0, qty: 1 });
+      } else {
+        let name = line, price = 0, qty = 1;
+        if (line.includes(' | $')) {
+          const chunks = line.split(' | $');
+          name  = chunks[0];
+          price = parseFloat(chunks[1]) || 0;
+        }
+        const qtyMatch = name.match(/^([\d.]+)x (.+)$/);
+        if (qtyMatch) { qty = parseFloat(qtyMatch[1]); name = qtyMatch[2]; }
+        const displayName = multiUnit && unitLabel ? `${name} (${unitLabel})` : name;
+        fieldQuoteLines.push({ name: displayName, unitAmount: price, qty });
+      }
+    });
+  });
+
+  // If no pre-populated lines, start with one blank so the UI isn't empty
+  if (fieldQuoteLines.length === 0) fieldQuoteLines.push({ name: '', unitAmount: 0, qty: 1 });
+
+  // Build description: Problem Description from WO + per-unit Diagnosis/Recommendations
   const problemDesc = (f['Problem Description'] || '').trim();
-  const allRecs = Object.values(currentJobsByEquipment || {})
-    .filter(j => j.fields['Status'] === 'Complete' && j.fields['Recommendations'])
-    .map(j => j.fields['Recommendations'].trim())
-    .filter(Boolean)
-    .join('\n');
-  const prefillParts = [];
-  if (problemDesc) prefillParts.push(problemDesc);
-  if (allRecs)     prefillParts.push('Recommended work:\n' + allRecs);
-  document.getElementById('fq-description').value = prefillParts.join('\n\n');
+  const unitDescs = Object.entries(currentJobsByEquipment || {})
+    .filter(([, j]) => j.fields['Status'] === 'Complete' && (j.fields['Diagnosis'] || j.fields['Recommendations']))
+    .map(([eqId, j]) => {
+      const eq        = (currentWorkOrderEquipment || []).find(e => e.id === eqId);
+      const unitLabel = eq ? (eq.fields['Equipment Name'] || 'Unit') : 'Unit';
+      const diag      = (j.fields['Diagnosis'] || '').trim();
+      const recs      = (j.fields['Recommendations'] || '').trim();
+      const lines     = [];
+      if (diag) lines.push(diag);
+      if (recs) lines.push('Recommended: ' + recs);
+      return (multiUnit ? unitLabel + ':\n' : '') + lines.join('\n');
+    }).filter(Boolean);
+  const descParts = [];
+  if (problemDesc) descParts.push(problemDesc);
+  if (unitDescs.length) descParts.push(unitDescs.join('\n\n'));
+  document.getElementById('fq-description').value = descParts.join('\n\n');
+
   document.getElementById('fq-notes').value        = '';
   document.getElementById('fq-error').style.display = 'none';
   document.getElementById('fq-sent-state').style.display  = 'none';
@@ -5197,14 +5303,11 @@ function openEstimateModal() {
   document.getElementById('fq-search-wrap').style.display  = 'none';
   document.getElementById('fq-search').value        = '';
   document.getElementById('fq-search-results').innerHTML = '';
-
-  // Customer info line
   document.getElementById('fq-customer-info').textContent = f['Customer Name'] || '';
 
-  // Start with one blank line
-  fqAddLine();
+  fqRenderLines();
+  fqCalcTotal();
 
-  // Show modal
   document.getElementById('estimate-overlay').style.display = 'block';
   document.body.style.overflow = 'hidden';
 }
@@ -5212,8 +5315,9 @@ function openEstimateModal() {
 function closeEstimateModal() {
   document.getElementById('estimate-overlay').style.display = 'none';
   document.body.style.overflow = '';
-  fieldQuoteLines = [];
+  fieldQuoteLines  = [];
   fqActiveLineIdx  = -1;
+  _fqFromSummary   = false;
 }
 
 // Render all line item cards
@@ -5440,8 +5544,11 @@ async function submitFieldEstimate() {
     currentJob.fields['Stripe Quote ID'] = result.stripeQuoteId || result.id || '';
     currentJob.fields['Status']          = 'Estimate Sent';
 
-    // Save a draft Job record so form data survives navigation / refresh
-    try {
+    // Save a draft Job record so form data survives navigation / refresh.
+    // Skip when called from Visit Summary — each unit already has its own job record.
+    if (_fqFromSummary) {
+      _fqFromSummary = false;
+    } else try {
       const woFields       = currentJob.fields;
       const workPerformed  = (document.getElementById('field-work')?.value         || '').trim();
       const diagnosis      = (document.getElementById('field-diagnosis')?.value     || '').trim();
@@ -5571,10 +5678,49 @@ async function recordEstimateDecline(evt) {
   }
 }
 
-// Estimate status is shown inline on screen-complete, not on the summary screen.
-// This stub exists so callers (showWorkOrderSummary, submitFieldEstimate,
-// recordEstimateDecline) don't throw a silent JS error and block navigation.
-function renderSummaryEstimate() {}
+let _fqFromSummary = false; // true when estimate modal opened from Visit Summary
+
+function renderSummaryEstimate() {
+  const section = document.getElementById('summary-estimate-section');
+  if (!section || !currentJob) return;
+
+  const woStatus = currentJob.fields['Status'] || '';
+  const hasQuote = !!(currentJob.fields['Stripe Quote ID']);
+
+  if (hasQuote || ['Estimate Sent','Estimate Approved','Estimate Declined'].includes(woStatus)) {
+    const isApproved = woStatus === 'Estimate Approved';
+    const isDeclined = woStatus === 'Estimate Declined';
+    const label  = isApproved ? '✓ Estimate Approved'
+                 : isDeclined ? '✗ Estimate Declined'
+                 : '⏳ Estimate Sent — Awaiting Customer';
+    const color  = isApproved ? '#059669' : isDeclined ? '#dc2626' : '#1e40af';
+    const bg     = isApproved ? '#f0fdf4' : isDeclined ? '#fef2f2' : '#eff6ff';
+    const border = isApproved ? '#86efac' : isDeclined ? '#fca5a5' : '#bfdbfe';
+    section.innerHTML = `<div style="background:${bg};border:1.5px solid ${border};border-radius:10px;padding:14px 16px;">
+      <div style="font-size:14px;font-weight:700;color:${color};">${label}</div>
+    </div>`;
+    section.style.display = 'block';
+    return;
+  }
+
+  // Show button when any completed unit has repair parts
+  const unitsWithParts = Object.values(currentJobsByEquipment || {})
+    .filter(j => j.fields['Status'] === 'Complete' && j.fields['Parts Used']);
+  if (unitsWithParts.length > 0) {
+    const n = unitsWithParts.length;
+    const lbl = n === 1 ? '1 unit has repair items' : `${n} units have repair items`;
+    section.innerHTML = `<div style="margin-bottom:4px;">
+      <div style="font-size:12px;color:var(--gray-text);margin-bottom:8px;">${lbl} ready to include.</div>
+      <button class="btn btn-full" style="background:#1e40af;color:#fff;font-size:15px;padding:14px;"
+        onclick="_fqFromSummary=true;openEstimateModal()">
+        📋 Send Repair Estimate to Customer
+      </button>
+    </div>`;
+    section.style.display = 'block';
+  } else {
+    section.style.display = 'none';
+  }
+}
 
 // ═══════════════════════════════════════════
 // INSTALL ESTIMATE SCREEN
