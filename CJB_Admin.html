@@ -46,6 +46,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .cust-card-name { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
 .cust-card-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: #555; }
 .cust-card-meta span { display: flex; align-items: center; gap: 5px; }
+.pp-banner { margin-top: 12px; background: linear-gradient(135deg, #78350f, #b45309); color: #fef3c7; font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 7px; letter-spacing: 0.2px; }
 
 /* Section card */
 .section { background: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
@@ -1729,11 +1730,12 @@ let allContacts    = [];
 let allProducts    = null;
 let airtableSelectOptions = {}; // keyed by "TableName.FieldName" → [option strings]
 let selectedCustomer  = null;
-let currentWorkOrders = [];
-let currentProperties = [];
-let currentContacts   = [];
-let currentEquipment  = [];
-let currentJobs       = [];
+let currentWorkOrders  = [];
+let currentProperties  = [];
+let currentContacts    = [];
+let currentEquipment   = [];
+let currentJobs        = [];
+let currentPPContract  = null;
 let liCount = 0;
 let invoiceWOId   = null;
 let _ccEmails     = []; // CC recipients for current invoice or estimate send
@@ -2928,6 +2930,14 @@ async function selectCustomer(id) {
         `filterByFormula=${encodeURIComponent(jobFormula)}&sort[0][field]=Scheduled Start&sort[0][direction]=desc`);
     }
 
+    // Fetch active Protection Plus contract for this customer
+    currentPPContract = null;
+    if (custName) {
+      const ppRecs = await fetchAll('Maintenance Contracts',
+        `filterByFormula=${encodeURIComponent(`AND({Plan Type}="Protection Plus",{Status}="Active",{Customer}="${custName.replace(/"/g, '\\"')}")`)}`);
+      if (ppRecs.length > 0) currentPPContract = ppRecs[0];
+    }
+
     // If a newer selectCustomer call started while we were fetching, discard this result.
     if (seq !== _selectSeq) return;
     renderDetail(selectedCustomer, props, currentWorkOrders, contacts);
@@ -3239,6 +3249,19 @@ function renderDetail(customer, props, wos, contacts) {
         ${f['Billing Address'] ? `<span>📬 ${esc([f['Billing Address'],f['Billing City'],f['Billing State']].filter(Boolean).join(', '))}</span>` : ''}
         ${referredByCust ? `<span>🔗 Referred by: <a href="#" onclick="event.preventDefault();selectCustomer('${referredByCust.id}')">${esc(referredByCust.fields['Customer Name']||'')}</a></span>` : ''}
       </div>
+      ${(() => {
+        if (!currentPPContract) return '';
+        const pf = currentPPContract.fields;
+        const end = pf['End Date'] ? new Date(pf['End Date']).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '—';
+        const start = pf['Start Date'] ? new Date(pf['Start Date']) : null;
+        const endDate = pf['End Date'] ? new Date(pf['End Date']) : null;
+        let term = '';
+        if (start && endDate) {
+          const yrs = Math.round((endDate - start) / (365.25 * 24 * 60 * 60 * 1000));
+          term = yrs >= 8 ? '10-Year' : yrs >= 4 ? '5-Year' : `${yrs}-Year`;
+        }
+        return `<div class="pp-banner">⭐ Protection Plus${term ? ' — ' + term : ''} — Expires ${end} — $105 service call only</div>`;
+      })()}
     </div>
     ${sectionHtml('sec-referrals', `Referrals (${referredCustomers.length})`,
       `<div class="section-title-btns"><button class="add-link" onclick="openLinkModal('referral')">+ Add Referral</button></div>`,
