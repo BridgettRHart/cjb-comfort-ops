@@ -2833,6 +2833,26 @@ function mobileBack() {
 }
 
 // ── Customer detail ─────────────────────────────────────────────────────────
+
+// FSM-standard WO sort: active work first (soonest upcoming), closed work below (most recent first).
+// Priority mirrors ServiceTitan / Jobber: In Progress → Scheduled → New → Estimate Sent →
+// Estimate Approved → Estimate Declined → Complete → Invoiced → Paid → Cancelled.
+const _WO_STATUS_PRIORITY = {
+  'In Progress':0,'Scheduled':1,'New':2,
+  'Estimate Sent':3,'Estimate Approved':4,'Estimate Declined':5,
+  'Complete':6,'Invoiced':7,'Paid':8,'Cancelled':9
+};
+const _WO_ACTIVE = new Set(['In Progress','Scheduled','New','Estimate Sent','Estimate Approved']);
+function _sortWOs(list) {
+  return [...list].sort((a, b) => {
+    const sa = a.fields['Status'] || 'New', sb = b.fields['Status'] || 'New';
+    const pa = _WO_STATUS_PRIORITY[sa] ?? 5, pb = _WO_STATUS_PRIORITY[sb] ?? 5;
+    if (pa !== pb) return pa - pb;
+    const da = a.fields['Scheduled Date'] || '', db = b.fields['Scheduled Date'] || '';
+    return _WO_ACTIVE.has(sa) ? da.localeCompare(db) : db.localeCompare(da);
+  });
+}
+
 let _selectSeq = 0; // increments on every selectCustomer call; stale fetches check against it
 async function selectCustomer(id) {
   const seq = ++_selectSeq;
@@ -2885,9 +2905,8 @@ async function selectCustomer(id) {
           currentWorkOrders.push(dwo);
         }
       }
-      currentWorkOrders.sort((a, b) =>
-        (b.fields['Scheduled Date'] || '').localeCompare(a.fields['Scheduled Date'] || ''));
     }
+    currentWorkOrders = _sortWOs(currentWorkOrders);
 
     // Query Equipment directly by customer name — Airtable linked field formulas match
     // on the linked record's primary field value (name), not the record ID.
