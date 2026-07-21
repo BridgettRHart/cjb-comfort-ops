@@ -896,20 +896,28 @@ export default {
         const custName = Array.isArray(f['Customer Name']) ? f['Customer Name'][0] : (f['Customer Name'] || 'Customer');
         const custId        = (f['Customer'] || [])[0] || null;
         const propId        = (f['Property'] || [])[0] || null;
+        const techIds       = (f['Technician'] || []);
+        const equipIds      = (f['Specific Equipment'] || []);
+        const priority      = f['Priority'] || null;
+        const schedDate     = f['Scheduled Date'] || null;
         const stripeQuoteId = (f['Stripe Quote ID'] || '').trim();
         const today         = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
         const jobFields = {
           'Work Order Name': `${custName} — Job — ${today}`,
           'Work Order Type': 'Repair',
-          'Status':          'New',
+          'Status':          'Scheduled',
           'Active':          true,
           'Internal Notes':  `Converted from estimate: ${f['Work Order Name'] || woId}`,
           'Source Estimate': [woId],
         };
-        if (custId)        jobFields['Customer']        = [custId];
-        if (propId)        jobFields['Property']        = [propId];
-        if (stripeQuoteId) jobFields['Stripe Quote ID'] = stripeQuoteId;
+        if (custId)        jobFields['Customer']          = [custId];
+        if (propId)        jobFields['Property']          = [propId];
+        if (techIds.length) jobFields['Technician']       = techIds;
+        if (equipIds.length) jobFields['Specific Equipment'] = equipIds;
+        if (priority)      jobFields['Priority']          = priority;
+        if (schedDate)     jobFields['Scheduled Date']    = schedDate;
+        if (stripeQuoteId) jobFields['Stripe Quote ID']   = stripeQuoteId;
 
         const newJobWO = await airtablePost('Work Orders', jobFields);
 
