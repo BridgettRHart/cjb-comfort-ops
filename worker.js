@@ -187,7 +187,14 @@ export default {
                 'Phone':         phone,
                 'Type':          'Residential',
                 'Customer Tags': ['Residential'],
-                'Lead Source':   leadSource ? leadSource.split(',').map(s => s.trim()).filter(Boolean) : ['Calendly'],
+                'Lead Source':   (() => {
+                  const VALID_SOURCES = ['Calendly','ANGI','Referral – Existing Customer','Other',
+                    'Google Search','Google Maps / Reviews','Yelp','Facebook','Nextdoor',
+                    'Yard Sign / Truck Wrap','Website / Direct','Manual Entry','Efficiency Arizona','LD12'];
+                  const candidates = leadSource ? leadSource.split(',').map(s => s.trim()).filter(Boolean) : [];
+                  const matched = candidates.filter(s => VALID_SOURCES.includes(s));
+                  return matched.length ? matched : ['Calendly'];
+                })(),
                 'Active':        true
               };
               if (referredBy) newCustFields['Referred By'] = referredBy;
