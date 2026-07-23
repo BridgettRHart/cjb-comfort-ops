@@ -919,6 +919,91 @@ export default {
       }
     }
 
+    // ── Email a Visit Report to the customer ─────────────────────────────────
+    if (path === '/api/wo/send-visit-report' && request.method === 'POST') {
+      try {
+        const { workOrderId } = await request.json();
+        if (!workOrderId) return new Response(JSON.stringify({ error: 'Missing workOrderId' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo = await airtableGetById('Work Orders', workOrderId);
+        const wf = wo.fields;
+
+        const custIds = wf['Customer'] || [];
+        if (!custIds.length) return new Response(JSON.stringify({ error: 'No customer linked to this Work Order' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const cust      = await airtableGetById('Customers', custIds[0]);
+        const custEmail = (cust.fields['Email'] || '').trim();
+        if (!custEmail) return new Response(JSON.stringify({ error: 'Customer has no email address on file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const custName  = cust.fields['Customer Name'] || 'Valued Customer';
+        const custFirst = custName.trim().split(' ')[0] || 'there';
+        const address   = [wf['Service Address'], wf['City'], wf['State']].filter(Boolean).join(', ');
+        const woDate    = wf['Scheduled Date'] ? new Date(wf['Scheduled Date']).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : '';
+        const woType    = wf['Work Order Type'] || 'Service Visit';
+        const problemDesc = wf['Problem Description'] || '';
+
+        // Fetch linked jobs and equipment names
+        const jobIds = wf['Jobs'] || [];
+        let jobSections = '';
+        if (jobIds.length) {
+          const jobs = await Promise.all(jobIds.map(id => airtableGetById('Jobs', id).catch(() => null)));
+          const jobBlocks = await Promise.all(jobs.filter(Boolean).map(async j => {
+            const jf = j.fields || {};
+            const eqId   = (jf['Equipment'] || [])[0] || null;
+            let eqName   = '';
+            if (eqId) {
+              const eq = await airtableGetById('Equipment', eqId).catch(() => null);
+              eqName = eq?.fields?.['Equipment Name'] || '';
+            }
+            const workPerformed   = jf['Work Performed'] || '';
+            const diagnosis       = jf['Diagnosis'] || '';
+            const recommendations = jf['Recommendations'] || '';
+            const parts = [];
+            if (eqName)          parts.push(`<h3 style="margin:0 0 8px;font-size:15px;color:#1a1a1a;">${eqName}</h3>`);
+            if (diagnosis)       parts.push(`<p style="margin:6px 0 2px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;">Diagnosis</p><p style="margin:0;line-height:1.6;white-space:pre-wrap;">${diagnosis}</p>`);
+            if (workPerformed)   parts.push(`<p style="margin:10px 0 2px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;">Work Performed</p><p style="margin:0;line-height:1.6;white-space:pre-wrap;">${workPerformed}</p>`);
+            if (recommendations) parts.push(`<p style="margin:10px 0 2px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;">Recommendations</p><p style="margin:0;line-height:1.6;white-space:pre-wrap;">${recommendations}</p>`);
+            if (!parts.length) return '';
+            return `<div style="padding:16px 0;border-bottom:1px solid #e5e5e5;">${parts.join('')}</div>`;
+          }));
+          jobSections = jobBlocks.filter(Boolean).join('');
+        }
+
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+  <div style="background:#c81f25;padding:28px 32px;">
+    <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.3px;">CJB Comfort</div>
+    <div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:4px;">HVAC Sales &amp; Service</div>
+  </div>
+  <div style="padding:32px;">
+    <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#1a1a1a;">Hi ${custFirst},</p>
+    <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333;">Thank you for letting us serve you. Here's a summary of your ${woType.toLowerCase()} visit${woDate ? ' on ' + woDate : ''}${address ? ' at ' + address : ''}.</p>
+    ${problemDesc ? `<div style="background:#f7f7f7;border-radius:8px;padding:16px 20px;margin-bottom:24px;"><p style="margin:0 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;">Reason for Visit</p><p style="margin:0;font-size:14px;line-height:1.6;color:#333;">${problemDesc}</p></div>` : ''}
+    ${jobSections ? `<p style="margin:0 0 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;">Work Summary</p>${jobSections}` : ''}
+    <p style="margin:28px 0 0;font-size:14px;line-height:1.6;color:#555;">If you have any questions, please don't hesitate to call or text us at (480) 604-8622 or reply to this email.</p>
+    <p style="margin:16px 0 0;font-size:14px;color:#555;">Thank you,<br><strong>CJB Comfort</strong></p>
+  </div>
+  <div style="background:#f7f7f7;padding:16px 32px;text-align:center;font-size:11px;color:#aaa;">
+    CJB Comfort · (480) 604-8622 · service@cjbcomfort.com
+  </div>
+</div>
+</body></html>`;
+
+        await sendEmail(env.RESEND_API_KEY, {
+          to: custEmail,
+          subject: `Your CJB Comfort visit report — ${woDate || woType}`,
+          html,
+        });
+
+        logCommunication(env, { type: 'Email', trigger: 'Visit Report', sentTo: custEmail, subject: `Visit Report — ${woDate || woType}`, customerId: custIds[0], workOrderId }).catch(() => {});
+
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Convert an approved estimate into a real Job Work Order ────────────
     // Single source of truth for this business rule — any client (admin app,
     // future mobile/automations) gets the same correct linking every time,
