@@ -602,6 +602,30 @@ export default {
       }
     }
 
+    // ── Calendly webhook diagnostic ───────────────────────────────────────
+    if (path === '/api/calendly-debug' && request.method === 'GET') {
+      try {
+        const meRes  = await fetch('https://api.calendly.com/users/me', {
+          headers: { Authorization: `Bearer ${CALENDLY_TOKEN}` }
+        });
+        const meData = await meRes.json();
+        const orgUri  = meData.resource?.current_organization;
+        const userUri = meData.resource?.uri;
+        if (!meRes.ok) return new Response(JSON.stringify({ error: 'Calendly token invalid', detail: meData }), { headers: corsHeaders });
+
+        const [orgList, userList] = await Promise.all([
+          fetch(`https://api.calendly.com/webhook_subscriptions?organization=${encodeURIComponent(orgUri)}&scope=organization`, { headers: { Authorization: `Bearer ${CALENDLY_TOKEN}` } }).then(r => r.json()),
+          fetch(`https://api.calendly.com/webhook_subscriptions?organization=${encodeURIComponent(orgUri)}&user=${encodeURIComponent(userUri)}&scope=user`, { headers: { Authorization: `Bearer ${CALENDLY_TOKEN}` } }).then(r => r.json()),
+        ]);
+        const listData = { org_scope: orgList.collection || [], user_scope: userList.collection || [] };
+        return new Response(JSON.stringify({ user: userUri, org: orgUri, webhooks: listData }, null, 2), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
     // ── Calendly webhook registration (one-time) ───────────────────────────
     if (path === '/api/setup-calendly-webhook' && request.method === 'GET') {
       try {
