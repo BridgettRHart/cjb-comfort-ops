@@ -977,7 +977,7 @@ export default {
   </div>
   <div style="padding:32px;">
     <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#1a1a1a;">Hi ${custFirst},</p>
-    <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333;">Thank you for letting us serve you. Here's a summary of your ${woType.toLowerCase()} visit${woDate ? ' on ' + woDate : ''}${address ? ' at ' + address : ''}.</p>
+    <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333;">Thank you for trusting us with your HVAC needs. Here's a summary of your ${woType.toLowerCase()} visit${woDate ? ' on ' + woDate : ''}${address ? ' at ' + address : ''}.</p>
     ${problemDesc ? `<div style="background:#f7f7f7;border-radius:8px;padding:16px 20px;margin-bottom:24px;"><p style="margin:0 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;">Reason for Visit</p><p style="margin:0;font-size:14px;line-height:1.6;color:#333;">${problemDesc}</p></div>` : ''}
     ${jobSections ? `<p style="margin:0 0 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;">Work Summary</p>${jobSections}` : ''}
     <p style="margin:28px 0 0;font-size:14px;line-height:1.6;color:#555;">If you have any questions, please don't hesitate to call or text us at (480) 604-8622 or reply to this email.</p>
