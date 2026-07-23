@@ -972,9 +972,8 @@ export default {
         const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
-  <div style="background:#c81f25;padding:28px 32px;">
-    <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.3px;">CJB Comfort</div>
-    <div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:4px;">HVAC Sales &amp; Service</div>
+  <div style="background:#c81f25;padding:24px 32px;text-align:left;">
+    <img src="${BRAND_LOGO_URL}" alt="CJB Comfort" style="height:48px;width:auto;display:block;">
   </div>
   <div style="padding:32px;">
     <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#1a1a1a;">Hi ${custFirst},</p>
