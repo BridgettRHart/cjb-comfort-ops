@@ -409,6 +409,12 @@ export default {
         });
 
       } catch (err) {
+        // Alert office so webhook failures don't silently drop bookings
+        sendEmail(env.RESEND_API_KEY, {
+          to: 'service@cjbcomfort.com',
+          subject: '⚠️ Calendly webhook error — booking may be missing',
+          html: `<p>A Calendly booking webhook failed with the following error:</p><pre>${err.message}\n\n${err.stack || ''}</pre><p>Check Calendly and Airtable for the missing booking and create the Work Order manually if needed.</p>`
+        }).catch(() => {});
         return new Response(JSON.stringify({ error: err.message }), {
           status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
