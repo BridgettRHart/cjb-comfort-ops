@@ -3227,6 +3227,9 @@ function renderDetail(customer, props, wos, contacts) {
           ${status === 'Inspection' || (wf['Work Order Type'] === 'Inspection' && !['Invoiced','Paid','Cancelled'].includes(status))
             ? `<button class="btn btn-sm" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;" onclick="createInstallEstimate('${wo.id}')">→ Install Estimate</button>`
             : ''}
+          ${['Complete','Invoiced','Paid','In Progress'].includes(status)
+            ? `<button class="btn btn-sm" style="background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;" onclick="openVisitReport('${wo.id}')">Visit Report</button>`
+            : ''}
         </div>`;
       }).join('')
     : '<div style="color:#bbb;font-size:13px;">No work orders found</div>';
@@ -4846,6 +4849,132 @@ async function markEstimateApproved(woId) {
     if (_allEstimates.length) loadEstimates(); // keep the Estimates tab from going stale if this was clicked from there
   } catch (err) {
     alert('Error: ' + err.message);
+  }
+}
+
+async function openVisitReport(woId) {
+  const win = window.open('', '_blank');
+  win.document.write('<html><head><title>Visit Report</title></head><body><p style="font-family:sans-serif;padding:20px;">Loading report…</p></body></html>');
+
+  try {
+    // Fetch full WO record
+    const woRes = await fetch(`${PROXY}/Work%20Orders/${woId}`);
+    const wo = await woRes.json();
+    const wf = wo.fields || {};
+
+    // Fetch linked jobs
+    const jobIds = wf['Jobs'] || [];
+    let jobs = [];
+    if (jobIds.length) {
+      const formula = jobIds.length === 1
+        ? `RECORD_ID()="${jobIds[0]}"`
+        : `OR(${jobIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+      const jRes = await fetchAll('Jobs', `filterByFormula=${encodeURIComponent(formula)}&sort[0][field]=Scheduled Start&sort[0][direction]=asc`);
+      jobs = jRes;
+    }
+
+    const custName   = (_ddUnwrap(wf['Customer Name']) || '').trim();
+    const address    = [_ddUnwrap(wf['Service Address']), _ddUnwrap(wf['City']), _ddUnwrap(wf['State'])].filter(Boolean).join(', ');
+    const techName   = (wf['Technician'] || [])[0]
+      ? ((_technicianOptions || []).find(t => t.id === (wf['Technician'] || [])[0])?.fields?.['Technician Name'] || '')
+      : '';
+    const woDate     = wf['Scheduled Date']
+      ? new Date(wf['Scheduled Date']).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' })
+      : '';
+    const problemDesc = wf['Problem Description'] || '';
+    const woType     = wf['Work Order Type'] || '';
+
+    const jobRows = jobs.map(j => {
+      const jf = j.fields || {};
+      const eqName       = (jf['Equipment'] || []).map(e => e.name || '').filter(Boolean).join(', ') || '';
+      const workPerformed = jf['Work Performed'] || '';
+      const diagnosis     = jf['Diagnosis'] || '';
+      const recommendations = jf['Recommendations'] || '';
+      const jobDate       = jf['Scheduled Start']
+        ? new Date(jf['Scheduled Start']).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })
+        : '';
+      return `
+        <div class="job-block">
+          ${eqName ? `<div class="eq-label">${eqName}</div>` : ''}
+          ${jobDate ? `<div class="field-label">Date of Service</div><div class="field-value">${jobDate}</div>` : ''}
+          ${diagnosis ? `<div class="field-label">Diagnosis</div><div class="field-value">${diagnosis}</div>` : ''}
+          ${workPerformed ? `<div class="field-label">Work Performed</div><div class="field-value">${workPerformed}</div>` : ''}
+          ${recommendations ? `<div class="field-label">Recommendations</div><div class="field-value">${recommendations}</div>` : ''}
+          ${!workPerformed && !diagnosis ? `<div class="field-value" style="color:#888;">No notes recorded for this unit.</div>` : ''}
+        </div>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Visit Report — ${custName}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: #1a1a1a; background: #fff; padding: 40px; max-width: 760px; margin: 0 auto; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 2px solid #c81f25; margin-bottom: 24px; }
+  .co-name { font-size: 22px; font-weight: 800; color: #c81f25; letter-spacing: -0.3px; }
+  .co-sub  { font-size: 11px; color: #666; margin-top: 3px; }
+  .report-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #888; text-align: right; }
+  .report-date  { font-size: 13px; color: #333; text-align: right; margin-top: 2px; }
+  .customer-block { background: #f7f7f7; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+  .meta-item label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #888; margin-bottom: 3px; }
+  .meta-item span  { font-size: 14px; color: #1a1a1a; }
+  .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 12px; }
+  .problem-block { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #e5e5e5; }
+  .problem-text { font-size: 14px; color: #333; line-height: 1.6; }
+  .job-block { padding: 16px 0; border-bottom: 1px solid #e5e5e5; }
+  .job-block:last-child { border-bottom: none; }
+  .eq-label { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
+  .field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #888; margin-top: 10px; margin-bottom: 3px; }
+  .field-value { font-size: 14px; color: #333; line-height: 1.6; white-space: pre-wrap; }
+  .footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid #e5e5e5; font-size: 11px; color: #aaa; text-align: center; }
+  @media print {
+    body { padding: 20px; }
+    @page { margin: 0.75in; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <div class="co-name">CJB Comfort</div>
+    <div class="co-sub">HVAC Sales &amp; Service · (480) 604-8622 · service@cjbcomfort.com</div>
+  </div>
+  <div>
+    <div class="report-label">Visit Report</div>
+    ${woDate ? `<div class="report-date">${woDate}</div>` : ''}
+  </div>
+</div>
+
+<div class="customer-block">
+  <div class="meta-item"><label>Customer</label><span>${custName}</span></div>
+  ${address ? `<div class="meta-item"><label>Service Address</label><span>${address}</span></div>` : ''}
+  ${woType  ? `<div class="meta-item"><label>Service Type</label><span>${woType}</span></div>` : ''}
+  ${techName? `<div class="meta-item"><label>Technician</label><span>${techName}</span></div>` : ''}
+</div>
+
+${problemDesc ? `
+<div class="problem-block">
+  <div class="section-title">Reason for Visit</div>
+  <div class="problem-text">${problemDesc}</div>
+</div>` : ''}
+
+${jobs.length ? `
+<div class="section-title">Work Summary</div>
+${jobRows}
+` : '<p style="color:#888;font-size:13px;">No job records found for this work order.</p>'}
+
+<div class="footer">CJB Comfort · Thank you for choosing us for your HVAC needs.</div>
+<script>window.print();</script>
+</body>
+</html>`;
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  } catch(err) {
+    win.document.write(`<p style="font-family:sans-serif;padding:20px;color:red;">Error loading report: ${err.message}</p>`);
   }
 }
 
