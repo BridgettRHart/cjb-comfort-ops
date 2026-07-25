@@ -86,7 +86,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .btn-blue  { background: #1e40af; color: #fff; }
 .addon-pill { background:#f3f4f6;border:1px solid #e5e7eb;border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit;transition:all 0.1s; }
 .addon-pill.active { background:#1a6b35;color:#fff;border-color:#1a6b35; }
-.btn-gray  { background: #888; color: #fff; }
+.btn-gray    { background: #4b5563; color: #fff; }
+.btn-outline { background: #fff; color: #374151; border: 1.5px solid #d1d5db; }
+.btn-slate   { background: #1e3a5f; color: #fff; }
 .btn-sm    { padding: 6px 13px; font-size: 12px; }
 
 /* Loading spinner */
@@ -1238,7 +1240,7 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
     </div>
 
     <div class="modal-actions">
-      <button class="btn btn-gray" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       <button class="btn btn-gray" id="draft-btn" onclick="submitInvoice(false)">Save Draft</button>
       <button class="btn btn-green" id="send-btn" onclick="submitInvoice(true)">Send Invoice Now</button>
     </div>
@@ -1498,9 +1500,9 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
     </div>
 
     <div class="modal-actions" id="quote-modal-actions">
-      <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
+      <button class="btn btn-outline" onclick="closeQuoteModal()">Cancel</button>
       <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
-      <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF (no email)</button>
+      <button class="btn btn-slate" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF</button>
       <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>
     </div>
   </div>
@@ -4274,9 +4276,9 @@ function renderQuoteActions(status) {
   }
   // new or draft
   el.innerHTML = `
-    <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
+    <button class="btn btn-outline" onclick="closeQuoteModal()">Cancel</button>
     <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
-    <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF (no email)</button>
+    <button class="btn btn-slate" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF</button>
     <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>`;
 }
 
