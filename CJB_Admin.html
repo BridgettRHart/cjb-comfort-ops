@@ -7973,7 +7973,16 @@ function estimateDisplayStatus(entry) {
   if (job) return { status: job.fields['Status'] || 'Scheduled', isJob: true };
   if (!quote) return { status: 'Draft', isJob: false }; // brand-new estimate, no quote built yet
 
-  const quoteStatus = quote.fields['Status'] || 'Draft';
+  let quoteStatus = quote.fields['Status'] || 'Draft';
+
+  // Stripe doesn't sync 'Expired' status back to Airtable when a quote's expiration
+  // date passes, so treat any Open quote with a past expiration date as expired here.
+  if (quoteStatus === 'Open') {
+    const expStr = quote.fields['Expiration Date'];
+    if (expStr && new Date(expStr).getTime() < Date.now()) {
+      quoteStatus = 'Expired';
+    }
+  }
   const woType = wo.fields['Work Order Type'] || '';
   const isEstimateTypeWO = ['Install Estimate', 'Estimate Only'].includes(woType);
   const woStatus = wo.fields['Status'] || '';
