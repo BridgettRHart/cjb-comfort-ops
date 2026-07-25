@@ -1354,7 +1354,7 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
         <button class="btn btn-gray btn-sm" onclick="loadEstimateTemplate('package')">📦 Package Unit</button>
         <button class="btn btn-gray btn-sm" onclick="loadEstimateTemplate('split')">🌡️ Split System</button>
         <button class="btn btn-gray btn-sm" id="ea-template-btn" style="display:none;background:#1a6b35;color:#fff;border-color:#1a6b35;" onclick="loadEstimateTemplate('ea_hvac')">⚡ EA HVAC (Scope A)</button>
-        <button class="btn btn-gray btn-sm" style="color:#9ca3af;" onclick="document.getElementById('quote-template-section').style.display='none'">✕ Hide</button>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('quote-template-section').style.display='none'">✕ Hide</button>
       </div>
       <div id="quote-addons" style="display:none;">
         <div style="font-size:11px;color:#6b7280;margin-bottom:6px;font-weight:600;">Optional Add-ons — tap to include:</div>
@@ -1386,7 +1386,7 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
 
     <div style="display:flex;gap:8px;margin-bottom:16px;">
       <button class="btn btn-gray btn-sm" onclick="addQuoteLi()">+ Add Line Item</button>
-      <button class="btn btn-gray btn-sm" onclick="addQuoteDiscount()" style="color:#6b7280;">+ Discount</button>
+      <button class="btn btn-outline btn-sm" onclick="addQuoteDiscount()">+ Discount</button>
     </div>
 
     <!-- Discount row — hidden until activated -->
