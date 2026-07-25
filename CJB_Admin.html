@@ -1240,7 +1240,7 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
     </div>
 
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-gray" onclick="closeModal()">Cancel</button>
       <button class="btn btn-gray" id="draft-btn" onclick="submitInvoice(false)">Save Draft</button>
       <button class="btn btn-green" id="send-btn" onclick="submitInvoice(true)">Send Invoice Now</button>
     </div>
@@ -1500,9 +1500,9 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
     </div>
 
     <div class="modal-actions" id="quote-modal-actions">
-      <button class="btn btn-outline" onclick="closeQuoteModal()">Cancel</button>
+      <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
       <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
-      <button class="btn btn-slate" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF</button>
+      <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF (no email)</button>
       <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>
     </div>
   </div>
@@ -4276,9 +4276,9 @@ function renderQuoteActions(status) {
   }
   // new or draft
   el.innerHTML = `
-    <button class="btn btn-outline" onclick="closeQuoteModal()">Cancel</button>
+    <button class="btn btn-gray" onclick="closeQuoteModal()">Cancel</button>
     <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)">Save Draft</button>
-    <button class="btn btn-slate" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF</button>
+    <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Finalizes the quote so a PDF can be generated, without notifying the customer">Finalize for PDF (no email)</button>
     <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Send to Customer</button>`;
 }
 
