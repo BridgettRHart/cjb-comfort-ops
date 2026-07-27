@@ -3297,6 +3297,35 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Customer portal — generate link only (no email) ──────────────────
+    if (path === '/api/portal/get-link' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const cId  = body.customerId || '';
+        if (!cId) return new Response(JSON.stringify({ error: 'customerId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // Reuse existing token for this customer if still valid; otherwise create new one
+        const existingToken = await env.PORTAL_KV.get(`cust:${cId}`);
+        if (existingToken) {
+          const stored = await env.PORTAL_KV.get(existingToken, { type: 'json' });
+          if (stored && stored.expiresAt > Date.now()) {
+            return new Response(JSON.stringify({ ok: true, portalLink: `${PORTAL_URL}/p/${existingToken}` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          }
+        }
+
+        // No valid token — generate a fresh one
+        const rand    = crypto.getRandomValues(new Uint8Array(32));
+        const token   = [...rand].map(b => b.toString(16).padStart(2, '0')).join('');
+        const ttlSecs = 365 * 24 * 60 * 60;
+        await env.PORTAL_KV.put(token, JSON.stringify({ customerId: cId, createdAt: Date.now(), expiresAt: Date.now() + ttlSecs * 1000 }), { expirationTtl: ttlSecs });
+        await env.PORTAL_KV.put(`cust:${cId}`, token, { expirationTtl: ttlSecs });
+
+        return new Response(JSON.stringify({ ok: true, portalLink: `${PORTAL_URL}/p/${token}` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Customer portal — generate + send magic link ──────────────────────
     if (path === '/api/portal/send-link' && request.method === 'POST') {
       try {

@@ -943,6 +943,29 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
 </div>
 
 <!-- New Contract Modal -->
+<div class="modal-bg hidden" id="portal-link-modal" onclick="if(event.target===this)closePortalLinkModal()">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-title">Customer Portal</div>
+    <div id="plm-loading" style="padding:16px 0;color:#6b7280;font-size:14px;">Generating link…</div>
+    <div id="plm-body" style="display:none;">
+      <div style="font-size:14px;color:#374151;margin-bottom:16px;">
+        <strong id="plm-customer-name"></strong>'s personal portal link. Open it yourself to preview, or send it to the customer.
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:16px;">
+        <div id="plm-url" style="flex:1;font-size:12px;color:#475569;word-break:break-all;font-family:monospace;"></div>
+        <button class="btn btn-gray btn-sm" id="plm-copy-btn" onclick="copyPortalLink()" style="flex-shrink:0;">Copy</button>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a id="plm-open-btn" href="#" target="_blank" rel="noopener" class="btn btn-blue btn-sm" style="text-decoration:none;">Open in New Tab</a>
+        <button class="btn btn-green btn-sm" id="plm-send-btn" onclick="sendPortalEmail()">Send to Customer</button>
+        <button class="btn btn-gray btn-sm" onclick="closePortalLinkModal()">Close</button>
+      </div>
+      <div id="plm-send-status" style="font-size:13px;margin-top:12px;color:#059669;display:none;"></div>
+    </div>
+    <div id="plm-error" style="display:none;padding:8px 0;color:#b91c1c;font-size:14px;"></div>
+  </div>
+</div>
+
 <div class="modal-bg hidden" id="ctr-wizard-modal">
   <div class="modal" style="max-width:540px;max-height:90vh;overflow-y:auto;">
 
@@ -3256,7 +3279,7 @@ function renderDetail(customer, props, wos, contacts) {
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
         <div class="cust-card-name">${esc(f['Customer Name'] || '')}${(f['Customer Tags']||[]).includes('Referral Partner') ? ' <span style="font-size:13px;font-weight:600;color:#b45309;">⭐ Referral Partner</span>' : ''}</div>
         <div style="display:flex;gap:8px;flex-shrink:0;margin-top:4px;">
-          ${f['Email'] ? `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;font-size:12px;" onclick="sendPortalLink('${customer.id}','${escAttr(f['Customer Name']||'')}')">Send Portal Link</button>` : ''}
+          <button class="btn btn-sm" style="background:#0ea5e9;color:#fff;font-size:12px;" onclick="openPortalLinkModal('${customer.id}','${escAttr(f['Customer Name']||'')}')">Portal Link</button>
           <button class="btn-edit" onclick="openCustomerForm(selectedCustomer)">Edit</button>
         </div>
       </div>
@@ -5051,18 +5074,71 @@ async function toggleNoInvoiceNeeded(woId, checked) {
   }
 }
 
-async function sendPortalLink(customerId, customerName) {
-  if (!confirm(`Send a portal link to ${customerName}? They'll get an email with a personal link to view their account, pay invoices, and see upcoming visits.`)) return;
+let _portalLinkCustomerId = '';
+let _portalLinkUrl        = '';
+
+async function openPortalLinkModal(customerId, customerName) {
+  _portalLinkCustomerId = customerId;
+  _portalLinkUrl        = '';
+  const modal = document.getElementById('portal-link-modal');
+  document.getElementById('plm-customer-name').textContent = customerName;
+  document.getElementById('plm-loading').style.display     = 'block';
+  document.getElementById('plm-body').style.display        = 'none';
+  document.getElementById('plm-error').style.display       = 'none';
+  document.getElementById('plm-send-status').style.display = 'none';
+  document.getElementById('plm-send-btn').disabled         = false;
+  document.getElementById('plm-send-btn').textContent      = 'Send to Customer';
+  modal.classList.remove('hidden');
   try {
-    const res  = await fetch(`${PROXY}/portal/send-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId }) });
+    const res  = await fetch(`${PROXY}/portal/get-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || 'Unknown error');
+    _portalLinkUrl = data.portalLink;
+    document.getElementById('plm-url').textContent   = data.portalLink;
+    document.getElementById('plm-open-btn').href     = data.portalLink;
+    document.getElementById('plm-copy-btn').textContent = 'Copy';
+    document.getElementById('plm-loading').style.display = 'none';
+    document.getElementById('plm-body').style.display    = 'block';
+  } catch(e) {
+    document.getElementById('plm-loading').style.display = 'none';
+    document.getElementById('plm-error').textContent     = 'Could not generate link: ' + e.message;
+    document.getElementById('plm-error').style.display   = 'block';
+  }
+}
+
+function closePortalLinkModal() {
+  document.getElementById('portal-link-modal').classList.add('hidden');
+}
+
+function copyPortalLink() {
+  if (!_portalLinkUrl) return;
+  navigator.clipboard.writeText(_portalLinkUrl).then(() => {
+    const btn = document.getElementById('plm-copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+}
+
+async function sendPortalEmail() {
+  if (!_portalLinkCustomerId) return;
+  const btn = document.getElementById('plm-send-btn');
+  btn.disabled    = true;
+  btn.textContent = 'Sending…';
+  try {
+    const res  = await fetch(`${PROXY}/portal/send-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId: _portalLinkCustomerId }) });
     const data = await res.json();
     if (!res.ok) {
-      if (data.error === 'no_email') { showToast('Customer has no email address on file — add one first.', 'error'); return; }
+      if (data.error === 'no_email') { showToast('Customer has no email address on file.', 'error'); btn.disabled = false; btn.textContent = 'Send to Customer'; return; }
       throw new Error(data.message || data.error || 'Unknown error');
     }
-    showToast(`Portal link sent to ${customerName} ✓`, 'success');
+    const st = document.getElementById('plm-send-status');
+    st.textContent      = '✓ Email sent to customer';
+    st.style.display    = 'block';
+    btn.textContent     = 'Sent ✓';
   } catch(e) {
-    showToast('Could not send portal link: ' + e.message, 'error');
+    btn.disabled    = false;
+    btn.textContent = 'Send to Customer';
+    showToast('Could not send email: ' + e.message, 'error');
   }
 }
 
