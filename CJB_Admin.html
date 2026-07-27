@@ -8497,10 +8497,21 @@ async function openAdminPayModal(woId, slot = 'standard') {
         if ((candData.fields?.['Stripe Invoice ID'] || '') === _apmInvoiceId) { atInvId = candId; break; }
       } catch(e) { /* skip */ }
     }
-    if (atInvId && _apmTotalNumeric > 0) {
+    if (atInvId && (_apmTotalNumeric > 0 || _apmSlot === 'deposit')) {
       try {
         const invRes   = await fetch(`${PROXY}/Invoices/${atInvId}`);
         const invData  = await invRes.json();
+        // Deposit invoices are for a portion of the job — use the invoice's own Total,
+        // not the WO's Total Amount (which is the full job cost).
+        if (_apmSlot === 'deposit') {
+          const depTotal = Number(invData.fields?.['Total'] || 0);
+          if (depTotal > 0) {
+            _apmTotalNumeric = depTotal;
+            document.getElementById('apm-amount').textContent =
+              '$' + depTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            setFullAmount();
+          }
+        }
         const alreadyPaid = Number(invData.fields?.['Amount Paid'] || 0);
         if (alreadyPaid > 0) {
           const balanceDue = Math.max(0, _apmTotalNumeric - alreadyPaid);
