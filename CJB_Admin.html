@@ -3091,18 +3091,21 @@ function renderDetail(customer, props, wos, contacts) {
           : '';
 
         // Invoice button
-        const depositPaid = !!(wf['Deposit Paid']);
+        const depositPaid      = !!(wf['Deposit Paid']);
+        const hasDepositInvoice = !!(wf['Deposit Invoice Stripe ID']);
         // An approved estimate that's already been converted into a real Job/Installation WO
         // (tracked via the reverse Source Estimate link) is superseded — all billing actions
-        // belong on the job WO now, not here, or both show "Send Final Balance" at once.
-        // Only suppress while still sitting at 'Estimate Approved' — a WO that's already
-        // Paid/Invoiced has its own resolved billing and must keep showing it, even if it
-        // also happens to be the source estimate for a separate, later job.
-        const supersededByJob = status === 'Estimate Approved' && !!((wf['From field: Source Estimate'] || []).length);
+        // belong on the job WO now, not here. But if a deposit invoice was already created on
+        // this WO (e.g. an install WO that had an estimate sent for approval, not a separate job
+        // WO), billing belongs here and we must not suppress it.
+        const supersededByJob = status === 'Estimate Approved'
+          && !!((wf['From field: Source Estimate'] || []).length)
+          && !hasDepositInvoice;
         // No-charge / billed-elsewhere jobs (warranty, one leg of a multi-visit job billed
         // on a different WO) shouldn't be nagged about creating an invoice at all — they
         // just need a way to notify the customer the visit is done.
         const noInvoiceNeeded = !!(wf['No Invoice Needed']);
+        const terminalStatus  = ['Invoiced','Paid','Cancelled'].includes(status);
         let invoiceBtn = '';
         if (noInvoiceNeeded) {
           invoiceBtn = wf['Status Update Sent']
@@ -3110,25 +3113,22 @@ function renderDetail(customer, props, wos, contacts) {
             : `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="sendWOStatusUpdate('${wo.id}',false)">Send Update</button>`;
         } else if (supersededByJob) {
           invoiceBtn = '';
-        } else if (depositPaid && !['Invoiced','Paid','Cancelled'].includes(status)) {
+        } else if (depositPaid && !terminalStatus) {
           // Deposit was collected — show button to send the final balance invoice
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openFinalInvoiceModal('${wo.id}','${customer.id}')">Send Final Balance</button>`;
+        } else if (hasDepositInvoice && !depositPaid && !terminalStatus) {
+          // Deposit invoice sent but not yet collected — works for any WO status
+          invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}','deposit')">Collect Deposit</button>`;
         } else if (['Complete','Estimate Approved','Estimate Declined'].includes(status)) {
           const label = status === 'Estimate Declined' ? 'Service Call Invoice' : 'Create Invoice';
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
         } else if (['Scheduled','In Progress'].includes(status) && !depositPaid) {
-          // Active WO — deposit not yet collected
-          const hasDepositInvoice = !!(wf['Deposit Invoice Stripe ID']);
-          if (hasDepositInvoice) {
-            // Deposit invoice already sent — show Collect button so payment can be recorded
-            invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}','deposit')">Collect Deposit</button>`;
-          } else {
-            invoiceBtn = hasDraftInvoice
-              ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
-              : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
-          }
+          // Active WO, no deposit invoice yet
+          invoiceBtn = hasDraftInvoice
+            ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
+            : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
         } else if (status === 'Invoiced') {
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
           if (stripeUrl || hasDraftInvoice) {
