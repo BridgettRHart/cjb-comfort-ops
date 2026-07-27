@@ -3120,9 +3120,15 @@ function renderDetail(customer, props, wos, contacts) {
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
         } else if (['Scheduled','In Progress'].includes(status) && !depositPaid) {
           // Active WO — deposit not yet collected
-          invoiceBtn = hasDraftInvoice
-            ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
-            : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
+          const hasDepositInvoice = !!(wf['Deposit Invoice Stripe ID']);
+          if (hasDepositInvoice) {
+            // Deposit invoice already sent — show Collect button so payment can be recorded
+            invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}','deposit')">Collect Deposit</button>`;
+          } else {
+            invoiceBtn = hasDraftInvoice
+              ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
+              : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
+          }
         } else if (status === 'Invoiced') {
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
           if (stripeUrl || hasDraftInvoice) {
