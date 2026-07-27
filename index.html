@@ -1545,6 +1545,10 @@
         <input type="file" id="pw-photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="pwHandlePhotos(this)">
         <div id="pw-photos-preview" class="photos-preview" role="list"></div>
       </div>
+      <div style="padding:0 0 12px;">
+        <label class="form-label" for="pw-customer-note">Note for Customer Invoice <span style="color:var(--gray-text);font-weight:400;">(optional)</span></label>
+        <textarea class="form-textarea" id="pw-customer-note" rows="2" placeholder="Short note that appears on the customer's invoice…"></textarea>
+      </div>
       <button class="btn btn-success btn-full" id="pw-complete-btn" onclick="submitPropertyWideVisit()" style="margin-bottom:24px;">✓ Complete Visit</button>
     </div>
 
@@ -1847,6 +1851,13 @@
       <div id="followup-notes-wrap" style="display:none;">
         <label class="form-label" for="field-followup-notes" style="margin-bottom:6px;">Notes for Office</label>
         <textarea class="form-textarea" id="field-followup-notes" rows="2" placeholder="What does the office need to know about this visit?…"></textarea>
+      </div>
+    </div>
+
+    <div class="detail-section" style="padding:16px;margin-bottom:12px;">
+      <div class="form-field" style="margin-bottom:0;">
+        <label class="form-label" for="field-customer-note">Note for Customer Invoice <span style="color:var(--gray-text);font-weight:400;">(optional)</span></label>
+        <textarea class="form-textarea" id="field-customer-note" rows="2" placeholder="Short note that appears on the customer's invoice…"></textarea>
       </div>
     </div>
 
@@ -4076,7 +4087,7 @@ function openCompleteForm() {
   }
 
   // Reset all fields (do NOT clear selectedEquipmentId/Name — set by startUnitComplete before this runs)
-  ['field-work','field-diagnosis','field-recommendations','field-parts-other','field-followup-notes']
+  ['field-work','field-diagnosis','field-recommendations','field-parts-other','field-followup-notes','field-customer-note']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('photos-preview').innerHTML = '';
   selectedPhotos = [];
@@ -4123,6 +4134,7 @@ function openCompleteForm() {
     if (jf['Recommendations']) document.getElementById('field-recommendations').value = jf['Recommendations'];
     if (jf['Follow Up Required']) selectFollowup('yes');
     if (jf['Follow Up Notes']) document.getElementById('field-followup-notes').value = jf['Follow Up Notes'];
+    if (jf['Customer Note']) document.getElementById('field-customer-note').value = jf['Customer Note'];
     if (jf['Repair Urgency']) selectUrgency(jf['Repair Urgency']);
     // Pre-fill condition from the equipment record's current value
     const eq = currentWorkOrderEquipment.find(e => e.id === selectedEquipmentId);
@@ -4469,6 +4481,7 @@ function pwHandlePhotos(input) {
 async function submitPropertyWideVisit() {
   const workPerformed = (document.getElementById('pw-work')?.value || '').trim();
   if (!workPerformed) { alert('Please enter work performed.'); return; }
+  const customerNote  = (document.getElementById('pw-customer-note')?.value || '').trim();
 
   const btn = document.getElementById('pw-complete-btn');
   btn.textContent = 'Saving…';
@@ -4519,6 +4532,7 @@ async function submitPropertyWideVisit() {
     if (f['Property']?.length)  jobFields['Property']           = f['Property'];
     if (allParts)               jobFields['Parts Used']         = allParts;
     if (photoUrls.length)       jobFields['Photo URLs']         = photoUrls.join('\n');
+    if (customerNote)           jobFields['Customer Note']      = customerNote;
     if (isContractVisit && currentContractId) jobFields['Maintenance Contract'] = [currentContractId];
 
     const newJob = await apiPost('Jobs', jobFields);
@@ -4681,6 +4695,7 @@ async function submitComplete() {
     const allParts = partLines.join('\n');
 
     const officeNotes    = (document.getElementById('field-followup-notes')?.value || '').trim();
+    const customerNote   = (document.getElementById('field-customer-note')?.value  || '').trim();
     const diagnosis      = repairsNeeded ? (document.getElementById('field-diagnosis')?.value || '').trim() : '';
     const recommendations= repairsNeeded ? (document.getElementById('field-recommendations')?.value || '').trim() : '';
     const woId           = currentJob.id;
@@ -4733,6 +4748,7 @@ async function submitComplete() {
     }
     if (repairsNeeded) jobFields['Repairs Estimated'] = true;
     if (repairsNeeded && selectedUrgency) jobFields['Repair Urgency'] = selectedUrgency;
+    if (customerNote)  jobFields['Customer Note'] = customerNote;
     if (isContractVisit && currentContractId) jobFields['Maintenance Contract'] = [currentContractId];
 
     // Save job record — patch if a draft (In Progress) or completed record already exists
@@ -5592,6 +5608,7 @@ async function submitFieldEstimate() {
       const diagnosis      = (document.getElementById('field-diagnosis')?.value     || '').trim();
       const recommendations= (document.getElementById('field-recommendations')?.value || '').trim();
       const officeNotes    = (document.getElementById('field-followup-notes')?.value || '').trim();
+      const customerNote   = (document.getElementById('field-customer-note')?.value  || '').trim();
       const otherParts     = (document.getElementById('field-parts-other')?.value   || '').trim();
       const partLines      = selectedParts.map(p => {
         const qty   = p.qty && p.qty > 1 ? p.qty + 'x ' : '';
@@ -5617,6 +5634,7 @@ async function submitFieldEstimate() {
         'Repairs Estimated': true,
       };
       if (workPerformed)                  draftFields['Work Performed']    = workPerformed;
+      if (customerNote)                   draftFields['Customer Note']     = customerNote;
       if (diagnosis)                      draftFields['Diagnosis']         = diagnosis;
       if (recommendations)                draftFields['Recommendations']   = recommendations;
       if (partLines.length)               draftFields['Parts Used']        = partLines.join('\n');

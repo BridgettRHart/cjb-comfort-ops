@@ -3631,26 +3631,28 @@ async function submitEquipmentForm() {
 // panel regardless — this is only about what's worth fitting on the invoice
 // itself until the customer portal can link out to the full job record.
 function buildJobNotesText(wo, jobs, maxLen = 440) {
-  const reportedText = wo?.fields?.['Problem Description'] ? `Reported: ${wo.fields['Problem Description']}` : '';
+  // If Cornell wrote a Customer Note on any job, use those — they're written for the customer
+  const hasCustomerNotes = jobs.some(j => j.fields['Customer Note']);
+  if (hasCustomerNotes) {
+    const lines = jobs.map(j => j.fields['Customer Note'] || '').filter(Boolean);
+    return lines.join('\n').slice(0, maxLen);
+  }
+
+  // Fallback: Equipment Name + Work Performed only (no Problem Description or Diagnosis)
   const detailText = !jobs.length ? ''
     : jobs.length <= 3 ? buildPerUnitLines(jobs)
     : buildUnitTallyNote(jobs);
-  if (!reportedText) return detailText;
-
-  const sep    = detailText ? 2 : 0; // '\n\n' between Reported and the unit detail below it
-  const budget = maxLen - detailText.length - sep;
-  const reportedFinal = budget >= reportedText.length ? reportedText
-    : budget > 10 ? reportedText.slice(0, budget - 1) + '…'
-    : '';
-  return [reportedFinal, detailText].filter(Boolean).join('\n\n');
+  return detailText.slice(0, maxLen);
 }
 
 function buildPerUnitLines(jobs) {
   const lineCap = 70;
   return jobs.map(j => {
     const jf      = j.fields;
-    const label   = jf['Job Name'] || jf['Job Type'] || 'Unit';
-    const summary = jf['Work Performed'] || jf['Diagnosis'] || '';
+    const eqId    = (jf['Equipment'] || [])[0];
+    const eqRec   = eqId ? (currentEquipment || []).find(e => e.id === eqId) : null;
+    const label   = eqRec?.fields['Equipment Name'] || jf['Job Type'] || 'Unit';
+    const summary = jf['Work Performed'] || '';
     const line    = summary ? `${label}: ${summary}` : label;
     return line.length > lineCap ? line.slice(0, lineCap - 1) + '…' : line;
   }).join('\n');
