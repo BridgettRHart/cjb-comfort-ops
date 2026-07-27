@@ -3218,6 +3218,130 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       });
     }
 
+    // ── Customer portal — serve HTML page ────────────────────────────────
+    if (path.startsWith('/p/') && request.method === 'GET') {
+      const token = path.slice(3).replace(/\/$/, '');
+      if (!token || token.length < 16) {
+        return new Response('Invalid portal link.', { status: 400 });
+      }
+      return new Response(buildPortalHtml(token), {
+        headers: { 'Content-Type': 'text/html;charset=UTF-8' }
+      });
+    }
+
+    // ── Customer portal — fetch data ──────────────────────────────────────
+    if (path === '/api/portal/data' && request.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        if (!token) return new Response(JSON.stringify({ error: 'missing_token' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const stored = await env.PORTAL_KV.get(token, { type: 'json' });
+        if (!stored || (stored.expiresAt && stored.expiresAt < Date.now())) {
+          return new Response(JSON.stringify({ error: 'expired' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const cId      = stored.customerId;
+        const customer = await airtableGetById('Customers', cId);
+        const cf       = customer.fields;
+        const custName = cf['Customer Name'] || '';
+        const nameEsc  = custName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+        // Fetch WOs, invoices, contracts in parallel — filter by customer name (primary field of linked record)
+        const [wosData, invoicesData, contractsData] = await Promise.all([
+          airtableFetchAll('Work Orders',         `{Customer Name}="${nameEsc}"`, 60, [{ field: 'Scheduled Date', direction: 'desc' }]),
+          airtableFetchAll('Invoices',             `{Customers}="${nameEsc}"`,   50, [{ field: 'Invoice Date',   direction: 'desc' }]),
+          airtableFetchAll('Maintenance Contracts', `{Customer}="${nameEsc}"`,   10),
+        ]);
+
+        const isProtectionPlus = contractsData.some(c => c.fields['Plan Type'] === 'Protection Plus');
+
+        const ACTIVE    = new Set(['Scheduled', 'In Progress']);
+        const TERMINAL  = new Set(['Complete', 'Invoiced', 'Paid', 'Paid in Full', 'Cancelled']);
+        const UNPAID_ST = new Set(['Invoiced', 'Sent', 'Overdue', 'Deposit', 'Balance Due', 'Deposit Paid']);
+
+        const activeWOs       = wosData.filter(w => ACTIVE.has(w.fields['Status']));
+        const history         = wosData.filter(w => TERMINAL.has(w.fields['Status'])).slice(0, 24);
+        const unpaidInvoices  = invoicesData.filter(i =>
+          UNPAID_ST.has(i.fields['Status']) && Number(i.fields['Balance Due'] || 0) > 0
+        );
+
+        const mapWO = w => ({
+          id:      w.id,
+          status:  w.fields['Status']           || '',
+          type:    w.fields['Work Order Type']  || '',
+          date:    w.fields['Scheduled Date']   || '',
+          address: w.fields['Service Address']  || '',
+          problem: w.fields['Problem Description'] || '',
+        });
+
+        const mapInv = i => ({
+          id:        i.id,
+          status:    i.fields['Status']             || '',
+          date:      i.fields['Invoice Date']       || '',
+          total:     Number(i.fields['Total']       || 0),
+          balanceDue:Number(i.fields['Balance Due'] || 0),
+          payUrl:    i.fields['Stripe Invoice URL'] || '',
+        });
+
+        return new Response(JSON.stringify({
+          customer: { id: cId, name: custName, email: cf['Email'] || '' },
+          isProtectionPlus,
+          activeWOs:     activeWOs.map(mapWO),
+          unpaidInvoices:unpaidInvoices.map(mapInv),
+          history:       history.map(mapWO),
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+      } catch(e) {
+        console.error('portal/data error:', e.message);
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Customer portal — generate + send magic link ──────────────────────
+    if (path === '/api/portal/send-link' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const cId  = body.customerId || '';
+        if (!cId) return new Response(JSON.stringify({ error: 'customerId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const customer = await airtableGetById('Customers', cId);
+        const cf       = customer.fields;
+        const email    = cf['Email'] || '';
+        if (!email) return new Response(JSON.stringify({ error: 'no_email', message: 'Customer has no email address on file.' }), { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const name      = cf['Customer Name'] || 'Customer';
+        const firstName = cf['First Name'] || name.trim().split(' ')[0] || 'there';
+
+        // Revoke any existing token for this customer before issuing a new one
+        const oldToken = await env.PORTAL_KV.get(`cust:${cId}`);
+        if (oldToken) await env.PORTAL_KV.delete(oldToken);
+
+        // Generate a 64-char hex token
+        const rand    = crypto.getRandomValues(new Uint8Array(32));
+        const token   = [...rand].map(b => b.toString(16).padStart(2, '0')).join('');
+        const ttlSecs = 365 * 24 * 60 * 60;
+        await env.PORTAL_KV.put(token, JSON.stringify({ customerId: cId, createdAt: Date.now(), expiresAt: Date.now() + ttlSecs * 1000 }), { expirationTtl: ttlSecs });
+        await env.PORTAL_KV.put(`cust:${cId}`, token, { expirationTtl: ttlSecs });
+
+        const portalLink = `${PORTAL_URL}/p/${token}`;
+
+        await sendEmail(env.RESEND_API_KEY, {
+          to: email,
+          subject: `Your CJB Comfort Service Portal`,
+          html: portalLinkEmailHtml({ firstName, name, portalLink }),
+        });
+
+        logCommunication(env, {
+          type: 'Email', trigger: 'Portal Link Sent', sentTo: email,
+          subject: 'Your CJB Comfort Service Portal', customerId: cId,
+        });
+
+        return new Response(JSON.stringify({ ok: true, portalLink }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Airtable proxy ────────────────────────────────────────────────────
     const match = path.match(/^\/api\/([^/]+)\/?([^/]*)$/);
     if (match) {
@@ -3314,6 +3438,24 @@ async function airtableGetById(table, recordId) {
   const res = await airtableFetchWithRetry(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
   if (!res.ok) throw new Error(`Airtable GET ${table}/${recordId}: ${res.status}`);
   return res.json();
+}
+
+async function airtableFetchAll(table, formula, limit = 100, sort = []) {
+  const records = [];
+  let offset = null;
+  const base = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}`;
+  const hdrs = { Authorization: `Bearer ${AIRTABLE_API_KEY}` };
+  do {
+    const p = new URLSearchParams({ filterByFormula: formula, pageSize: String(Math.min(100, limit - records.length)) });
+    sort.forEach((s, i) => { p.set(`sort[${i}][field]`, s.field); p.set(`sort[${i}][direction]`, s.direction || 'asc'); });
+    if (offset) p.set('offset', offset);
+    const res = await airtableFetchWithRetry(`${base}?${p}`, { headers: hdrs });
+    if (!res.ok) break;
+    const data = await res.json();
+    records.push(...(data.records || []));
+    offset = data.offset || null;
+  } while (offset && records.length < limit);
+  return records;
 }
 
 async function airtablePost(table, fields) {
@@ -4669,6 +4811,224 @@ async function checkResendDomain(env) {
       `CJB Comfort alert: Resend email domain FAILED for ${names}. Emails are NOT sending. Log in to resend.com/domains to fix.`
     );
   } catch(e) { /* non-fatal */ }
+}
+
+// ── Customer portal HTML template ────────────────────────────────────────────
+function buildPortalHtml(token) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CJB Comfort — Service Portal</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
+header{background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+.logo{height:34px;width:auto}
+.brand-fallback{font-size:18px;font-weight:800;color:#1e40af;display:none}
+.portal-tag{margin-left:auto;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px}
+main{max-width:540px;margin:0 auto;padding:20px 16px 48px}
+.greeting{font-size:22px;font-weight:700;color:#0f172a;margin-bottom:4px}
+.greeting-sub{font-size:14px;color:#64748b;margin-bottom:20px}
+.pp-badge{display:none;align-items:center;gap:6px;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;margin-bottom:20px}
+section{margin-bottom:28px}
+.sec-label{font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
+.card{background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px;margin-bottom:10px}
+.card:last-child{margin-bottom:0}
+.card-eyebrow{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.card-primary{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:2px}
+.card-secondary{font-size:13px;color:#64748b}
+.card-problem{font-size:13px;color:#475569;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;margin-top:10px}
+.chip-blue{background:#dbeafe;color:#1d4ed8}
+.chip-green{background:#dcfce7;color:#15803d}
+.chip-gray{background:#f1f5f9;color:#64748b}
+.chip-orange{background:#fef3c7;color:#92400e}
+.amount{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:2px}
+.amount-sub{font-size:12px;color:#94a3b8}
+.pay-btn{display:inline-flex;align-items:center;gap:6px;background:#1e40af;color:#fff;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none;margin-top:14px;border:none;cursor:pointer}
+.pay-btn:hover{background:#1d3a9e}
+.no-pay-msg{font-size:13px;color:#64748b;margin-top:12px}
+.empty{text-align:center;padding:20px;color:#94a3b8;font-size:13px}
+#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:14px;color:#64748b;font-size:14px}
+.spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#1e40af;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#error-state{display:none;text-align:center;padding:48px 24px}
+.error-icon{font-size:40px;margin-bottom:12px}
+.error-title{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:8px}
+.error-body{font-size:14px;color:#64748b;line-height:1.6;margin-bottom:20px}
+#portal-content{display:none}
+footer{text-align:center;padding:20px 16px 32px;color:#94a3b8;font-size:13px;border-top:1px solid #e2e8f0;background:#fff;margin-top:8px}
+footer a{color:#1e40af;text-decoration:none}
+footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<header>
+  <img src="${BRAND_LOGO_URL}" class="logo" alt="CJB Comfort" onerror="this.style.display='none';document.querySelector('.brand-fallback').style.display='block'">
+  <span class="brand-fallback">CJB Comfort</span>
+  <span class="portal-tag">Service Portal</span>
+</header>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Loading your account…</div>
+</div>
+
+<div id="error-state">
+  <div class="error-icon">🔗</div>
+  <div class="error-title">Link Expired or Invalid</div>
+  <div class="error-body">This portal link is no longer valid. Contact CJB Comfort and we'll send you a new one — takes about a minute.</div>
+  <a href="tel:+14806048622" style="color:#1e40af;font-weight:700;font-size:15px;">(480) 604-8622</a>
+</div>
+
+<div id="portal-content">
+<main>
+  <div id="c-name" class="greeting"></div>
+  <div class="greeting-sub">Your CJB Comfort account overview</div>
+  <div id="pp-badge" class="pp-badge">⭐ Protection Plus Member</div>
+
+  <section id="sec-active">
+    <div class="sec-label">Upcoming Visits</div>
+    <div id="list-active"></div>
+  </section>
+
+  <section id="sec-invoices">
+    <div class="sec-label">Invoices Due</div>
+    <div id="list-invoices"></div>
+  </section>
+
+  <section id="sec-history">
+    <div class="sec-label">Service History</div>
+    <div id="list-history"></div>
+  </section>
+</main>
+</div>
+
+<footer>
+  Questions? <a href="tel:+14806048622">(480) 604-8622</a> &nbsp;·&nbsp; <a href="mailto:service@cjbcomfort.com">service@cjbcomfort.com</a>
+</footer>
+
+<script>
+const TOKEN = ${JSON.stringify(token)};
+
+function fmtDate(d) {
+  if (!d) return '—';
+  try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Phoenix' }); }
+  catch { return d; }
+}
+function money(n) { return Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function statusChip(st) {
+  const cls = { 'Scheduled':'chip-blue','In Progress':'chip-blue','Complete':'chip-green','Paid':'chip-green','Invoiced':'chip-orange','Overdue':'chip-orange','Cancelled':'chip-gray' }[st] || 'chip-gray';
+  return \`<span class="chip \${cls}">\${esc(st)}</span>\`;
+}
+
+function woCard(w) {
+  const prob = w.problem ? \`<div class="card-problem">\${esc(w.problem)}</div>\` : '';
+  const addr = w.address ? \`<div class="card-secondary" style="margin-top:2px;">\${esc(w.address)}</div>\` : '';
+  return \`<div class="card">
+    <div class="card-eyebrow">\${esc(w.type || 'Service Call')}</div>
+    <div class="card-primary">\${fmtDate(w.date)}</div>
+    \${addr}\${prob}
+    \${statusChip(w.status)}
+  </div>\`;
+}
+
+function invCard(i) {
+  const payBtn = i.payUrl
+    ? \`<a href="\${esc(i.payUrl)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>\`
+    : \`<div class="no-pay-msg">Call us at (480) 604-8622 to pay by phone</div>\`;
+  const totalLine = (i.total && i.total !== i.balanceDue)
+    ? \`<div class="amount-sub">Invoice total: \${money(i.total)}</div>\`
+    : '';
+  return \`<div class="card">
+    <div class="card-eyebrow">\${esc(i.status || 'Invoice')} · \${fmtDate(i.date)}</div>
+    <div class="amount">\${money(i.balanceDue)}</div>
+    <div class="amount-sub">Balance due</div>
+    \${totalLine}
+    \${payBtn}
+  </div>\`;
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/portal/data?token=' + encodeURIComponent(TOKEN));
+    if (res.status === 401) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error-state').style.display = 'block';
+      return;
+    }
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    const firstName = (d.customer.name || '').split(' ')[0] || d.customer.name || 'there';
+    document.getElementById('c-name').textContent = 'Hello, ' + firstName + '.';
+
+    if (d.isProtectionPlus) document.getElementById('pp-badge').style.display = 'flex';
+
+    // Upcoming visits
+    const actEl = document.getElementById('list-active');
+    actEl.innerHTML = d.activeWOs && d.activeWOs.length
+      ? d.activeWOs.map(woCard).join('')
+      : '<div class="empty">No upcoming visits scheduled</div>';
+
+    // Invoices due
+    const invEl = document.getElementById('list-invoices');
+    invEl.innerHTML = d.unpaidInvoices && d.unpaidInvoices.length
+      ? d.unpaidInvoices.map(invCard).join('')
+      : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
+
+    // Service history
+    const histEl = document.getElementById('list-history');
+    if (d.history && d.history.length) {
+      histEl.innerHTML = d.history.map(woCard).join('');
+    } else {
+      histEl.innerHTML = '<div class="empty">No service history yet</div>';
+      document.getElementById('sec-history').style.display = 'none';
+    }
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('portal-content').style.display = 'block';
+
+  } catch(e) {
+    document.getElementById('loading').innerHTML =
+      '<div style="color:#b91c1c;text-align:center;padding:20px;">Could not load your account.<br>Please call <a href="tel:+14806048622" style="color:#1e40af;">(480) 604-8622</a>.</div>';
+  }
+}
+
+load();
+</script>
+</body>
+</html>`;
+}
+
+// ── Customer portal — magic link email ────────────────────────────────────────
+function portalLinkEmailHtml({ firstName, name, portalLink }) {
+  return emailBase({
+    preheader: `Your CJB Comfort service portal is ready — see your account, pay invoices, and track visits.`,
+    body: `
+      <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 12px;">Hi ${firstName},</p>
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;line-height:1.6;">
+        Your CJB Comfort service portal is ready. Use the button below to view your account — upcoming visits, invoices, and service history are all in one place.
+      </p>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="${portalLink}" style="display:inline-block;background:#1e40af;color:#fff;font-size:16px;font-weight:700;text-decoration:none;padding:14px 32px;border-radius:8px;">
+          View My Portal
+        </a>
+      </div>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 8px;">
+        This link is personal to your account — save it or bookmark it for easy access anytime. It's valid for one year.
+      </p>
+      <p style="font-size:13px;color:#6b7280;margin:0;">
+        If you have questions, call us at <a href="tel:+14806048622" style="color:#1e40af;">(480) 604-8622</a> or reply to this email.
+      </p>
+    `
+  });
 }
 
 // ── Utility: ArrayBuffer → base64 (chunked to avoid stack overflow) ──────────

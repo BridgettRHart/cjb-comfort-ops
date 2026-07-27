@@ -3255,7 +3255,10 @@ function renderDetail(customer, props, wos, contacts) {
     <div class="cust-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
         <div class="cust-card-name">${esc(f['Customer Name'] || '')}${(f['Customer Tags']||[]).includes('Referral Partner') ? ' <span style="font-size:13px;font-weight:600;color:#b45309;">⭐ Referral Partner</span>' : ''}</div>
-        <button class="btn-edit" style="margin-top:4px;flex-shrink:0;" onclick="openCustomerForm(selectedCustomer)">Edit</button>
+        <div style="display:flex;gap:8px;flex-shrink:0;margin-top:4px;">
+          ${f['Email'] ? `<button class="btn btn-sm" style="background:#0ea5e9;color:#fff;font-size:12px;" onclick="sendPortalLink('${customer.id}','${escAttr(f['Customer Name']||'')}')">Send Portal Link</button>` : ''}
+          <button class="btn-edit" onclick="openCustomerForm(selectedCustomer)">Edit</button>
+        </div>
       </div>
       <div class="cust-card-meta">
         ${f['Email'] ? `<span>✉️ ${esc(f['Email'])}</span>` : ''}
@@ -5045,6 +5048,21 @@ async function toggleNoInvoiceNeeded(woId, checked) {
     if (selectedCustomer) selectCustomer(selectedCustomer.id);
   } catch (err) {
     alert('Error: ' + err.message);
+  }
+}
+
+async function sendPortalLink(customerId, customerName) {
+  if (!confirm(`Send a portal link to ${customerName}? They'll get an email with a personal link to view their account, pay invoices, and see upcoming visits.`)) return;
+  try {
+    const res  = await fetch(`${PROXY}/portal/send-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId }) });
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.error === 'no_email') { showToast('Customer has no email address on file — add one first.', 'error'); return; }
+      throw new Error(data.message || data.error || 'Unknown error');
+    }
+    showToast(`Portal link sent to ${customerName} ✓`, 'success');
+  } catch(e) {
+    showToast('Could not send portal link: ' + e.message, 'error');
   }
 }
 
