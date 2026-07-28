@@ -3280,11 +3280,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           date:      i.fields['Invoice Date']       || '',
           total:     Number(i.fields['Total']       || 0),
           balanceDue:Number(i.fields['Balance Due'] || 0),
-          payUrl:    i.fields['Stripe Invoice URL'] || '',
         });
 
         return new Response(JSON.stringify({
-          customer: { id: cId, name: custName, email: cf['Email'] || '' },
+          customer: { id: cId, name: custName, firstName: cf['First Name'] || '', email: cf['Email'] || '' },
           isProtectionPlus,
           activeWOs:     activeWOs.map(mapWO),
           unpaidInvoices:unpaidInvoices.map(mapInv),
@@ -3294,6 +3293,39 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       } catch(e) {
         console.error('portal/data error:', e.message);
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Customer portal — pay / view invoice redirect ─────────────────────
+    if (path === '/api/portal/pay-invoice' && request.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        const atId  = url.searchParams.get('id')    || '';
+        const stored = token ? await env.PORTAL_KV.get(token, { type: 'json' }) : null;
+        if (!stored || stored.expiresAt < Date.now()) {
+          return new Response('Your portal link has expired. Please contact CJB Comfort for a new one.', { status: 401, headers: { 'Content-Type': 'text/plain' } });
+        }
+        if (!atId) return new Response('Missing invoice id', { status: 400 });
+
+        const inv     = await airtableGetById('Invoices', atId);
+        const custIds = inv.fields['Customers'] || [];
+        if (!custIds.includes(stored.customerId)) return new Response('Access denied', { status: 403 });
+
+        // Try stored URL first; fall back to live Stripe fetch
+        let payUrl = inv.fields['Stripe Invoice URL'] || '';
+        if (!payUrl) {
+          const stripeId = inv.fields['Stripe Invoice ID'] || '';
+          if (!stripeId) return new Response('Invoice is not yet finalized. Please contact CJB Comfort.', { status: 400 });
+          const sk = env.STRIPE_SECRET_KEY || '';
+          const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeId}`, { headers: { Authorization: `Bearer ${sk}` } });
+          if (!sr.ok) throw new Error(`Stripe ${sr.status}`);
+          const si = await sr.json();
+          payUrl = si.hosted_invoice_url || '';
+        }
+        if (!payUrl) return new Response('Payment link not available. Please call (480) 604-8622.', { status: 400 });
+        return Response.redirect(payUrl, 302);
+      } catch(e) {
+        return new Response('Could not load invoice: ' + e.message, { status: 500 });
       }
     }
 
@@ -4854,21 +4886,21 @@ function buildPortalHtml(token) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
 header{background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
-.logo{height:34px;width:auto}
-.brand-fallback{font-size:18px;font-weight:800;color:#1e40af;display:none}
+.brand{font-size:18px;font-weight:800;color:#1e40af;letter-spacing:-.3px}
 .portal-tag{margin-left:auto;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px}
-main{max-width:540px;margin:0 auto;padding:20px 16px 48px}
+main{max-width:560px;margin:0 auto;padding:20px 16px 48px}
 .greeting{font-size:22px;font-weight:700;color:#0f172a;margin-bottom:4px}
 .greeting-sub{font-size:14px;color:#64748b;margin-bottom:20px}
 .pp-badge{display:none;align-items:center;gap:6px;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;margin-bottom:20px}
 section{margin-bottom:28px}
 .sec-label{font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
+.prop-group{margin-bottom:16px}
+.prop-header{font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;padding:4px 6px;background:#e8edf3;border-radius:6px}
 .card{background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px;margin-bottom:10px}
 .card:last-child{margin-bottom:0}
 .card-eyebrow{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
 .card-primary{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:2px}
-.card-secondary{font-size:13px;color:#64748b}
-.card-problem{font-size:13px;color:#475569;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9}
+.card-problem{font-size:13px;color:#475569;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;margin-top:10px}
 .chip-blue{background:#dbeafe;color:#1d4ed8}
 .chip-green{background:#dcfce7;color:#15803d}
@@ -4876,15 +4908,16 @@ section{margin-bottom:28px}
 .chip-orange{background:#fef3c7;color:#92400e}
 .amount{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:2px}
 .amount-sub{font-size:12px;color:#94a3b8}
-.pay-btn{display:inline-flex;align-items:center;gap:6px;background:#1e40af;color:#fff;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none;margin-top:14px;border:none;cursor:pointer}
+.btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.pay-btn{display:inline-flex;align-items:center;background:#1e40af;color:#fff;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none}
 .pay-btn:hover{background:#1d3a9e}
-.no-pay-msg{font-size:13px;color:#64748b;margin-top:12px}
+.view-btn{display:inline-flex;align-items:center;background:#f8fafc;color:#1e40af;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none;border:1px solid #cbd5e1}
+.view-btn:hover{background:#f1f5f9}
 .empty{text-align:center;padding:20px;color:#94a3b8;font-size:13px}
 #loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:14px;color:#64748b;font-size:14px}
 .spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#1e40af;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 #error-state{display:none;text-align:center;padding:48px 24px}
-.error-icon{font-size:40px;margin-bottom:12px}
 .error-title{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:8px}
 .error-body{font-size:14px;color:#64748b;line-height:1.6;margin-bottom:20px}
 #portal-content{display:none}
@@ -4895,8 +4928,7 @@ footer a:hover{text-decoration:underline}
 </head>
 <body>
 <header>
-  <img src="${BRAND_LOGO_URL}" class="logo" alt="CJB Comfort" onerror="this.style.display='none';document.querySelector('.brand-fallback').style.display='block'">
-  <span class="brand-fallback">CJB Comfort</span>
+  <span class="brand">CJB Comfort</span>
   <span class="portal-tag">Service Portal</span>
 </header>
 
@@ -4906,7 +4938,6 @@ footer a:hover{text-decoration:underline}
 </div>
 
 <div id="error-state">
-  <div class="error-icon">🔗</div>
   <div class="error-title">Link Expired or Invalid</div>
   <div class="error-body">This portal link is no longer valid. Contact CJB Comfort and we'll send you a new one — takes about a minute.</div>
   <a href="tel:+14806048622" style="color:#1e40af;font-weight:700;font-size:15px;">(480) 604-8622</a>
@@ -4951,36 +4982,64 @@ function money(n) { return Number(n || 0).toLocaleString('en-US', { style: 'curr
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function trunc(s, n) { return s && s.length > n ? s.slice(0, n - 1) + '…' : (s || ''); }
 function statusChip(st) {
   const cls = { 'Scheduled':'chip-blue','In Progress':'chip-blue','Complete':'chip-green','Paid':'chip-green','Invoiced':'chip-orange','Overdue':'chip-orange','Cancelled':'chip-gray' }[st] || 'chip-gray';
   return \`<span class="chip \${cls}">\${esc(st)}</span>\`;
 }
 
 function woCard(w) {
-  const prob = w.problem ? \`<div class="card-problem">\${esc(w.problem)}</div>\` : '';
-  const addr = w.address ? \`<div class="card-secondary" style="margin-top:2px;">\${esc(w.address)}</div>\` : '';
+  const prob = w.problem ? \`<div class="card-problem" title="\${esc(w.problem)}">\${esc(trunc(w.problem, 100))}</div>\` : '';
   return \`<div class="card">
     <div class="card-eyebrow">\${esc(w.type || 'Service Call')}</div>
     <div class="card-primary">\${fmtDate(w.date)}</div>
-    \${addr}\${prob}
+    \${prob}
     \${statusChip(w.status)}
   </div>\`;
 }
 
+function invPayUrl(invId) {
+  return '/api/portal/pay-invoice?id=' + encodeURIComponent(invId) + '&token=' + encodeURIComponent(TOKEN);
+}
+
 function invCard(i) {
-  const payBtn = i.payUrl
-    ? \`<a href="\${esc(i.payUrl)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>\`
-    : \`<div class="no-pay-msg">Call us at (480) 604-8622 to pay by phone</div>\`;
+  const url = invPayUrl(i.id);
+  const hasBal = Number(i.balanceDue) > 0;
+  const btns = hasBal
+    ? \`<div class="btn-row">
+        <a href="\${esc(url)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>
+        <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a>
+      </div>\`
+    : \`<div class="btn-row"><a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a></div>\`;
   const totalLine = (i.total && i.total !== i.balanceDue)
-    ? \`<div class="amount-sub">Invoice total: \${money(i.total)}</div>\`
-    : '';
+    ? \`<div class="amount-sub">Invoice total: \${money(i.total)}</div>\` : '';
   return \`<div class="card">
     <div class="card-eyebrow">\${esc(i.status || 'Invoice')} · \${fmtDate(i.date)}</div>
     <div class="amount">\${money(i.balanceDue)}</div>
     <div class="amount-sub">Balance due</div>
     \${totalLine}
-    \${payBtn}
+    \${btns}
   </div>\`;
+}
+
+function groupByAddress(items) {
+  const map = new Map();
+  items.forEach(w => {
+    const key = w.address || 'Unknown Address';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(w);
+  });
+  return [...map.entries()].map(([address, list]) => ({ address, list }));
+}
+
+function renderList(items, cardFn, multiProp) {
+  if (!multiProp) return items.map(cardFn).join('');
+  return groupByAddress(items).map(g =>
+    \`<div class="prop-group">
+      <div class="prop-header">📍 \${esc(g.address)}</div>
+      \${g.list.map(cardFn).join('')}
+    </div>\`
+  ).join('');
 }
 
 async function load() {
@@ -4995,30 +5054,32 @@ async function load() {
     const d = await res.json();
     if (d.error) throw new Error(d.error);
 
-    const firstName = (d.customer.name || '').split(' ')[0] || d.customer.name || 'there';
-    document.getElementById('c-name').textContent = 'Hello, ' + firstName + '.';
+    const displayName = d.customer.firstName || d.customer.name || 'there';
+    document.getElementById('c-name').textContent = 'Hello, ' + displayName + '.';
 
     if (d.isProtectionPlus) document.getElementById('pp-badge').style.display = 'flex';
 
-    // Upcoming visits
+    const allAddresses = new Set([
+      ...(d.activeWOs || []).map(w => w.address).filter(Boolean),
+      ...(d.history   || []).map(w => w.address).filter(Boolean),
+    ]);
+    const multiProp = allAddresses.size > 1;
+
     const actEl = document.getElementById('list-active');
     actEl.innerHTML = d.activeWOs && d.activeWOs.length
-      ? d.activeWOs.map(woCard).join('')
+      ? renderList(d.activeWOs, woCard, multiProp)
       : '<div class="empty">No upcoming visits scheduled</div>';
 
-    // Invoices due
     const invEl = document.getElementById('list-invoices');
     invEl.innerHTML = d.unpaidInvoices && d.unpaidInvoices.length
       ? d.unpaidInvoices.map(invCard).join('')
       : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
 
-    // Service history
     const histEl = document.getElementById('list-history');
     if (d.history && d.history.length) {
-      histEl.innerHTML = d.history.map(woCard).join('');
+      histEl.innerHTML = renderList(d.history, woCard, multiProp);
     } else {
       histEl.innerHTML = '<div class="empty">No service history yet</div>';
-      document.getElementById('sec-history').style.display = 'none';
     }
 
     document.getElementById('loading').style.display = 'none';
