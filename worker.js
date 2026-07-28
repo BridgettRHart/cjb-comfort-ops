@@ -3266,12 +3266,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         );
 
         const mapWO = w => ({
-          id:      w.id,
-          status:  w.fields['Status']           || '',
-          type:    w.fields['Work Order Type']  || '',
-          date:    w.fields['Scheduled Date']   || '',
-          address: w.fields['Service Address']  || '',
-          problem: w.fields['Problem Description'] || '',
+          id:         w.id,
+          status:     w.fields['Status']              || '',
+          type:       w.fields['Work Order Type']     || '',
+          date:       w.fields['Scheduled Date']      || '',
+          address:    w.fields['Service Address']     || '',
+          problem:    w.fields['Problem Description'] || '',
+          invoiceIds: w.fields['Invoices']            || [],
         });
 
         const mapInv = i => ({
@@ -3280,6 +3281,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           date:      i.fields['Invoice Date']       || '',
           total:     Number(i.fields['Total']       || 0),
           balanceDue:Number(i.fields['Balance Due'] || 0),
+          woIds:     i.fields['Work Orders']        || [],
         });
 
         return new Response(JSON.stringify({
@@ -3292,6 +3294,48 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
       } catch(e) {
         console.error('portal/data error:', e.message);
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Customer portal — work order detail (jobs) ───────────────────────
+    if (path === '/api/portal/wo-detail' && request.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        const woId  = url.searchParams.get('id')    || '';
+        const stored = token ? await env.PORTAL_KV.get(token, { type: 'json' }) : null;
+        if (!stored || stored.expiresAt < Date.now()) {
+          return new Response(JSON.stringify({ error: 'expired' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        if (!woId) return new Response(JSON.stringify({ error: 'missing id' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const wo = await airtableGetById('Work Orders', woId);
+        const woCustIds = wo.fields['Customer'] || [];
+        if (!woCustIds.includes(stored.customerId)) {
+          return new Response(JSON.stringify({ error: 'access denied' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const jobIds = wo.fields['Jobs'] || [];
+        const jobs = jobIds.length
+          ? await Promise.all(jobIds.map(id => airtableGetById('Jobs', id)))
+          : [];
+
+        return new Response(JSON.stringify({
+          id:         wo.id,
+          type:       wo.fields['Work Order Type']     || '',
+          status:     wo.fields['Status']              || '',
+          date:       wo.fields['Scheduled Date']      || '',
+          address:    wo.fields['Service Address']     || '',
+          problem:    wo.fields['Problem Description'] || '',
+          invoiceIds: wo.fields['Invoices']            || [],
+          jobs: jobs.map(j => ({
+            type:            j.fields['Job Type']         || '',
+            workPerformed:   j.fields['Work Performed']   || '',
+            diagnosis:       j.fields['Diagnosis']        || '',
+            recommendations: j.fields['Recommendations']  || '',
+          })).filter(j => j.workPerformed || j.diagnosis || j.recommendations),
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
@@ -4884,46 +4928,65 @@ function buildPortalHtml(token) {
 <title>CJB Comfort — Service Portal</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
-header{background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f0f0;color:#2e2e2e;min-height:100vh}
+header{background:#fff;border-bottom:1px solid #ddd;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
 .logo{height:34px;width:auto}
-.portal-tag{margin-left:auto;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px}
+.portal-tag{margin-left:auto;font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.8px}
 main{max-width:560px;margin:0 auto;padding:20px 16px 48px}
-.greeting{font-size:22px;font-weight:700;color:#0f172a;margin-bottom:4px}
-.greeting-sub{font-size:14px;color:#64748b;margin-bottom:20px}
+.greeting{font-size:22px;font-weight:700;color:#111;margin-bottom:4px}
+.greeting-sub{font-size:14px;color:#777;margin-bottom:20px}
 .pp-badge{display:none;align-items:center;gap:6px;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;margin-bottom:20px}
 section{margin-bottom:28px}
-.sec-label{font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
+.sec-label{font-size:11px;font-weight:700;color:#aaa;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
 .prop-group{margin-bottom:16px}
-.prop-header{font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;padding:4px 6px;background:#e8edf3;border-radius:6px}
-.card{background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:16px;margin-bottom:10px}
-.card:last-child{margin-bottom:0}
-.card-eyebrow{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
-.card-primary{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:2px}
-.card-problem{font-size:13px;color:#475569;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prop-header{font-size:12px;font-weight:700;color:#555;margin-bottom:8px;padding:4px 8px;background:#e4e4e4;border-radius:6px}
+.card{background:#fff;border-radius:12px;border:1px solid #e0e0e0;padding:16px;margin-bottom:10px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
+.card:hover{box-shadow:0 2px 8px rgba(0,0,0,.09);border-color:#c81f25}
+.card.no-click{cursor:default}
+.card.no-click:hover{box-shadow:none;border-color:#e0e0e0}
+.card-eyebrow{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.card-primary{font-size:16px;font-weight:700;color:#111;margin-bottom:2px}
+.card-sub{font-size:13px;color:#666;margin-top:2px}
+.card-problem{font-size:13px;color:#555;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tap-hint{font-size:11px;color:#bbb;margin-top:8px}
 .chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;margin-top:10px}
-.chip-blue{background:#dbeafe;color:#1d4ed8}
-.chip-green{background:#dcfce7;color:#15803d}
-.chip-gray{background:#f1f5f9;color:#64748b}
-.chip-orange{background:#fef3c7;color:#92400e}
-.amount{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:2px}
-.amount-sub{font-size:12px;color:#94a3b8}
+.chip-blue{background:#e3f0ff;color:#1a4f8a}
+.chip-green{background:#c3e6cb;color:#0d4a1f}
+.chip-gray{background:#f0f0f0;color:#888}
+.chip-orange{background:#fef3c7;color:#7a5500}
+.chip-purple{background:#e2d9f3;color:#4a235a}
+.amount{font-size:24px;font-weight:800;color:#111;margin-bottom:2px}
+.amount-sub{font-size:12px;color:#aaa}
 .btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-.pay-btn{display:inline-flex;align-items:center;background:#1e40af;color:#fff;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none}
-.pay-btn:hover{background:#1d3a9e}
-.view-btn{display:inline-flex;align-items:center;background:#f8fafc;color:#1e40af;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none;border:1px solid #cbd5e1}
-.view-btn:hover{background:#f1f5f9}
-.empty{text-align:center;padding:20px;color:#94a3b8;font-size:13px}
-#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:14px;color:#64748b;font-size:14px}
-.spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#1e40af;border-radius:50%;animation:spin .8s linear infinite}
+.pay-btn{display:inline-flex;align-items:center;background:#c81f25;color:#fff;border-radius:7px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none}
+.pay-btn:hover{background:#a81920}
+.view-btn{display:inline-flex;align-items:center;background:#fff;color:#2e2e2e;border-radius:7px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none;border:1.5px solid #d1d5db}
+.view-btn:hover{background:#f5f5f5}
+.empty{text-align:center;padding:20px;color:#bbb;font-size:13px}
+#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:14px;color:#777;font-size:14px}
+.spinner{width:32px;height:32px;border:3px solid #e0e0e0;border-top-color:#c81f25;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 #error-state{display:none;text-align:center;padding:48px 24px}
-.error-title{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:8px}
-.error-body{font-size:14px;color:#64748b;line-height:1.6;margin-bottom:20px}
+.error-title{font-size:20px;font-weight:700;color:#111;margin-bottom:8px}
+.error-body{font-size:14px;color:#777;line-height:1.6;margin-bottom:20px}
 #portal-content{display:none}
-footer{text-align:center;padding:20px 16px 32px;color:#94a3b8;font-size:13px;border-top:1px solid #e2e8f0;background:#fff;margin-top:8px}
-footer a{color:#1e40af;text-decoration:none}
+footer{text-align:center;padding:20px 16px 32px;color:#aaa;font-size:13px;border-top:1px solid #e0e0e0;background:#fff;margin-top:8px}
+footer a{color:#c81f25;text-decoration:none}
 footer a:hover{text-decoration:underline}
+/* Detail drawer */
+#dr-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow-y:auto;padding:20px 16px 40px}
+#dr-box{background:#fff;border-radius:14px;max-width:560px;margin:60px auto 0;padding:24px;position:relative}
+.dr-close{position:absolute;top:16px;right:16px;background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;line-height:1}
+.dr-close:hover{color:#2e2e2e}
+.dr-eyebrow{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.dr-title{font-size:20px;font-weight:700;color:#111;margin-bottom:2px}
+.dr-addr{font-size:13px;color:#777;margin-bottom:16px}
+.dr-sec{margin-bottom:14px}
+.dr-sec-label{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px}
+.dr-sec-text{font-size:14px;color:#374151;line-height:1.65}
+.dr-divider{border:none;border-top:1px solid #f0f0f0;margin:14px 0}
+#dr-spinner{text-align:center;padding:24px;color:#aaa;font-size:13px}
+#dr-body{display:none}
 </style>
 </head>
 <body>
@@ -4966,6 +5029,21 @@ footer a:hover{text-decoration:underline}
 </main>
 </div>
 
+<!-- Detail drawer -->
+<div id="dr-bg" onclick="if(event.target===this)closeDrawer()">
+  <div id="dr-box">
+    <button class="dr-close" onclick="closeDrawer()">✕</button>
+    <div id="dr-spinner">Loading details…</div>
+    <div id="dr-body">
+      <div class="dr-eyebrow" id="dr-eyebrow"></div>
+      <div class="dr-title" id="dr-title"></div>
+      <div class="dr-addr" id="dr-addr"></div>
+      <div id="dr-sections"></div>
+      <div id="dr-inv-btns" class="btn-row" style="margin-top:20px"></div>
+    </div>
+  </div>
+</div>
+
 <footer>
   Questions? <a href="tel:+14806048622">(480) 604-8622</a> &nbsp;·&nbsp; <a href="mailto:service@cjbcomfort.com">service@cjbcomfort.com</a>
 </footer>
@@ -4979,46 +5057,56 @@ function fmtDate(d) {
   catch { return d; }
 }
 function money(n) { return Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
-function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function trunc(s, n) { return s && s.length > n ? s.slice(0, n - 1) + '…' : (s || ''); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function trunc(s,n){ return s && s.length>n ? s.slice(0,n-1)+'…' : (s||''); }
+
 function statusChip(st) {
-  const cls = { 'Scheduled':'chip-blue','In Progress':'chip-blue','Complete':'chip-green','Paid':'chip-green','Invoiced':'chip-orange','Overdue':'chip-orange','Cancelled':'chip-gray' }[st] || 'chip-gray';
+  const map = { 'Scheduled':'chip-blue','In Progress':'chip-blue','Complete':'chip-green','Paid':'chip-green',
+                'Paid in Full':'chip-green','Invoiced':'chip-purple','Overdue':'chip-orange','Cancelled':'chip-gray' };
+  const cls = map[st] || 'chip-gray';
   return \`<span class="chip \${cls}">\${esc(st)}</span>\`;
 }
 
-function woCard(w) {
-  const prob = w.problem ? \`<div class="card-problem" title="\${esc(w.problem)}">\${esc(trunc(w.problem, 100))}</div>\` : '';
-  return \`<div class="card">
-    <div class="card-eyebrow">\${esc(w.type || 'Service Call')}</div>
+function payUrl(invId) {
+  return '/api/portal/pay-invoice?id='+encodeURIComponent(invId)+'&token='+encodeURIComponent(TOKEN);
+}
+
+// WO cards — clickable to open detail drawer
+let _allWOs = [];
+function woCard(w, showAddr) {
+  const prob = w.problem ? \`<div class="card-problem" title="\${esc(w.problem)}">\${esc(trunc(w.problem,100))}</div>\` : '';
+  const addr = showAddr && w.address ? \`<div class="card-sub">\${esc(w.address)}</div>\` : '';
+  return \`<div class="card" onclick="openWO('\${esc(w.id)}')">
+    <div class="card-eyebrow">\${esc(w.type||'Service Call')}</div>
     <div class="card-primary">\${fmtDate(w.date)}</div>
-    \${prob}
+    \${addr}\${prob}
     \${statusChip(w.status)}
+    <div class="tap-hint">Tap for details</div>
   </div>\`;
 }
 
-function invPayUrl(invId) {
-  return '/api/portal/pay-invoice?id=' + encodeURIComponent(invId) + '&token=' + encodeURIComponent(TOKEN);
-}
-
+// Invoice cards — not clickable (buttons handle it), tied to their WO
 function invCard(i) {
-  const url = invPayUrl(i.id);
+  const url  = payUrl(i.id);
   const hasBal = Number(i.balanceDue) > 0;
-  const btns = hasBal
-    ? \`<div class="btn-row">
-        <a href="\${esc(url)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>
-        <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a>
-      </div>\`
-    : \`<div class="btn-row"><a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a></div>\`;
+  // Find linked WO for context
+  const linkedWO = _allWOs.find(w => (i.woIds||[]).includes(w.id));
+  const woCtx = linkedWO
+    ? \`<div class="card-sub" style="margin-bottom:8px">\${esc(linkedWO.type||'Service Call')} · \${fmtDate(linkedWO.date)}\${linkedWO.address?' · '+esc(linkedWO.address):''}</div>\`
+    : '';
   const totalLine = (i.total && i.total !== i.balanceDue)
     ? \`<div class="amount-sub">Invoice total: \${money(i.total)}</div>\` : '';
-  return \`<div class="card">
-    <div class="card-eyebrow">\${esc(i.status || 'Invoice')} · \${fmtDate(i.date)}</div>
+  const btns = hasBal
+    ? \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>
+       <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a>\`
+    : \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a>\`;
+  return \`<div class="card no-click">
+    <div class="card-eyebrow">\${esc(i.status||'Invoice')} · \${fmtDate(i.date)}</div>
+    \${woCtx}
     <div class="amount">\${money(i.balanceDue)}</div>
     <div class="amount-sub">Balance due</div>
     \${totalLine}
-    \${btns}
+    <div class="btn-row">\${btns}</div>
   </div>\`;
 }
 
@@ -5026,68 +5114,113 @@ function groupByAddress(items) {
   const map = new Map();
   items.forEach(w => {
     const key = w.address || 'Unknown Address';
-    if (!map.has(key)) map.set(key, []);
+    if (!map.has(key)) map.set(key,[]);
     map.get(key).push(w);
   });
-  return [...map.entries()].map(([address, list]) => ({ address, list }));
+  return [...map.entries()].map(([address,list])=>({address,list}));
 }
 
 function renderList(items, cardFn, multiProp) {
-  if (!multiProp) return items.map(cardFn).join('');
-  return groupByAddress(items).map(g =>
+  if (!multiProp) return items.map(w=>cardFn(w,false)).join('');
+  return groupByAddress(items).map(g=>
     \`<div class="prop-group">
       <div class="prop-header">📍 \${esc(g.address)}</div>
-      \${g.list.map(cardFn).join('')}
+      \${g.list.map(w=>cardFn(w,false)).join('')}
     </div>\`
   ).join('');
 }
 
+// ── Drawer ────────────────────────────────────────────────────────────────
+function openWO(woId) {
+  const bg = document.getElementById('dr-bg');
+  document.getElementById('dr-spinner').style.display = 'block';
+  document.getElementById('dr-body').style.display    = 'none';
+  bg.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+
+  fetch('/api/portal/wo-detail?id='+encodeURIComponent(woId)+'&token='+encodeURIComponent(TOKEN))
+    .then(r=>r.json())
+    .then(d=>{
+      document.getElementById('dr-eyebrow').textContent = d.type || 'Service Call';
+      document.getElementById('dr-title').textContent   = fmtDate(d.date);
+      document.getElementById('dr-addr').textContent    = d.address || '';
+
+      let secs = '';
+      if (d.problem) {
+        secs += \`<div class="dr-sec"><div class="dr-sec-label">What You Reported</div><div class="dr-sec-text">\${esc(d.problem)}</div></div>\`;
+      }
+      (d.jobs||[]).forEach(j => {
+        if (j.diagnosis) secs += \`<hr class="dr-divider"><div class="dr-sec"><div class="dr-sec-label">What We Found</div><div class="dr-sec-text">\${esc(j.diagnosis)}</div></div>\`;
+        if (j.workPerformed) secs += \`<hr class="dr-divider"><div class="dr-sec"><div class="dr-sec-label">Work Performed</div><div class="dr-sec-text">\${esc(j.workPerformed)}</div></div>\`;
+        if (j.recommendations) secs += \`<hr class="dr-divider"><div class="dr-sec"><div class="dr-sec-label">Recommendations</div><div class="dr-sec-text">\${esc(j.recommendations)}</div></div>\`;
+      });
+      document.getElementById('dr-sections').innerHTML = secs;
+
+      const invBtns = document.getElementById('dr-inv-btns');
+      if (d.invoiceIds && d.invoiceIds.length) {
+        invBtns.innerHTML = d.invoiceIds.map(id=>
+          \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice / Receipt</a>\`
+        ).join('');
+        invBtns.style.display = 'flex';
+      } else {
+        invBtns.innerHTML = '';
+      }
+
+      document.getElementById('dr-spinner').style.display = 'none';
+      document.getElementById('dr-body').style.display    = 'block';
+    })
+    .catch(()=>{
+      document.getElementById('dr-spinner').textContent = 'Could not load details. Please call (480) 604-8622.';
+    });
+}
+
+function closeDrawer() {
+  document.getElementById('dr-bg').style.display = 'none';
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeDrawer(); });
+
+// ── Main load ────────────────────────────────────────────────────────────
 async function load() {
   try {
-    const res = await fetch('/api/portal/data?token=' + encodeURIComponent(TOKEN));
+    const res = await fetch('/api/portal/data?token='+encodeURIComponent(TOKEN));
     if (res.status === 401) {
-      document.getElementById('loading').style.display = 'none';
+      document.getElementById('loading').style.display    = 'none';
       document.getElementById('error-state').style.display = 'block';
       return;
     }
-    if (!res.ok) throw new Error('Server error ' + res.status);
+    if (!res.ok) throw new Error('Server error '+res.status);
     const d = await res.json();
     if (d.error) throw new Error(d.error);
 
-    const displayName = d.customer.firstName || d.customer.name || 'there';
-    document.getElementById('c-name').textContent = 'Hello, ' + displayName + '.';
-
+    document.getElementById('c-name').textContent =
+      'Hello, '+(d.customer.firstName || d.customer.name || 'there')+'.';
     if (d.isProtectionPlus) document.getElementById('pp-badge').style.display = 'flex';
 
-    const allAddresses = new Set([
-      ...(d.activeWOs || []).map(w => w.address).filter(Boolean),
-      ...(d.history   || []).map(w => w.address).filter(Boolean),
-    ]);
-    const multiProp = allAddresses.size > 1;
+    _allWOs = [...(d.activeWOs||[]), ...(d.history||[])];
 
-    const actEl = document.getElementById('list-active');
-    actEl.innerHTML = d.activeWOs && d.activeWOs.length
-      ? renderList(d.activeWOs, woCard, multiProp)
+    const allAddrs = new Set(_allWOs.map(w=>w.address).filter(Boolean));
+    const multi    = allAddrs.size > 1;
+
+    document.getElementById('list-active').innerHTML = d.activeWOs && d.activeWOs.length
+      ? renderList(d.activeWOs, woCard, multi)
       : '<div class="empty">No upcoming visits scheduled</div>';
 
-    const invEl = document.getElementById('list-invoices');
-    invEl.innerHTML = d.unpaidInvoices && d.unpaidInvoices.length
+    document.getElementById('list-invoices').innerHTML = d.unpaidInvoices && d.unpaidInvoices.length
       ? d.unpaidInvoices.map(invCard).join('')
       : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
 
     const histEl = document.getElementById('list-history');
-    if (d.history && d.history.length) {
-      histEl.innerHTML = renderList(d.history, woCard, multiProp);
-    } else {
-      histEl.innerHTML = '<div class="empty">No service history yet</div>';
-    }
+    histEl.innerHTML = d.history && d.history.length
+      ? renderList(d.history, woCard, multi)
+      : '<div class="empty">No service history yet</div>';
 
-    document.getElementById('loading').style.display = 'none';
+    document.getElementById('loading').style.display       = 'none';
     document.getElementById('portal-content').style.display = 'block';
 
   } catch(e) {
     document.getElementById('loading').innerHTML =
-      '<div style="color:#b91c1c;text-align:center;padding:20px;">Could not load your account.<br>Please call <a href="tel:+14806048622" style="color:#1e40af;">(480) 604-8622</a>.</div>';
+      '<div style="color:#c81f25;text-align:center;padding:20px;">Could not load your account.<br>Please call <a href="tel:+14806048622" style="color:#c81f25;">(480) 604-8622</a>.</div>';
   }
 }
 
