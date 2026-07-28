@@ -3676,6 +3676,16 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
           return new Response(JSON.stringify({ error: 'access denied' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        // Fetch property for address display
+        const propId = (eq.fields['Property'] || [])[0] || null;
+        let propertyName = '';
+        if (propId) {
+          try {
+            const prop = await airtableGetById('Properties', propId);
+            propertyName = prop.fields['Property Name'] || prop.fields['Service Address'] || '';
+          } catch(e) {}
+        }
+
         const jobIds = eq.fields['Jobs'] || [];
         const jobs = jobIds.length
           ? (await Promise.all(jobIds.map(id => airtableGetById('Jobs', id).catch(() => null)))).filter(Boolean)
@@ -3683,23 +3693,34 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         jobs.sort((a, b) => (b.fields['Scheduled Start'] || '').localeCompare(a.fields['Scheduled Start'] || ''));
 
         const parsePhotos = raw => (raw || '').split(/[\n,]+/).map(s => s.trim()).filter(s => s.startsWith('http'));
+        // Formula fields in Airtable can return objects — coerce to string
+        const strField = v => !v ? '' : (typeof v === 'object' ? String(v.value ?? v.number ?? '') : String(v));
+
+        // Only include jobs that have at least one piece of useful content
+        const usefulJobs = jobs.filter(j =>
+          j.fields['Scheduled Start'] || j.fields['Diagnosis'] ||
+          j.fields['Work Performed']  || j.fields['Recommendations'] ||
+          j.fields['Photo URLs']
+        );
 
         return new Response(JSON.stringify({
-          id:          eq.id,
-          name:        eq.fields['Equipment Name']       || '',
-          type:        eq.fields['Equipment Type']       || '',
-          brand:       eq.fields['Brand']                || '',
-          model:       eq.fields['Model Number']         || '',
-          serial:      eq.fields['Serial Number']        || '',
-          installDate: eq.fields['Install Date']         || '',
-          age:         eq.fields['Equipment Age']        || '',
-          condition:   eq.fields['Condition']            || '',
-          refrigerant: eq.fields['Refrigerant Type']     || '',
-          capacity:    eq.fields['Capacity (Tons)']      || '',
-          location:    eq.fields['Location in Building'] || '',
-          lastService: eq.fields['Last Service Date']    || '',
-          nextService: eq.fields['Next Service Due']     || '',
-          jobs: jobs.map(j => ({
+          id:           eq.id,
+          name:         eq.fields['Equipment Name']       || '',
+          type:         eq.fields['Equipment Type']       || '',
+          brand:        eq.fields['Brand']                || '',
+          model:        eq.fields['Model Number']         || '',
+          serial:       eq.fields['Serial Number']        || '',
+          installDate:  eq.fields['Install Date']         || '',
+          age:          strField(eq.fields['Equipment Age']),
+          condition:    eq.fields['Condition']            || '',
+          refrigerant:  eq.fields['Refrigerant Type']     || '',
+          capacity:     eq.fields['Capacity (Tons)']      || '',
+          location:     eq.fields['Location in Building'] || '',
+          propertyName,
+          lastService:  eq.fields['Last Service Date']    || '',
+          nextService:  eq.fields['Next Service Due']     || '',
+          jobs: usefulJobs.map(j => ({
+            woId:            (j.fields['Work Order'] || [])[0] || null,
             date:            j.fields['Scheduled Start']  || '',
             type:            j.fields['Job Type']         || '',
             status:          j.fields['Status']           || '',
@@ -5622,7 +5643,8 @@ function openEquipment(eqId) {
     .then(d=>{
       document.getElementById('dr-eyebrow').textContent = d.type||'Equipment';
       document.getElementById('dr-title').textContent   = d.name||'Unit';
-      document.getElementById('dr-addr').textContent    = d.location||'';
+      const addrParts = [d.location, d.propertyName].filter(Boolean);
+      document.getElementById('dr-addr').textContent    = addrParts.join(' · ');
 
       // Spec grid
       const specRows = [
@@ -5664,6 +5686,7 @@ function openEquipment(eqId) {
             html += \`<div class="dr-sec" style="margin-top:10px"><div class="dr-sec-label">Photos (\${j.photos.length})</div>
               <div class="dr-photos">\${j.photos.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener" class="dr-photo"><img src="\${esc(u)}" alt="Job photo" loading="lazy" onerror="this.parentNode.style.display='none'"></a>\`).join('')}</div></div>\`;
           }
+          if (j.woId) html += \`<div style="margin-top:10px"><a href="\${esc(reportUrl(j.woId))}" target="_blank" rel="noopener" class="view-btn" style="font-size:12px;padding:7px 14px">Service Report</a></div>\`;
           html += '</div>';
         });
       } else {
