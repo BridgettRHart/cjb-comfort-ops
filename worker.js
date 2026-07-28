@@ -3399,22 +3399,22 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const woType  = wo.fields['Work Order Type'] || 'Service Call';
         const problem = wo.fields['Problem Description'] || '';
 
-        const jobRows = validJobs.map(j => {
-          const eqId  = (j.fields['Equipment'] || [])[0];
-          const eqName = eqId ? (eqMap[eqId] || '') : '';
-          const photos = parsePhotos(j.fields['Photo URLs']);
-          let html = '';
-          if (eqName) html += \`<p class="eq-label">🔧 \${esc(eqName)}</p>\`;
-          if (j.fields['Diagnosis'])       html += \`<h3>What We Found</h3><p>\${esc(j.fields['Diagnosis'])}</p>\`;
-          if (j.fields['Work Performed'])  html += \`<h3>Work Performed</h3><p>\${esc(j.fields['Work Performed'])}</p>\`;
-          if (j.fields['Recommendations']) html += \`<h3>Recommendations</h3><p>\${esc(j.fields['Recommendations'])}</p>\`;
-          if (photos.length) html += \`<h3>Photos</h3><div class="photo-grid">\${photos.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener"><img src="\${esc(u)}" alt="Job photo" onerror="this.parentNode.style.display='none'"></a>\`).join('')}</div>\`;
-          return html ? \`<div class="job-block">\${html}</div>\` : '';
-        }).filter(Boolean).join('<hr class="job-sep">');
-
         function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-        const html = \`<!doctype html>
+        const jobRows = validJobs.map(j => {
+          const eqId   = (j.fields['Equipment'] || [])[0];
+          const eqName = eqId ? (eqMap[eqId] || '') : '';
+          const photos = parsePhotos(j.fields['Photo URLs']);
+          let h = '';
+          if (eqName) h += `<p class="eq-label">🔧 ${esc(eqName)}</p>`;
+          if (j.fields['Diagnosis'])       h += `<h3>What We Found</h3><p>${esc(j.fields['Diagnosis'])}</p>`;
+          if (j.fields['Work Performed'])  h += `<h3>Work Performed</h3><p>${esc(j.fields['Work Performed'])}</p>`;
+          if (j.fields['Recommendations']) h += `<h3>Recommendations</h3><p>${esc(j.fields['Recommendations'])}</p>`;
+          if (photos.length) h += `<h3>Photos</h3><div class="photo-grid">${photos.map(u=>`<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="Job photo" onerror="this.parentNode.style.display='none'"></a>`).join('')}</div>`;
+          return h ? `<div class="job-block">${h}</div>` : '';
+        }).filter(Boolean).join('<hr class="job-sep">');
+
+        const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -3427,15 +3427,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2
 .logo{height:40px;width:auto}
 .report-label{font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;text-align:right;margin-top:4px}
 .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:24px;background:#f5f5f5;border-radius:8px;padding:16px}
-.meta-item{display:contents}
 .meta-key{font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.6px;padding:3px 0}
 .meta-val{font-size:14px;color:#2e2e2e;padding:3px 0}
 .section{margin-bottom:20px}
 .section h2{font-size:13px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e0e0e0}
-.section p{font-size:14px;color:#2e2e2e;line-height:1.7}
+.section p{font-size:14px;color:#2e2e2e;line-height:1.7;white-space:pre-wrap}
 .job-block{margin-bottom:0}
 .job-block h3{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.7px;margin:16px 0 6px}
-.job-block p{font-size:14px;color:#2e2e2e;line-height:1.7}
+.job-block p{font-size:14px;color:#2e2e2e;line-height:1.7;white-space:pre-wrap}
 .job-sep{border:none;border-top:1px dashed #ddd;margin:20px 0}
 .eq-label{font-size:13px;font-weight:700;color:#c81f25;margin-bottom:4px!important}
 .photo-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -3452,19 +3451,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2
   <div class="report-label">Service Report</div>
 </div>
 <div class="meta-grid">
-  <span class="meta-key">Customer</span><span class="meta-val">\${esc(custName)}</span>
-  <span class="meta-key">Property</span><span class="meta-val">\${esc(addr)}</span>
-  <span class="meta-key">Date</span><span class="meta-val">\${esc(date)}</span>
-  <span class="meta-key">Service Type</span><span class="meta-val">\${esc(woType)}</span>
+  <span class="meta-key">Customer</span><span class="meta-val">${esc(custName)}</span>
+  <span class="meta-key">Property</span><span class="meta-val">${esc(addr)}</span>
+  <span class="meta-key">Date</span><span class="meta-val">${esc(date)}</span>
+  <span class="meta-key">Service Type</span><span class="meta-val">${esc(woType)}</span>
 </div>
-\${problem ? \`<div class="section"><h2>What You Reported</h2><p>\${esc(problem)}</p></div>\` : ''}
-\${jobRows ? \`<div class="section"><h2>Service Details</h2>\${jobRows}</div>\` : ''}
+${problem ? `<div class="section"><h2>What You Reported</h2><p>${esc(problem)}</p></div>` : ''}
+${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''}
 <div class="report-footer">
-  <div>(480) 604-8622 &nbsp;·&nbsp; service@cjbcomfort.com</div>
+  <div>(480) 604-8622 &nbsp;&middot;&nbsp; service@cjbcomfort.com</div>
   <button class="print-btn" onclick="window.print()">Print / Save PDF</button>
 </div>
 </body>
-</html>\`;
+</html>`;
 
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       } catch(e) {
