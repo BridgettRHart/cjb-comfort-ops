@@ -3317,8 +3317,23 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         const jobIds = wo.fields['Jobs'] || [];
         const jobs = jobIds.length
-          ? await Promise.all(jobIds.map(id => airtableGetById('Jobs', id)))
+          ? await Promise.all(jobIds.map(id => airtableGetById('Jobs', id).catch(() => null)))
           : [];
+        const validJobs = jobs.filter(Boolean);
+
+        // Fetch equipment names for jobs that have them
+        const eqFetches = {};
+        for (const j of validJobs) {
+          const eqId = (j.fields['Equipment'] || [])[0];
+          if (eqId && !eqFetches[eqId]) eqFetches[eqId] = airtableGetById('Equipment', eqId).catch(() => null);
+        }
+        const eqMap = {};
+        for (const [id, p] of Object.entries(eqFetches)) {
+          const rec = await p;
+          if (rec) eqMap[id] = rec.fields['Equipment Name'] || '';
+        }
+
+        const parsePhotos = raw => (raw || '').split(/[\n,]+/).map(s => s.trim()).filter(s => s.startsWith('http'));
 
         return new Response(JSON.stringify({
           id:         wo.id,
@@ -3328,15 +3343,132 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           address:    wo.fields['Service Address']     || '',
           problem:    wo.fields['Problem Description'] || '',
           invoiceIds: wo.fields['Invoices']            || [],
-          jobs: jobs.map(j => ({
-            type:            j.fields['Job Type']         || '',
-            workPerformed:   j.fields['Work Performed']   || '',
-            diagnosis:       j.fields['Diagnosis']        || '',
-            recommendations: j.fields['Recommendations']  || '',
-          })).filter(j => j.workPerformed || j.diagnosis || j.recommendations),
+          jobs: validJobs.map(j => {
+            const eqId = (j.fields['Equipment'] || [])[0];
+            return {
+              type:            j.fields['Job Type']         || '',
+              equipment:       eqId ? (eqMap[eqId] || '') : '',
+              workPerformed:   j.fields['Work Performed']   || '',
+              diagnosis:       j.fields['Diagnosis']        || '',
+              recommendations: j.fields['Recommendations']  || '',
+              photos:          parsePhotos(j.fields['Photo URLs']),
+            };
+          }).filter(j => j.workPerformed || j.diagnosis || j.recommendations || j.photos.length),
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Customer portal — printable service report ───────────────────────
+    if (path === '/api/portal/service-report' && request.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        const woId  = url.searchParams.get('id')    || '';
+        const stored = token ? await env.PORTAL_KV.get(token, { type: 'json' }) : null;
+        if (!stored || stored.expiresAt < Date.now()) {
+          return new Response('Link expired. Please contact CJB Comfort for a new portal link.', { status: 401, headers: { 'Content-Type': 'text/plain' } });
+        }
+        if (!woId) return new Response('Missing work order id', { status: 400 });
+
+        const wo = await airtableGetById('Work Orders', woId);
+        const woCustIds = wo.fields['Customer'] || [];
+        if (!woCustIds.includes(stored.customerId)) return new Response('Access denied', { status: 403 });
+
+        // Fetch customer name for the report header
+        const custRec  = await airtableGetById('Customers', stored.customerId).catch(() => null);
+        const custName = custRec?.fields['Customer Name'] || '';
+
+        const jobIds   = wo.fields['Jobs'] || [];
+        const jobs     = jobIds.length ? await Promise.all(jobIds.map(id => airtableGetById('Jobs', id).catch(() => null))) : [];
+        const validJobs = jobs.filter(Boolean);
+
+        const eqFetches = {};
+        for (const j of validJobs) {
+          const eqId = (j.fields['Equipment'] || [])[0];
+          if (eqId && !eqFetches[eqId]) eqFetches[eqId] = airtableGetById('Equipment', eqId).catch(() => null);
+        }
+        const eqMap = {};
+        for (const [id, p] of Object.entries(eqFetches)) { const r = await p; if (r) eqMap[id] = r.fields['Equipment Name'] || ''; }
+
+        const parsePhotos = raw => (raw || '').split(/[\n,]+/).map(s => s.trim()).filter(s => s.startsWith('http'));
+        const fmtDateStr  = d => { try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Phoenix' }); } catch { return d || ''; } };
+
+        const date    = fmtDateStr(wo.fields['Scheduled Date']);
+        const addr    = wo.fields['Service Address'] || '';
+        const woType  = wo.fields['Work Order Type'] || 'Service Call';
+        const problem = wo.fields['Problem Description'] || '';
+
+        const jobRows = validJobs.map(j => {
+          const eqId  = (j.fields['Equipment'] || [])[0];
+          const eqName = eqId ? (eqMap[eqId] || '') : '';
+          const photos = parsePhotos(j.fields['Photo URLs']);
+          let html = '';
+          if (eqName) html += \`<p class="eq-label">🔧 \${esc(eqName)}</p>\`;
+          if (j.fields['Diagnosis'])       html += \`<h3>What We Found</h3><p>\${esc(j.fields['Diagnosis'])}</p>\`;
+          if (j.fields['Work Performed'])  html += \`<h3>Work Performed</h3><p>\${esc(j.fields['Work Performed'])}</p>\`;
+          if (j.fields['Recommendations']) html += \`<h3>Recommendations</h3><p>\${esc(j.fields['Recommendations'])}</p>\`;
+          if (photos.length) html += \`<h3>Photos</h3><div class="photo-grid">\${photos.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener"><img src="\${esc(u)}" alt="Job photo" onerror="this.parentNode.style.display='none'"></a>\`).join('')}</div>\`;
+          return html ? \`<div class="job-block">\${html}</div>\` : '';
+        }).filter(Boolean).join('<hr class="job-sep">');
+
+        function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        const html = \`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Service Report — CJB Comfort</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2e2e2e;max-width:760px;margin:0 auto;padding:24px 20px 48px}
+.report-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:3px solid #c81f25;margin-bottom:24px}
+.logo{height:40px;width:auto}
+.report-label{font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;text-align:right;margin-top:4px}
+.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:24px;background:#f5f5f5;border-radius:8px;padding:16px}
+.meta-item{display:contents}
+.meta-key{font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.6px;padding:3px 0}
+.meta-val{font-size:14px;color:#2e2e2e;padding:3px 0}
+.section{margin-bottom:20px}
+.section h2{font-size:13px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e0e0e0}
+.section p{font-size:14px;color:#2e2e2e;line-height:1.7}
+.job-block{margin-bottom:0}
+.job-block h3{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.7px;margin:16px 0 6px}
+.job-block p{font-size:14px;color:#2e2e2e;line-height:1.7}
+.job-sep{border:none;border-top:1px dashed #ddd;margin:20px 0}
+.eq-label{font-size:13px;font-weight:700;color:#c81f25;margin-bottom:4px!important}
+.photo-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.photo-grid a{display:block;width:120px;height:90px;overflow:hidden;border-radius:6px;border:1px solid #e0e0e0}
+.photo-grid img{width:100%;height:100%;object-fit:cover}
+.report-footer{margin-top:32px;padding-top:16px;border-top:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#888}
+.print-btn{background:#c81f25;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer}
+@media print{.print-btn{display:none}body{padding:0}}
+</style>
+</head>
+<body>
+<div class="report-header">
+  <img src="https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev/CJBComfort_2026_logo_blk.svg" class="logo" alt="CJB Comfort">
+  <div class="report-label">Service Report</div>
+</div>
+<div class="meta-grid">
+  <span class="meta-key">Customer</span><span class="meta-val">\${esc(custName)}</span>
+  <span class="meta-key">Property</span><span class="meta-val">\${esc(addr)}</span>
+  <span class="meta-key">Date</span><span class="meta-val">\${esc(date)}</span>
+  <span class="meta-key">Service Type</span><span class="meta-val">\${esc(woType)}</span>
+</div>
+\${problem ? \`<div class="section"><h2>What You Reported</h2><p>\${esc(problem)}</p></div>\` : ''}
+\${jobRows ? \`<div class="section"><h2>Service Details</h2>\${jobRows}</div>\` : ''}
+<div class="report-footer">
+  <div>(480) 604-8622 &nbsp;·&nbsp; service@cjbcomfort.com</div>
+  <button class="print-btn" onclick="window.print()">Print / Save PDF</button>
+</div>
+</body>
+</html>\`;
+
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+      } catch(e) {
+        return new Response('Could not generate report: '+e.message, { status: 500 });
       }
     }
 
@@ -4929,64 +5061,86 @@ function buildPortalHtml(token) {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f0f0;color:#2e2e2e;min-height:100vh}
-header{background:#fff;border-bottom:1px solid #ddd;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
-.logo{height:34px;width:auto}
-.portal-tag{margin-left:auto;font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.8px}
-main{max-width:560px;margin:0 auto;padding:20px 16px 48px}
-.greeting{font-size:22px;font-weight:700;color:#111;margin-bottom:4px}
-.greeting-sub{font-size:14px;color:#777;margin-bottom:20px}
-.pp-badge{display:none;align-items:center;gap:6px;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;margin-bottom:20px}
-section{margin-bottom:28px}
+/* ── Header ── */
+header{background:#fff;border-bottom:1px solid #ddd;padding:0 24px;height:52px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+.logo{height:32px;width:auto}
+.portal-tag{margin-left:auto;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px}
+/* ── Layout ── */
+#loading,#error-state{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;padding:40px 20px;text-align:center}
+#portal-content{display:none}
+.portal-wrap{max-width:1140px;margin:0 auto;padding:28px 20px 60px}
+.portal-grid{display:grid;grid-template-columns:1fr;gap:24px}
+@media(min-width:780px){
+  .portal-grid{grid-template-columns:360px 1fr;align-items:start}
+  .col-left{position:sticky;top:68px}
+}
+/* ── Greeting ── */
+.greeting{font-size:22px;font-weight:700;color:#111;margin-bottom:2px}
+.greeting-sub{font-size:14px;color:#777;margin-bottom:16px}
+.pp-badge{display:none;align-items:center;gap:6px;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;margin-bottom:16px}
+/* ── Sections ── */
+.sec-block{margin-bottom:24px}
 .sec-label{font-size:11px;font-weight:700;color:#aaa;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
-.prop-group{margin-bottom:16px}
+.prop-group{margin-bottom:12px}
 .prop-header{font-size:12px;font-weight:700;color:#555;margin-bottom:8px;padding:4px 8px;background:#e4e4e4;border-radius:6px}
-.card{background:#fff;border-radius:12px;border:1px solid #e0e0e0;padding:16px;margin-bottom:10px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
-.card:hover{box-shadow:0 2px 8px rgba(0,0,0,.09);border-color:#c81f25}
-.card.no-click{cursor:default}
-.card.no-click:hover{box-shadow:none;border-color:#e0e0e0}
-.card-eyebrow{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+/* ── Cards ── */
+.card{background:#fff;border-radius:10px;border:1px solid #e0e0e0;padding:16px;margin-bottom:8px;transition:box-shadow .15s,border-color .15s}
+.card:last-child{margin-bottom:0}
+.card-click{cursor:pointer}
+.card-click:hover{box-shadow:0 2px 10px rgba(0,0,0,.09);border-color:#c81f25}
+.card-eyebrow{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px}
 .card-primary{font-size:16px;font-weight:700;color:#111;margin-bottom:2px}
 .card-sub{font-size:13px;color:#666;margin-top:2px}
 .card-problem{font-size:13px;color:#555;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tap-hint{font-size:11px;color:#bbb;margin-top:8px}
+.card-hint{font-size:11px;color:#bbb;margin-top:8px}
+/* ── Status chips ── */
 .chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;margin-top:10px}
 .chip-blue{background:#e3f0ff;color:#1a4f8a}
 .chip-green{background:#c3e6cb;color:#0d4a1f}
 .chip-gray{background:#f0f0f0;color:#888}
 .chip-orange{background:#fef3c7;color:#7a5500}
 .chip-purple{background:#e2d9f3;color:#4a235a}
-.amount{font-size:24px;font-weight:800;color:#111;margin-bottom:2px}
-.amount-sub{font-size:12px;color:#aaa}
+/* ── Invoice card ── */
+.amount{font-size:26px;font-weight:800;color:#111;margin-bottom:2px}
+.amount-sub{font-size:12px;color:#aaa;margin-bottom:4px}
+/* ── Buttons ── */
 .btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-.pay-btn{display:inline-flex;align-items:center;background:#c81f25;color:#fff;border-radius:7px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none}
+.pay-btn{display:inline-flex;align-items:center;background:#c81f25;color:#fff;border-radius:7px;padding:10px 20px;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap}
 .pay-btn:hover{background:#a81920}
-.view-btn{display:inline-flex;align-items:center;background:#fff;color:#2e2e2e;border-radius:7px;padding:10px 18px;font-size:14px;font-weight:700;text-decoration:none;border:1.5px solid #d1d5db}
+.view-btn{display:inline-flex;align-items:center;background:#fff;color:#2e2e2e;border-radius:7px;padding:10px 20px;font-size:14px;font-weight:700;text-decoration:none;border:1.5px solid #d1d5db;white-space:nowrap}
 .view-btn:hover{background:#f5f5f5}
-.empty{text-align:center;padding:20px;color:#bbb;font-size:13px}
-#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:14px;color:#777;font-size:14px}
+/* ── Empty states ── */
+.empty{padding:18px 12px;color:#bbb;font-size:13px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;text-align:center}
+/* ── Loading / Error ── */
 .spinner{width:32px;height:32px;border:3px solid #e0e0e0;border-top-color:#c81f25;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-#error-state{display:none;text-align:center;padding:48px 24px}
 .error-title{font-size:20px;font-weight:700;color:#111;margin-bottom:8px}
-.error-body{font-size:14px;color:#777;line-height:1.6;margin-bottom:20px}
-#portal-content{display:none}
-footer{text-align:center;padding:20px 16px 32px;color:#aaa;font-size:13px;border-top:1px solid #e0e0e0;background:#fff;margin-top:8px}
+.error-body{font-size:14px;color:#777;line-height:1.6;margin-bottom:20px;max-width:380px}
+/* ── Footer ── */
+footer{text-align:center;padding:20px 16px 28px;color:#aaa;font-size:13px;border-top:1px solid #e0e0e0;background:#fff}
 footer a{color:#c81f25;text-decoration:none}
 footer a:hover{text-decoration:underline}
-/* Detail drawer */
-#dr-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow-y:auto;padding:20px 16px 40px}
-#dr-box{background:#fff;border-radius:14px;max-width:560px;margin:60px auto 0;padding:24px;position:relative}
-.dr-close{position:absolute;top:16px;right:16px;background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;line-height:1}
+/* ── Detail panel (modal) ── */
+#dr-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow-y:auto;padding:24px 16px 48px}
+#dr-box{background:#fff;border-radius:14px;max-width:640px;margin:0 auto;padding:28px;position:relative}
+@media(min-width:780px){#dr-bg{display:none;align-items:flex-start;justify-content:center;padding:48px 24px}}
+.dr-close{position:absolute;top:16px;right:18px;background:none;border:none;font-size:22px;color:#bbb;cursor:pointer;line-height:1}
 .dr-close:hover{color:#2e2e2e}
-.dr-eyebrow{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
-.dr-title{font-size:20px;font-weight:700;color:#111;margin-bottom:2px}
-.dr-addr{font-size:13px;color:#777;margin-bottom:16px}
-.dr-sec{margin-bottom:14px}
-.dr-sec-label{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px}
-.dr-sec-text{font-size:14px;color:#374151;line-height:1.65}
-.dr-divider{border:none;border-top:1px solid #f0f0f0;margin:14px 0}
-#dr-spinner{text-align:center;padding:24px;color:#aaa;font-size:13px}
+.dr-header{margin-bottom:18px;padding-right:32px}
+.dr-eyebrow{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+.dr-title{font-size:22px;font-weight:700;color:#111;margin-bottom:2px}
+.dr-addr{font-size:13px;color:#777}
+.dr-sec{margin-bottom:16px}
+.dr-sec-label{font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
+.dr-sec-text{font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap}
+.dr-eq{font-size:12px;font-weight:700;color:#c81f25;margin-bottom:4px}
+.dr-divider{border:none;border-top:1px solid #f0f0f0;margin:16px 0}
+.dr-photos{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.dr-photo{display:block;width:96px;height:72px;border-radius:6px;border:1px solid #e0e0e0;overflow:hidden}
+.dr-photo img{width:100%;height:100%;object-fit:cover}
+#dr-spinner{text-align:center;padding:32px;color:#aaa;font-size:14px}
 #dr-body{display:none}
+#dr-act{margin-top:20px}
 </style>
 </head>
 <body>
@@ -4997,49 +5151,61 @@ footer a:hover{text-decoration:underline}
 
 <div id="loading">
   <div class="spinner"></div>
-  <div>Loading your account…</div>
+  <div style="color:#777;font-size:14px">Loading your account…</div>
 </div>
 
 <div id="error-state">
   <div class="error-title">Link Expired or Invalid</div>
-  <div class="error-body">This portal link is no longer valid. Contact CJB Comfort and we'll send you a new one — takes about a minute.</div>
-  <a href="tel:+14806048622" style="color:#1e40af;font-weight:700;font-size:15px;">(480) 604-8622</a>
+  <div class="error-body">This portal link is no longer valid. Contact CJB Comfort and we'll send you a fresh one.</div>
+  <a href="tel:+14806048622" style="color:#c81f25;font-weight:700;font-size:16px">(480) 604-8622</a>
 </div>
 
 <div id="portal-content">
-<main>
-  <div id="c-name" class="greeting"></div>
-  <div class="greeting-sub">Your CJB Comfort account overview</div>
-  <div id="pp-badge" class="pp-badge">⭐ Protection Plus Member</div>
+  <div class="portal-wrap">
+    <div class="portal-grid">
 
-  <section id="sec-active">
-    <div class="sec-label">Upcoming Visits</div>
-    <div id="list-active"></div>
-  </section>
+      <!-- Left column: greeting + action items -->
+      <div class="col-left">
+        <div id="c-name" class="greeting"></div>
+        <div class="greeting-sub">Your CJB Comfort account</div>
+        <div id="pp-badge" class="pp-badge">⭐ Protection Plus Member</div>
 
-  <section id="sec-invoices">
-    <div class="sec-label">Invoices Due</div>
-    <div id="list-invoices"></div>
-  </section>
+        <div class="sec-block" id="sec-active">
+          <div class="sec-label">Upcoming Visits</div>
+          <div id="list-active"></div>
+        </div>
 
-  <section id="sec-history">
-    <div class="sec-label">Service History</div>
-    <div id="list-history"></div>
-  </section>
-</main>
+        <div class="sec-block" id="sec-invoices">
+          <div class="sec-label">Invoices Due</div>
+          <div id="list-invoices"></div>
+        </div>
+      </div>
+
+      <!-- Right column: service history -->
+      <div class="col-right">
+        <div class="sec-block" id="sec-history">
+          <div class="sec-label">Service History</div>
+          <div id="list-history"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </div>
 
-<!-- Detail drawer -->
+<!-- Detail panel -->
 <div id="dr-bg" onclick="if(event.target===this)closeDrawer()">
   <div id="dr-box">
     <button class="dr-close" onclick="closeDrawer()">✕</button>
     <div id="dr-spinner">Loading details…</div>
     <div id="dr-body">
-      <div class="dr-eyebrow" id="dr-eyebrow"></div>
-      <div class="dr-title" id="dr-title"></div>
-      <div class="dr-addr" id="dr-addr"></div>
+      <div class="dr-header">
+        <div class="dr-eyebrow" id="dr-eyebrow"></div>
+        <div class="dr-title" id="dr-title"></div>
+        <div class="dr-addr" id="dr-addr"></div>
+      </div>
       <div id="dr-sections"></div>
-      <div id="dr-inv-btns" class="btn-row" style="margin-top:20px"></div>
+      <div id="dr-act" class="btn-row"></div>
     </div>
   </div>
 </div>
@@ -5053,177 +5219,159 @@ const TOKEN = ${JSON.stringify(token)};
 
 function fmtDate(d) {
   if (!d) return '—';
-  try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Phoenix' }); }
+  try { return new Date(d).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric',timeZone:'America/Phoenix'}); }
   catch { return d; }
 }
-function money(n) { return Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
+function money(n) { return Number(n||0).toLocaleString('en-US',{style:'currency',currency:'USD'}); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function trunc(s,n){ return s && s.length>n ? s.slice(0,n-1)+'…' : (s||''); }
+function trunc(s,n){ return s&&s.length>n ? s.slice(0,n-1)+'…' : (s||''); }
 
 function statusChip(st) {
-  const map = { 'Scheduled':'chip-blue','In Progress':'chip-blue','Complete':'chip-green','Paid':'chip-green',
-                'Paid in Full':'chip-green','Invoiced':'chip-purple','Overdue':'chip-orange','Cancelled':'chip-gray' };
-  const cls = map[st] || 'chip-gray';
-  return \`<span class="chip \${cls}">\${esc(st)}</span>\`;
+  const map={'Scheduled':'chip-blue','In Progress':'chip-blue','Complete':'chip-green','Paid':'chip-green',
+             'Paid in Full':'chip-green','Invoiced':'chip-purple','Overdue':'chip-orange','Cancelled':'chip-gray'};
+  return \`<span class="chip \${map[st]||'chip-gray'}">\${esc(st)}</span>\`;
 }
+function payUrl(id)    { return '/api/portal/pay-invoice?id='+encodeURIComponent(id)+'&token='+encodeURIComponent(TOKEN); }
+function reportUrl(id) { return '/api/portal/service-report?id='+encodeURIComponent(id)+'&token='+encodeURIComponent(TOKEN); }
 
-function payUrl(invId) {
-  return '/api/portal/pay-invoice?id='+encodeURIComponent(invId)+'&token='+encodeURIComponent(TOKEN);
-}
-
-// WO cards — clickable to open detail drawer
 let _allWOs = [];
-function woCard(w, showAddr) {
-  const prob = w.problem ? \`<div class="card-problem" title="\${esc(w.problem)}">\${esc(trunc(w.problem,100))}</div>\` : '';
-  const addr = showAddr && w.address ? \`<div class="card-sub">\${esc(w.address)}</div>\` : '';
-  return \`<div class="card" onclick="openWO('\${esc(w.id)}')">
+
+function woCard(w) {
+  const prob = w.problem ? \`<div class="card-problem" title="\${esc(w.problem)}">\${esc(trunc(w.problem,110))}</div>\` : '';
+  return \`<div class="card card-click" onclick="openWO('\${esc(w.id)}')">
     <div class="card-eyebrow">\${esc(w.type||'Service Call')}</div>
     <div class="card-primary">\${fmtDate(w.date)}</div>
-    \${addr}\${prob}
+    \${prob}
     \${statusChip(w.status)}
-    <div class="tap-hint">Tap for details</div>
+    <div class="card-hint">Click for full details →</div>
   </div>\`;
 }
 
-// Invoice cards — not clickable (buttons handle it), tied to their WO
 function invCard(i) {
-  const url  = payUrl(i.id);
+  const url    = payUrl(i.id);
   const hasBal = Number(i.balanceDue) > 0;
-  // Find linked WO for context
-  const linkedWO = _allWOs.find(w => (i.woIds||[]).includes(w.id));
-  const woCtx = linkedWO
-    ? \`<div class="card-sub" style="margin-bottom:8px">\${esc(linkedWO.type||'Service Call')} · \${fmtDate(linkedWO.date)}\${linkedWO.address?' · '+esc(linkedWO.address):''}</div>\`
+  const linked = _allWOs.find(w=>(i.woIds||[]).includes(w.id));
+  const ctx    = linked
+    ? \`<div class="card-sub" style="margin-bottom:10px">\${esc(linked.type||'Service')} · \${fmtDate(linked.date)}\${linked.address?' · '+esc(linked.address):''}</div>\`
     : '';
-  const totalLine = (i.total && i.total !== i.balanceDue)
-    ? \`<div class="amount-sub">Invoice total: \${money(i.total)}</div>\` : '';
-  const btns = hasBal
+  const total  = (i.total && i.total!==i.balanceDue) ? \`<div class="amount-sub">Total: \${money(i.total)}</div>\` : '';
+  const btns   = hasBal
     ? \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>
-       <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a>\`
-    : \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View / Download</a>\`;
-  return \`<div class="card no-click">
+       <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`
+    : \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`;
+  return \`<div class="card">
     <div class="card-eyebrow">\${esc(i.status||'Invoice')} · \${fmtDate(i.date)}</div>
-    \${woCtx}
+    \${ctx}
     <div class="amount">\${money(i.balanceDue)}</div>
     <div class="amount-sub">Balance due</div>
-    \${totalLine}
+    \${total}
     <div class="btn-row">\${btns}</div>
   </div>\`;
 }
 
 function groupByAddress(items) {
-  const map = new Map();
-  items.forEach(w => {
-    const key = w.address || 'Unknown Address';
-    if (!map.has(key)) map.set(key,[]);
-    map.get(key).push(w);
-  });
+  const map=new Map();
+  items.forEach(w=>{ const k=w.address||'Unknown Address'; if(!map.has(k))map.set(k,[]); map.get(k).push(w); });
   return [...map.entries()].map(([address,list])=>({address,list}));
 }
 
-function renderList(items, cardFn, multiProp) {
-  if (!multiProp) return items.map(w=>cardFn(w,false)).join('');
+function renderList(items,multi) {
+  if(!multi) return items.map(woCard).join('');
   return groupByAddress(items).map(g=>
-    \`<div class="prop-group">
-      <div class="prop-header">📍 \${esc(g.address)}</div>
-      \${g.list.map(w=>cardFn(w,false)).join('')}
-    </div>\`
+    \`<div class="prop-group"><div class="prop-header">📍 \${esc(g.address)}</div>\${g.list.map(woCard).join('')}</div>\`
   ).join('');
 }
 
-// ── Drawer ────────────────────────────────────────────────────────────────
+// ── Detail panel ──────────────────────────────────────────────────────────
 function openWO(woId) {
-  const bg = document.getElementById('dr-bg');
-  document.getElementById('dr-spinner').style.display = 'block';
-  document.getElementById('dr-body').style.display    = 'none';
-  bg.style.display = 'block';
-  document.body.style.overflow = 'hidden';
+  document.getElementById('dr-spinner').style.display='block';
+  document.getElementById('dr-body').style.display='none';
+  const bg=document.getElementById('dr-bg');
+  bg.style.display='block';
+  document.body.style.overflow='hidden';
 
   fetch('/api/portal/wo-detail?id='+encodeURIComponent(woId)+'&token='+encodeURIComponent(TOKEN))
     .then(r=>r.json())
     .then(d=>{
-      document.getElementById('dr-eyebrow').textContent = d.type || 'Service Call';
+      document.getElementById('dr-eyebrow').textContent = d.type||'Service Call';
       document.getElementById('dr-title').textContent   = fmtDate(d.date);
-      document.getElementById('dr-addr').textContent    = d.address || '';
+      document.getElementById('dr-addr').textContent    = d.address||'';
 
-      let secs = '';
-      if (d.problem) {
-        secs += \`<div class="dr-sec"><div class="dr-sec-label">What You Reported</div><div class="dr-sec-text">\${esc(d.problem)}</div></div>\`;
-      }
-      (d.jobs||[]).forEach(j => {
-        if (j.diagnosis) secs += \`<hr class="dr-divider"><div class="dr-sec"><div class="dr-sec-label">What We Found</div><div class="dr-sec-text">\${esc(j.diagnosis)}</div></div>\`;
-        if (j.workPerformed) secs += \`<hr class="dr-divider"><div class="dr-sec"><div class="dr-sec-label">Work Performed</div><div class="dr-sec-text">\${esc(j.workPerformed)}</div></div>\`;
-        if (j.recommendations) secs += \`<hr class="dr-divider"><div class="dr-sec"><div class="dr-sec-label">Recommendations</div><div class="dr-sec-text">\${esc(j.recommendations)}</div></div>\`;
+      let html='';
+      if(d.problem) html+=\`<div class="dr-sec"><div class="dr-sec-label">What You Reported</div><div class="dr-sec-text">\${esc(d.problem)}</div></div>\`;
+
+      (d.jobs||[]).forEach((j,i)=>{
+        if(i>0||d.problem) html+='<hr class="dr-divider">';
+        if(j.equipment) html+=\`<div class="dr-eq">🔧 \${esc(j.equipment)}</div>\`;
+        if(j.diagnosis)       html+=\`<div class="dr-sec"><div class="dr-sec-label">What We Found</div><div class="dr-sec-text">\${esc(j.diagnosis)}</div></div>\`;
+        if(j.workPerformed)   html+=\`<div class="dr-sec" style="margin-top:12px"><div class="dr-sec-label">Work Performed</div><div class="dr-sec-text">\${esc(j.workPerformed)}</div></div>\`;
+        if(j.recommendations) html+=\`<div class="dr-sec" style="margin-top:12px"><div class="dr-sec-label">Recommendations</div><div class="dr-sec-text">\${esc(j.recommendations)}</div></div>\`;
+        if(j.photos&&j.photos.length) {
+          html+=\`<div class="dr-sec" style="margin-top:12px"><div class="dr-sec-label">Photos (\${j.photos.length})</div>
+            <div class="dr-photos">\${j.photos.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener" class="dr-photo"><img src="\${esc(u)}" alt="Job photo" loading="lazy" onerror="this.parentNode.style.display='none'"></a>\`).join('')}</div></div>\`;
+        }
       });
-      document.getElementById('dr-sections').innerHTML = secs;
 
-      const invBtns = document.getElementById('dr-inv-btns');
-      if (d.invoiceIds && d.invoiceIds.length) {
-        invBtns.innerHTML = d.invoiceIds.map(id=>
-          \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice / Receipt</a>\`
-        ).join('');
-        invBtns.style.display = 'flex';
-      } else {
-        invBtns.innerHTML = '';
-      }
+      document.getElementById('dr-sections').innerHTML=html;
 
-      document.getElementById('dr-spinner').style.display = 'none';
-      document.getElementById('dr-body').style.display    = 'block';
+      const act=document.getElementById('dr-act');
+      const invBtns=(d.invoiceIds||[]).map(id=>\`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`).join('');
+      const rptBtn=\`<a href="\${esc(reportUrl(d.id))}" target="_blank" rel="noopener" class="view-btn">Service Report</a>\`;
+      act.innerHTML = invBtns + rptBtn;
+
+      document.getElementById('dr-spinner').style.display='none';
+      document.getElementById('dr-body').style.display='block';
     })
-    .catch(()=>{
-      document.getElementById('dr-spinner').textContent = 'Could not load details. Please call (480) 604-8622.';
-    });
+    .catch(()=>{ document.getElementById('dr-spinner').textContent='Could not load details. Please call (480) 604-8622.'; });
 }
 
-function closeDrawer() {
-  document.getElementById('dr-bg').style.display = 'none';
-  document.body.style.overflow = '';
+function closeDrawer(){
+  document.getElementById('dr-bg').style.display='none';
+  document.body.style.overflow='';
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') closeDrawer(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeDrawer(); });
 
-// ── Main load ────────────────────────────────────────────────────────────
+// ── Main load ──────────────────────────────────────────────────────────────
 async function load() {
   try {
-    const res = await fetch('/api/portal/data?token='+encodeURIComponent(TOKEN));
-    if (res.status === 401) {
-      document.getElementById('loading').style.display    = 'none';
-      document.getElementById('error-state').style.display = 'block';
+    const res=await fetch('/api/portal/data?token='+encodeURIComponent(TOKEN));
+    if(res.status===401){
+      document.getElementById('loading').style.display='none';
+      document.getElementById('error-state').style.display='flex';
       return;
     }
-    if (!res.ok) throw new Error('Server error '+res.status);
-    const d = await res.json();
-    if (d.error) throw new Error(d.error);
+    if(!res.ok) throw new Error('Server error '+res.status);
+    const d=await res.json();
+    if(d.error) throw new Error(d.error);
 
-    document.getElementById('c-name').textContent =
-      'Hello, '+(d.customer.firstName || d.customer.name || 'there')+'.';
-    if (d.isProtectionPlus) document.getElementById('pp-badge').style.display = 'flex';
+    document.getElementById('c-name').textContent='Hello, '+(d.customer.firstName||d.customer.name||'there')+'.';
+    if(d.isProtectionPlus) document.getElementById('pp-badge').style.display='flex';
 
-    _allWOs = [...(d.activeWOs||[]), ...(d.history||[])];
+    _allWOs=[...(d.activeWOs||[]),...(d.history||[])];
+    const allAddrs=new Set(_allWOs.map(w=>w.address).filter(Boolean));
+    const multi=allAddrs.size>1;
 
-    const allAddrs = new Set(_allWOs.map(w=>w.address).filter(Boolean));
-    const multi    = allAddrs.size > 1;
-
-    document.getElementById('list-active').innerHTML = d.activeWOs && d.activeWOs.length
-      ? renderList(d.activeWOs, woCard, multi)
+    document.getElementById('list-active').innerHTML=d.activeWOs&&d.activeWOs.length
+      ? renderList(d.activeWOs,multi)
       : '<div class="empty">No upcoming visits scheduled</div>';
 
-    document.getElementById('list-invoices').innerHTML = d.unpaidInvoices && d.unpaidInvoices.length
+    document.getElementById('list-invoices').innerHTML=d.unpaidInvoices&&d.unpaidInvoices.length
       ? d.unpaidInvoices.map(invCard).join('')
       : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
 
-    const histEl = document.getElementById('list-history');
-    histEl.innerHTML = d.history && d.history.length
-      ? renderList(d.history, woCard, multi)
-      : '<div class="empty">No service history yet</div>';
+    document.getElementById('list-history').innerHTML=d.history&&d.history.length
+      ? renderList(d.history,multi)
+      : '<div class="empty">No service history on record yet</div>';
 
-    document.getElementById('loading').style.display       = 'none';
-    document.getElementById('portal-content').style.display = 'block';
+    document.getElementById('loading').style.display='none';
+    document.getElementById('portal-content').style.display='block';
 
   } catch(e) {
-    document.getElementById('loading').innerHTML =
-      '<div style="color:#c81f25;text-align:center;padding:20px;">Could not load your account.<br>Please call <a href="tel:+14806048622" style="color:#c81f25;">(480) 604-8622</a>.</div>';
+    document.getElementById('loading').innerHTML=
+      '<div style="color:#c81f25;font-weight:700;font-size:15px;">Could not load your account.</div>'+
+      '<div style="color:#777;font-size:13px;margin-top:8px">Please call <a href="tel:+14806048622" style="color:#c81f25">(480) 604-8622</a></div>';
   }
 }
-
 load();
 </script>
 </body>
