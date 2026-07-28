@@ -5143,8 +5143,9 @@ header{background:#fff;border-bottom:1px solid #ddd;padding:0 24px;height:52px;d
 .btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .pay-btn{display:inline-flex;align-items:center;background:#c81f25;color:#fff;border-radius:7px;padding:10px 20px;font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap}
 .pay-btn:hover{background:#a81920}
-.view-btn{display:inline-flex;align-items:center;background:#fff;color:#2e2e2e;border-radius:7px;padding:10px 20px;font-size:14px;font-weight:700;text-decoration:none;border:1.5px solid #d1d5db;white-space:nowrap}
+.view-btn{display:inline-flex;align-items:center;background:#fff;color:#2e2e2e;border-radius:7px;padding:10px 20px;font-size:14px;font-weight:700;text-decoration:none;border:1.5px solid #d1d5db;white-space:nowrap;cursor:pointer}
 .view-btn:hover{background:#f5f5f5}
+.est-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
 /* ── Empty states ── */
 .empty{padding:18px 12px;color:#bbb;font-size:13px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;text-align:center}
 /* ── Loading / Error ── */
@@ -5316,17 +5317,21 @@ function invCard(i) {
 }
 
 function estCard(e) {
-  const hasAmount = e.totalAmount > 0;
-  const amtLine   = hasAmount ? \`<div class="amount" style="font-size:20px">\${money(e.totalAmount)}</div><div class="amount-sub">Estimated cost</div>\` : '';
-  const prob      = e.problem ? \`<div class="card-problem" title="\${esc(e.problem)}">\${esc(trunc(e.problem,110))}</div>\` : '';
-  const dateLabel = e.expiresDate ? 'Expires ' + fmtDate(e.expiresDate) : (e.date ? fmtDate(e.date) : '');
-  const onclick   = e.id ? \`onclick="openWO('\${esc(e.id)}')"\` : '';
-  return \`<div class="card\${e.id?' card-click':''}" \${onclick}>
+  const hasAmount  = e.totalAmount > 0;
+  const amtLine    = hasAmount ? \`<div class="amount" style="font-size:20px">\${money(e.totalAmount)}</div><div class="amount-sub">Estimated cost</div>\` : '';
+  const prob       = e.problem ? \`<div class="card-problem" title="\${esc(e.problem)}">\${esc(trunc(e.problem,110))}</div>\` : '';
+  const dateLabel  = e.expiresDate ? 'Expires ' + fmtDate(e.expiresDate) : (e.date ? fmtDate(e.date) : '');
+  const approveUrl = e.id ? 'https://app.cjbcomfort.com/approve.html?wo=' + encodeURIComponent(e.id) : '';
+  const btns = approveUrl ? \`<div class="est-actions">
+    <a href="\${approveUrl}" target="_blank" class="pay-btn" style="text-decoration:none">Review &amp; Approve →</a>
+    <button class="view-btn" onclick="event.stopPropagation();declineEst('\${esc(e.id)}',this)">Decline</button>
+  </div>\` : '';
+  return \`<div class="card">
     <div class="card-eyebrow">Estimate\${dateLabel ? ' · ' + dateLabel : ''}</div>
     \${prob}
     \${amtLine}
     \${urgencyChip(e.priority)}
-    \${e.id ? '<div class="card-hint">Click to see full details →</div>' : ''}
+    \${btns}
   </div>\`;
 }
 
@@ -5391,6 +5396,25 @@ function closeDrawer(){
   document.body.style.overflow='';
 }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeDrawer(); });
+
+async function declineEst(woId, btn) {
+  if (!confirm('Decline this estimate? This cannot be undone.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Declining…';
+  try {
+    const r = await fetch('/api/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ woId, decision: 'declined' })
+    });
+    if (!r.ok) throw new Error('server error');
+    btn.closest('.card').innerHTML = '<div style="padding:8px 0;color:#6b7280;font-size:14px">Estimate declined. We’ll be in touch if you have questions.</div>';
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = 'Decline';
+    alert('Something went wrong. Please call us at (480) 604-8622.');
+  }
+}
 
 // ── Main load ──────────────────────────────────────────────────────────────
 async function load() {
