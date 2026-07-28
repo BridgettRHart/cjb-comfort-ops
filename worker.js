@@ -3627,17 +3627,33 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const custName = customer.fields['Customer Name'] || '';
         const nameEsc  = custName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         const eqRecords = await airtableFetchAll('Equipment', `{Customer}="${nameEsc}"`, 100, [{ field: 'Equipment Name', direction: 'asc' }]);
-        const mapEq = e => ({
-          id:          e.id,
-          name:        e.fields['Equipment Name']       || '',
-          type:        e.fields['Equipment Type']       || '',
-          brand:       e.fields['Brand']                || '',
-          model:       e.fields['Model Number']         || '',
-          condition:   e.fields['Condition']            || '',
-          location:    e.fields['Location in Building'] || '',
-          lastService: e.fields['Last Service Date']    || '',
-          nextService: e.fields['Next Service Due']     || '',
-        });
+
+        // Batch-fetch property names for grouping
+        const propIds = [...new Set(eqRecords.flatMap(e => e.fields['Property'] || []))];
+        const propMap = {};
+        if (propIds.length) {
+          const formula = propIds.length === 1
+            ? `RECORD_ID()="${propIds[0]}"`
+            : `OR(${propIds.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+          const propRecs = await airtableFetchAll('Properties', formula, 50);
+          propRecs.forEach(p => { propMap[p.id] = p.fields['Property Name'] || p.fields['Service Address'] || ''; });
+        }
+
+        const mapEq = e => {
+          const propId = (e.fields['Property'] || [])[0] || null;
+          return {
+            id:          e.id,
+            name:        e.fields['Equipment Name']       || '',
+            type:        e.fields['Equipment Type']       || '',
+            brand:       e.fields['Brand']                || '',
+            model:       e.fields['Model Number']         || '',
+            condition:   e.fields['Condition']            || '',
+            location:    e.fields['Location in Building'] || '',
+            address:     propId ? (propMap[propId] || '') : '',
+            lastService: e.fields['Last Service Date']    || '',
+            nextService: e.fields['Next Service Due']     || '',
+          };
+        };
         return new Response(JSON.stringify({ equipment: eqRecords.map(mapEq) }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -5524,7 +5540,15 @@ async function declineEst(woId, btn) {
   }
 }
 
-// ── Equipment ──────────────────────────────────────────────────────────────
+// ── Equipment ─────────────────────────────────────────────────────────────
+function renderEqList(items) {
+  const groups = groupByAddress(items);
+  if (groups.length <= 1) return items.map(eqCard).join('');
+  return groups.map(g =>
+    \`<div class="prop-group"><div class="prop-header">📍 \${esc(g.address||'Unknown Location')}</div>\${g.list.map(eqCard).join('')}</div>\`
+  ).join('');
+}
+
 function conditionChip(c) {
   if(!c) return '';
   const cls = 'cond-' + c.replace(/\s+/g,'-');
@@ -5659,7 +5683,7 @@ async function load() {
       const eqData = await eqRes.json();
       if (eqData.equipment && eqData.equipment.length) {
         document.getElementById('sec-equipment').style.display='block';
-        document.getElementById('list-equipment').innerHTML=eqData.equipment.map(eqCard).join('');
+        document.getElementById('list-equipment').innerHTML=renderEqList(eqData.equipment);
       }
     }
 
