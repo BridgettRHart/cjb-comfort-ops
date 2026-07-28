@@ -3614,6 +3614,90 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
       }
     }
 
+    // ── Customer portal — equipment list ─────────────────────────────────
+    if (path === '/api/portal/equipment-list' && request.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        if (!token) return new Response(JSON.stringify({ error: 'missing_token' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const stored = await env.PORTAL_KV.get(token, { type: 'json' });
+        if (!stored || (stored.expiresAt && stored.expiresAt < Date.now())) {
+          return new Response(JSON.stringify({ error: 'expired' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const customer = await airtableGetById('Customers', stored.customerId);
+        const custName = customer.fields['Customer Name'] || '';
+        const nameEsc  = custName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const eqRecords = await airtableFetchAll('Equipment', `{Customer}="${nameEsc}"`, 100, [{ field: 'Equipment Name', direction: 'asc' }]);
+        const mapEq = e => ({
+          id:          e.id,
+          name:        e.fields['Equipment Name']       || '',
+          type:        e.fields['Equipment Type']       || '',
+          brand:       e.fields['Brand']                || '',
+          model:       e.fields['Model Number']         || '',
+          condition:   e.fields['Condition']            || '',
+          location:    e.fields['Location in Building'] || '',
+          lastService: e.fields['Last Service Date']    || '',
+          nextService: e.fields['Next Service Due']     || '',
+        });
+        return new Response(JSON.stringify({ equipment: eqRecords.map(mapEq) }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Customer portal — equipment detail ───────────────────────────────
+    if (path === '/api/portal/equipment-detail' && request.method === 'GET') {
+      try {
+        const token = url.searchParams.get('token') || '';
+        const eqId  = url.searchParams.get('id')    || '';
+        const stored = token ? await env.PORTAL_KV.get(token, { type: 'json' }) : null;
+        if (!stored || stored.expiresAt < Date.now()) {
+          return new Response(JSON.stringify({ error: 'expired' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        if (!eqId) return new Response(JSON.stringify({ error: 'missing id' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const eq = await airtableGetById('Equipment', eqId);
+        if (!(eq.fields['Customer'] || []).includes(stored.customerId)) {
+          return new Response(JSON.stringify({ error: 'access denied' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const jobIds = eq.fields['Jobs'] || [];
+        const jobs = jobIds.length
+          ? (await Promise.all(jobIds.map(id => airtableGetById('Jobs', id).catch(() => null)))).filter(Boolean)
+          : [];
+        jobs.sort((a, b) => (b.fields['Scheduled Start'] || '').localeCompare(a.fields['Scheduled Start'] || ''));
+
+        const parsePhotos = raw => (raw || '').split(/[\n,]+/).map(s => s.trim()).filter(s => s.startsWith('http'));
+
+        return new Response(JSON.stringify({
+          id:          eq.id,
+          name:        eq.fields['Equipment Name']       || '',
+          type:        eq.fields['Equipment Type']       || '',
+          brand:       eq.fields['Brand']                || '',
+          model:       eq.fields['Model Number']         || '',
+          serial:      eq.fields['Serial Number']        || '',
+          installDate: eq.fields['Install Date']         || '',
+          age:         eq.fields['Equipment Age']        || '',
+          condition:   eq.fields['Condition']            || '',
+          refrigerant: eq.fields['Refrigerant Type']     || '',
+          capacity:    eq.fields['Capacity (Tons)']      || '',
+          location:    eq.fields['Location in Building'] || '',
+          lastService: eq.fields['Last Service Date']    || '',
+          nextService: eq.fields['Next Service Due']     || '',
+          jobs: jobs.map(j => ({
+            date:            j.fields['Scheduled Start']  || '',
+            type:            j.fields['Job Type']         || '',
+            status:          j.fields['Status']           || '',
+            diagnosis:       j.fields['Diagnosis']        || '',
+            workPerformed:   j.fields['Work Performed']   || '',
+            recommendations: j.fields['Recommendations']  || '',
+            photos:          parsePhotos(j.fields['Photo URLs']),
+          })),
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Airtable proxy ────────────────────────────────────────────────────
     const match = path.match(/^\/api\/([^/]+)\/?([^/]*)$/);
     if (match) {
@@ -5178,6 +5262,26 @@ footer a:hover{text-decoration:underline}
 #dr-spinner{text-align:center;padding:32px;color:#aaa;font-size:14px}
 #dr-body{display:none}
 #dr-act{margin-top:20px}
+/* ── Equipment cards ── */
+.eq-card{background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px;cursor:pointer;transition:box-shadow .15s}
+.eq-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.eq-card+.eq-card{margin-top:10px}
+.eq-name{font-size:15px;font-weight:700;color:#111;margin-bottom:2px}
+.eq-meta{font-size:13px;color:#6b7280;margin-bottom:8px}
+.eq-dates{font-size:12px;color:#9ca3af;margin-top:6px}
+/* Condition chips */
+.cond-chip{display:inline-block;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.cond-Excellent{background:#d1fae5;color:#065f46}
+.cond-Good{background:#dbeafe;color:#1e40af}
+.cond-Fair{background:#fef3c7;color:#92400e}
+.cond-Poor{background:#ffedd5;color:#9a3412}
+.cond-End-of-Life{background:#fee2e2;color:#991b1b}
+/* Equipment spec grid in drawer */
+.spec-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:12px 0 20px;background:#f9fafb;border-radius:8px;padding:14px}
+.spec-label{font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:1px}
+.spec-value{font-size:14px;color:#111;font-weight:500;margin-bottom:8px}
+.job-block{border-left:3px solid #e5e7eb;padding-left:14px;margin-bottom:18px}
+.job-block-header{font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
 </style>
 </head>
 <body>
@@ -5223,11 +5327,15 @@ footer a:hover{text-decoration:underline}
         </div>
       </div>
 
-      <!-- Right column: service history -->
+      <!-- Right column: service history + equipment -->
       <div class="col-right">
         <div class="sec-block" id="sec-history">
           <div class="sec-label">Service History</div>
           <div id="list-history"></div>
+        </div>
+        <div class="sec-block" id="sec-equipment" style="display:none">
+          <div class="sec-label">Your Equipment</div>
+          <div id="list-equipment"></div>
         </div>
       </div>
 
@@ -5416,10 +5524,103 @@ async function declineEst(woId, btn) {
   }
 }
 
+// ── Equipment ──────────────────────────────────────────────────────────────
+function conditionChip(c) {
+  if(!c) return '';
+  const cls = 'cond-' + c.replace(/\s+/g,'-');
+  return \`<span class="cond-chip \${esc(cls)}">\${esc(c)}</span>\`;
+}
+
+function eqCard(e) {
+  const meta = [e.type, e.location].filter(Boolean).join(' · ');
+  const svc  = e.lastService ? 'Last service: ' + fmtDate(e.lastService) : '';
+  const nxt  = e.nextService ? 'Next due: '     + fmtDate(e.nextService) : '';
+  const dates= [svc,nxt].filter(Boolean).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+  return \`<div class="eq-card" onclick="openEquipment('\${esc(e.id)}')">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div class="eq-name">\${esc(e.name)}</div>
+      \${conditionChip(e.condition)}
+    </div>
+    \${meta?'<div class="eq-meta">'+esc(meta)+'</div>':''}
+    \${dates?'<div class="eq-dates">'+dates+'</div>':''}
+  </div>\`;
+}
+
+function openEquipment(eqId) {
+  document.getElementById('dr-spinner').style.display='block';
+  document.getElementById('dr-body').style.display='none';
+  const bg=document.getElementById('dr-bg');
+  bg.style.display='block';
+  document.body.style.overflow='hidden';
+
+  fetch('/api/portal/equipment-detail?id='+encodeURIComponent(eqId)+'&token='+encodeURIComponent(TOKEN))
+    .then(r=>r.json())
+    .then(d=>{
+      document.getElementById('dr-eyebrow').textContent = d.type||'Equipment';
+      document.getElementById('dr-title').textContent   = d.name||'Unit';
+      document.getElementById('dr-addr').textContent    = d.location||'';
+
+      // Spec grid
+      const specRows = [
+        ['Brand',        d.brand],
+        ['Model',        d.model],
+        ['Serial #',     d.serial],
+        ['Install Date', fmtDate(d.installDate)],
+        ['Age',          d.age ? d.age+' yrs' : ''],
+        ['Condition',    d.condition],
+        ['Refrigerant',  d.refrigerant],
+        ['Capacity',     d.capacity ? d.capacity+' Tons' : ''],
+      ].filter(([,v])=>v);
+
+      let html = '';
+      if (specRows.length) {
+        html += '<div class="spec-grid">' +
+          specRows.map(([l,v]) => \`<div><div class="spec-label">\${esc(l)}</div><div class="spec-value">\${esc(String(v))}</div></div>\`).join('') +
+        '</div>';
+      }
+
+      // Key dates
+      const svcDates = [
+        d.lastService ? 'Last service: ' + fmtDate(d.lastService) : '',
+        d.nextService ? 'Next due: '     + fmtDate(d.nextService) : '',
+      ].filter(Boolean).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+      if (svcDates) html += \`<div style="font-size:13px;color:#6b7280;margin-bottom:18px">\${svcDates}</div>\`;
+
+      // Job history
+      if (d.jobs && d.jobs.length) {
+        html += '<div class="dr-sec-label" style="margin-bottom:10px">Service History for This Unit</div>';
+        d.jobs.forEach((j,i) => {
+          if (i > 0) html += '<hr class="dr-divider">';
+          html += \`<div class="job-block">
+            <div class="job-block-header">\${esc(j.type||'Service')} · \${fmtDate(j.date)}</div>\`;
+          if (j.diagnosis)       html += \`<div class="dr-sec"><div class="dr-sec-label">What We Found</div><div class="dr-sec-text">\${esc(j.diagnosis)}</div></div>\`;
+          if (j.workPerformed)   html += \`<div class="dr-sec" style="margin-top:10px"><div class="dr-sec-label">Work Performed</div><div class="dr-sec-text">\${esc(j.workPerformed)}</div></div>\`;
+          if (j.recommendations) html += \`<div class="dr-sec" style="margin-top:10px"><div class="dr-sec-label">Recommendations</div><div class="dr-sec-text">\${esc(j.recommendations)}</div></div>\`;
+          if (j.photos && j.photos.length) {
+            html += \`<div class="dr-sec" style="margin-top:10px"><div class="dr-sec-label">Photos (\${j.photos.length})</div>
+              <div class="dr-photos">\${j.photos.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener" class="dr-photo"><img src="\${esc(u)}" alt="Job photo" loading="lazy" onerror="this.parentNode.style.display='none'"></a>\`).join('')}</div></div>\`;
+          }
+          html += '</div>';
+        });
+      } else {
+        html += '<div class="empty" style="margin-top:8px">No service history recorded for this unit yet</div>';
+      }
+
+      document.getElementById('dr-sections').innerHTML=html;
+      document.getElementById('dr-act').innerHTML='';
+      document.getElementById('dr-spinner').style.display='none';
+      document.getElementById('dr-body').style.display='block';
+    })
+    .catch(()=>{ document.getElementById('dr-spinner').textContent='Could not load details. Please call (480) 604-8622.'; });
+}
+
 // ── Main load ──────────────────────────────────────────────────────────────
 async function load() {
   try {
-    const res=await fetch('/api/portal/data?token='+encodeURIComponent(TOKEN));
+    const [res, eqRes] = await Promise.all([
+      fetch('/api/portal/data?token='+encodeURIComponent(TOKEN)),
+      fetch('/api/portal/equipment-list?token='+encodeURIComponent(TOKEN)),
+    ]);
     if(res.status===401){
       document.getElementById('loading').style.display='none';
       document.getElementById('error-state').style.display='flex';
@@ -5452,6 +5653,15 @@ async function load() {
     document.getElementById('list-history').innerHTML=d.history&&d.history.length
       ? renderList(d.history,multi)
       : '<div class="empty">No service history on record yet</div>';
+
+    // Equipment
+    if (eqRes.ok) {
+      const eqData = await eqRes.json();
+      if (eqData.equipment && eqData.equipment.length) {
+        document.getElementById('sec-equipment').style.display='block';
+        document.getElementById('list-equipment').innerHTML=eqData.equipment.map(eqCard).join('');
+      }
+    }
 
     document.getElementById('loading').style.display='none';
     document.getElementById('portal-content').style.display='block';
