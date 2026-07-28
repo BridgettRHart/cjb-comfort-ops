@@ -3717,6 +3717,7 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
           capacity:     eq.fields['Capacity (Tons)']      || '',
           location:     eq.fields['Location in Building'] || '',
           propertyName,
+          unitPhotos:   parsePhotos(eq.fields['Photo URLs']),
           lastService:  eq.fields['Last Service Date']    || '',
           nextService:  eq.fields['Next Service Due']     || '',
           jobs: usefulJobs.map(j => ({
@@ -5663,6 +5664,12 @@ function openEquipment(eqId) {
         html += '<div class="spec-grid">' +
           specRows.map(([l,v]) => \`<div><div class="spec-label">\${esc(l)}</div><div class="spec-value">\${esc(String(v))}</div></div>\`).join('') +
         '</div>';
+      }
+
+      // Unit photos from tag scanner
+      if (d.unitPhotos && d.unitPhotos.length) {
+        html += \`<div class="dr-sec" style="margin-bottom:18px"><div class="dr-sec-label">Unit Photos</div>
+          <div class="dr-photos">\${d.unitPhotos.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener" class="dr-photo"><img src="\${esc(u)}" alt="Equipment photo" loading="lazy" onerror="this.parentNode.style.display='none'"></a>\`).join('')}</div></div>\`;
       }
 
       // Key dates
