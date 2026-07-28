@@ -3270,7 +3270,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           status:     w.fields['Status']              || '',
           type:       w.fields['Work Order Type']     || '',
           date:       w.fields['Scheduled Date']      || '',
-          address:    w.fields['Service Address']     || '',
+          address:    (Array.isArray(w.fields['Service Address']) ? w.fields['Service Address'][0] : w.fields['Service Address']) || '',
           problem:    w.fields['Problem Description'] || '',
           invoiceIds: w.fields['Invoices']            || [],
         });
@@ -5072,7 +5072,6 @@ header{background:#fff;border-bottom:1px solid #ddd;padding:0 24px;height:52px;d
 .portal-grid{display:grid;grid-template-columns:1fr;gap:24px}
 @media(min-width:780px){
   .portal-grid{grid-template-columns:360px 1fr;align-items:start}
-  .col-left{position:sticky;top:68px}
 }
 /* ── Greeting ── */
 .greeting{font-size:22px;font-weight:700;color:#111;margin-bottom:2px}
