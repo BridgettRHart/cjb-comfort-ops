@@ -3246,11 +3246,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const custName = cf['Customer Name'] || '';
         const nameEsc  = custName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
-        // Fetch WOs, invoices, contracts in parallel — filter by customer name (primary field of linked record)
-        const [wosData, invoicesData, contractsData] = await Promise.all([
+        // Fetch WOs, invoices, contracts, and open quotes in parallel
+        const [wosData, invoicesData, contractsData, quotesData] = await Promise.all([
           airtableFetchAll('Work Orders',         `{Customer Name}="${nameEsc}"`, 60, [{ field: 'Scheduled Date', direction: 'desc' }]),
           airtableFetchAll('Invoices',             `{Customers}="${nameEsc}"`,   50, [{ field: 'Invoice Date',   direction: 'desc' }]),
           airtableFetchAll('Maintenance Contracts', `{Customer}="${nameEsc}"`,   10),
+          airtableFetchAll('Quotes', `AND({Customer}="${nameEsc}",{Status}="Open")`, 20),
         ]);
 
         const isProtectionPlus = contractsData.some(c => c.fields['Plan Type'] === 'Protection Plus');
@@ -3259,20 +3260,28 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const TERMINAL  = new Set(['Complete', 'Invoiced', 'Paid', 'Paid in Full', 'Cancelled']);
         const UNPAID_ST = new Set(['Invoiced', 'Sent', 'Overdue', 'Deposit', 'Balance Due', 'Deposit Paid']);
 
-        const activeWOs       = wosData.filter(w => ACTIVE.has(w.fields['Status']));
-        const history         = wosData.filter(w => TERMINAL.has(w.fields['Status'])).slice(0, 24);
-        const unpaidInvoices  = invoicesData.filter(i =>
+        const activeWOs = wosData.filter(w => ACTIVE.has(w.fields['Status']) && w.fields['Work Order Type'] !== 'Estimate Only');
+        const history   = wosData.filter(w => TERMINAL.has(w.fields['Status']) && w.fields['Work Order Type'] !== 'Estimate Only').slice(0, 24);
+        const unpaidInvoices = invoicesData.filter(i =>
           UNPAID_ST.has(i.fields['Status']) && Number(i.fields['Balance Due'] || 0) > 0
         );
 
+        const addrStr = v => (Array.isArray(v) ? v[0] : v) || '';
+
+        // Build WO lookup for quote joins
+        const woById = {};
+        wosData.forEach(w => { woById[w.id] = w; });
+
         const mapWO = w => ({
-          id:         w.id,
-          status:     w.fields['Status']              || '',
-          type:       w.fields['Work Order Type']     || '',
-          date:       w.fields['Scheduled Date']      || '',
-          address:    (Array.isArray(w.fields['Service Address']) ? w.fields['Service Address'][0] : w.fields['Service Address']) || '',
-          problem:    w.fields['Problem Description'] || '',
-          invoiceIds: w.fields['Invoices']            || [],
+          id:          w.id,
+          status:      w.fields['Status']              || '',
+          type:        w.fields['Work Order Type']     || '',
+          date:        w.fields['Scheduled Date']      || '',
+          address:     addrStr(w.fields['Service Address']),
+          problem:     w.fields['Problem Description'] || '',
+          priority:    w.fields['Priority']            || '',
+          totalAmount: Number(w.fields['Total Amount'] || 0),
+          invoiceIds:  w.fields['Invoices']            || [],
         });
 
         const mapInv = i => ({
@@ -3284,10 +3293,37 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           woIds:     i.fields['Work Orders']        || [],
         });
 
+        // Estimates: Quotes table (Open/sent) is source of truth; fall back to Estimate Only WOs with no linked Quote
+        const quoteWoIds = new Set(quotesData.map(q => (q.fields['Work Order'] || [])[0]).filter(Boolean));
+        const mapQuote = q => {
+          const woId = (q.fields['Work Order'] || [])[0] || null;
+          const wo   = woId ? woById[woId] : null;
+          const rawNotes = q.fields['Notes'] || '';
+          return {
+            id:          woId || q.id,
+            status:      q.fields['Status'] || '',
+            type:        'Estimate',
+            date:        q.fields['Expiration Date'] || '',
+            address:     wo ? addrStr(wo.fields['Service Address']) : '',
+            problem:     wo?.fields['Problem Description'] || rawNotes.split('---PHOTOS---')[0].trim(),
+            priority:    wo?.fields['Priority'] || '',
+            totalAmount: Number(q.fields['Total Amount'] || 0),
+            invoiceIds:  [],
+            expiresDate: q.fields['Expiration Date'] || '',
+          };
+        };
+        const woEstimates = wosData.filter(w =>
+          w.fields['Work Order Type'] === 'Estimate Only' &&
+          !['Paid', 'Paid in Full', 'Cancelled', 'Estimate Approved', 'Estimate Declined'].includes(w.fields['Status']) &&
+          !quoteWoIds.has(w.id)
+        );
+        const estimates = [...quotesData.map(mapQuote), ...woEstimates.map(mapWO)];
+
         return new Response(JSON.stringify({
           customer: { id: cId, name: custName, firstName: cf['First Name'] || '', email: cf['Email'] || '' },
           isProtectionPlus,
           activeWOs:     activeWOs.map(mapWO),
+          estimates,
           unpaidInvoices:unpaidInvoices.map(mapInv),
           history:       history.map(mapWO),
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -5099,6 +5135,7 @@ header{background:#fff;border-bottom:1px solid #ddd;padding:0 24px;height:52px;d
 .chip-gray{background:#f0f0f0;color:#888}
 .chip-orange{background:#fef3c7;color:#7a5500}
 .chip-purple{background:#e2d9f3;color:#4a235a}
+.chip-red{background:#fee2e2;color:#991b1b}
 /* ── Invoice card ── */
 .amount{font-size:26px;font-weight:800;color:#111;margin-bottom:2px}
 .amount-sub{font-size:12px;color:#aaa;margin-bottom:4px}
@@ -5178,6 +5215,11 @@ footer a:hover{text-decoration:underline}
           <div class="sec-label">Invoices Due</div>
           <div id="list-invoices"></div>
         </div>
+
+        <div class="sec-block" id="sec-estimates" style="display:none">
+          <div class="sec-label">Estimates &amp; Recommendations</div>
+          <div id="list-estimates"></div>
+        </div>
       </div>
 
       <!-- Right column: service history -->
@@ -5230,6 +5272,11 @@ function statusChip(st) {
              'Paid in Full':'chip-green','Invoiced':'chip-purple','Overdue':'chip-orange','Cancelled':'chip-gray'};
   return \`<span class="chip \${map[st]||'chip-gray'}">\${esc(st)}</span>\`;
 }
+function urgencyChip(p) {
+  if (!p) return '';
+  const map={'Emergency':'chip-red','Urgent':'chip-orange','Routine':'chip-gray'};
+  return \`<span class="chip \${map[p]||'chip-gray'}">\${esc(p)}</span>\`;
+}
 function payUrl(id)    { return '/api/portal/pay-invoice?id='+encodeURIComponent(id)+'&token='+encodeURIComponent(TOKEN); }
 function reportUrl(id) { return '/api/portal/service-report?id='+encodeURIComponent(id)+'&token='+encodeURIComponent(TOKEN); }
 
@@ -5265,6 +5312,21 @@ function invCard(i) {
     <div class="amount-sub">Balance due</div>
     \${total}
     <div class="btn-row">\${btns}</div>
+  </div>\`;
+}
+
+function estCard(e) {
+  const hasAmount = e.totalAmount > 0;
+  const amtLine   = hasAmount ? \`<div class="amount" style="font-size:20px">\${money(e.totalAmount)}</div><div class="amount-sub">Estimated cost</div>\` : '';
+  const prob      = e.problem ? \`<div class="card-problem" title="\${esc(e.problem)}">\${esc(trunc(e.problem,110))}</div>\` : '';
+  const dateLabel = e.expiresDate ? 'Expires ' + fmtDate(e.expiresDate) : (e.date ? fmtDate(e.date) : '');
+  const onclick   = e.id ? \`onclick="openWO('\${esc(e.id)}')"\` : '';
+  return \`<div class="card\${e.id?' card-click':''}" \${onclick}>
+    <div class="card-eyebrow">Estimate\${dateLabel ? ' · ' + dateLabel : ''}</div>
+    \${prob}
+    \${amtLine}
+    \${urgencyChip(e.priority)}
+    \${e.id ? '<div class="card-hint">Click to see full details →</div>' : ''}
   </div>\`;
 }
 
@@ -5346,7 +5408,7 @@ async function load() {
     document.getElementById('c-name').textContent='Hello, '+(d.customer.firstName||d.customer.name||'there')+'.';
     if(d.isProtectionPlus) document.getElementById('pp-badge').style.display='flex';
 
-    _allWOs=[...(d.activeWOs||[]),...(d.history||[])];
+    _allWOs=[...(d.activeWOs||[]),...(d.estimates||[]),...(d.history||[])];
     const allAddrs=new Set(_allWOs.map(w=>w.address).filter(Boolean));
     const multi=allAddrs.size>1;
 
@@ -5357,6 +5419,11 @@ async function load() {
     document.getElementById('list-invoices').innerHTML=d.unpaidInvoices&&d.unpaidInvoices.length
       ? d.unpaidInvoices.map(invCard).join('')
       : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
+
+    if (d.estimates&&d.estimates.length) {
+      document.getElementById('sec-estimates').style.display='block';
+      document.getElementById('list-estimates').innerHTML=d.estimates.map(estCard).join('');
+    }
 
     document.getElementById('list-history').innerHTML=d.history&&d.history.length
       ? renderList(d.history,multi)
