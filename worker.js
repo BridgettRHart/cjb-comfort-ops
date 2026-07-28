@@ -4886,7 +4886,7 @@ function buildPortalHtml(token) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
 header{background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
-.brand{font-size:18px;font-weight:800;color:#1e40af;letter-spacing:-.3px}
+.logo{height:34px;width:auto}
 .portal-tag{margin-left:auto;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px}
 main{max-width:560px;margin:0 auto;padding:20px 16px 48px}
 .greeting{font-size:22px;font-weight:700;color:#0f172a;margin-bottom:4px}
@@ -4928,7 +4928,7 @@ footer a:hover{text-decoration:underline}
 </head>
 <body>
 <header>
-  <span class="brand">CJB Comfort</span>
+  <img src="https://pub-53ca3c753a32459a8ecc3f361afc4ab2.r2.dev/CJBComfort_2026_logo_blk.svg" class="logo" alt="CJB Comfort">
   <span class="portal-tag">Service Portal</span>
 </header>
 
