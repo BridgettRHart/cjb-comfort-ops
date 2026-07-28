@@ -5216,8 +5216,15 @@ header{background:#fff;border-bottom:1px solid #ddd;padding:0 24px;height:52px;d
 /* ── Sections ── */
 .sec-block{margin-bottom:24px}
 .sec-label{font-size:11px;font-weight:700;color:#aaa;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:10px}
-.prop-group{margin-bottom:12px}
-.prop-header{font-size:12px;font-weight:700;color:#555;margin-bottom:8px;padding:4px 8px;background:#e4e4e4;border-radius:6px}
+.prop-group{margin-bottom:8px}
+.prop-header{font-size:12px;font-weight:700;color:#555;padding:6px 10px;background:#e4e4e4;border-radius:6px;display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.prop-header:hover{background:#d8d8d8}
+.prop-count{font-size:11px;font-weight:400;color:#888;margin-left:4px;flex:1}
+.toggle-chev{font-size:9px;color:#888;transition:transform .18s;flex-shrink:0}
+.toggle-chev.open{transform:rotate(90deg)}
+.prop-cards{padding-top:8px}
+.sec-label-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
+.sec-label-toggle:hover{opacity:.75}
 /* ── Cards ── */
 .card{background:#fff;border-radius:10px;border:1px solid #e0e0e0;padding:16px;margin-bottom:8px;transition:box-shadow .15s,border-color .15s}
 .card:last-child{margin-bottom:0}
@@ -5341,17 +5348,20 @@ footer a:hover{text-decoration:underline}
           <div class="sec-label">Estimates &amp; Recommendations</div>
           <div id="list-estimates"></div>
         </div>
+
+        <div class="sec-block" id="sec-equipment" style="display:none">
+          <div class="sec-label sec-label-toggle" onclick="toggleSection('list-equipment',this.querySelector('.toggle-chev'))">
+            Your Equipment <span class="toggle-chev">▶</span>
+          </div>
+          <div id="list-equipment" style="display:none"></div>
+        </div>
       </div>
 
-      <!-- Right column: service history + equipment -->
+      <!-- Right column: service history -->
       <div class="col-right">
         <div class="sec-block" id="sec-history">
           <div class="sec-label">Service History</div>
           <div id="list-history"></div>
-        </div>
-        <div class="sec-block" id="sec-equipment" style="display:none">
-          <div class="sec-label">Your Equipment</div>
-          <div id="list-equipment"></div>
         </div>
       </div>
 
@@ -5467,9 +5477,32 @@ function groupByAddress(items) {
 
 function renderList(items,multi) {
   if(!multi) return items.map(woCard).join('');
-  return groupByAddress(items).map(g=>
-    \`<div class="prop-group"><div class="prop-header">📍 \${esc(g.address)}</div>\${g.list.map(woCard).join('')}</div>\`
-  ).join('');
+  return groupByAddress(items).map(g=>{
+    const n=g.list.length;
+    const uid='pg-'+Math.random().toString(36).slice(2);
+    return \`<div class="prop-group">
+      <div class="prop-header" onclick="togglePropGroup(this)">
+        📍 \${esc(g.address)}<span class="prop-count">\${n} visit\${n!==1?'s':''}</span>
+        <span class="toggle-chev">▶</span>
+      </div>
+      <div class="prop-cards" style="display:none">\${g.list.map(woCard).join('')}</div>
+    </div>\`;
+  }).join('');
+}
+
+function togglePropGroup(hdr) {
+  const cards = hdr.nextElementSibling;
+  const chev  = hdr.querySelector('.toggle-chev');
+  const open  = cards.style.display !== 'none';
+  cards.style.display = open ? 'none' : 'block';
+  if (chev) chev.classList.toggle('open', !open);
+}
+
+function toggleSection(listId, chev) {
+  const el   = document.getElementById(listId);
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (chev) chev.classList.toggle('open', !open);
 }
 
 // ── Detail panel ──────────────────────────────────────────────────────────
@@ -5544,9 +5577,16 @@ async function declineEst(woId, btn) {
 function renderEqList(items) {
   const groups = groupByAddress(items);
   if (groups.length <= 1) return items.map(eqCard).join('');
-  return groups.map(g =>
-    \`<div class="prop-group"><div class="prop-header">📍 \${esc(g.address||'Unknown Location')}</div>\${g.list.map(eqCard).join('')}</div>\`
-  ).join('');
+  return groups.map(g => {
+    const n = g.list.length;
+    return \`<div class="prop-group">
+      <div class="prop-header" onclick="togglePropGroup(this)">
+        📍 \${esc(g.address||'Unknown Location')}<span class="prop-count">\${n} unit\${n!==1?'s':''}</span>
+        <span class="toggle-chev">▶</span>
+      </div>
+      <div class="prop-cards" style="display:none">\${g.list.map(eqCard).join('')}</div>
+    </div>\`;
+  }).join('');
 }
 
 function conditionChip(c) {
