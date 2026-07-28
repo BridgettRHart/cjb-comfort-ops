@@ -5065,7 +5065,8 @@ header{background:#fff;border-bottom:1px solid #ddd;padding:0 24px;height:52px;d
 .logo{height:32px;width:auto}
 .portal-tag{margin-left:auto;font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px}
 /* ── Layout ── */
-#loading,#error-state{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;padding:40px 20px;text-align:center}
+#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;padding:40px 20px;text-align:center}
+#error-state{display:none;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:14px;padding:40px 20px;text-align:center}
 #portal-content{display:none}
 .portal-wrap{max-width:1140px;margin:0 auto;padding:28px 20px 60px}
 .portal-grid{display:grid;grid-template-columns:1fr;gap:24px}
