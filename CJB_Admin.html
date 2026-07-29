@@ -4302,7 +4302,8 @@ function renderQuoteActions(status) {
     el.innerHTML = `
       <button class="btn btn-gray" onclick="closeQuoteModal()">Close</button>
       <button class="btn btn-red btn-sm" onclick="declineQuote()">Record Customer Decline</button>
-      <button class="btn btn-gray" onclick="submitQuote(true)">Update & Resend</button>`;
+      <button class="btn btn-gray" onclick="saveQuoteNotesOnly(this)" title="Save notes to Airtable without resending to customer">Save Notes</button>
+      <button class="btn btn-gray" onclick="submitQuote(true)">Update &amp; Resend</button>`;
     return;
   }
   if (status === 'declined' || status === 'expired') {
@@ -4322,6 +4323,27 @@ function renderQuoteActions(status) {
 
 function closeQuoteModal() {
   document.getElementById('quote-modal').classList.add('hidden');
+}
+
+async function saveQuoteNotesOnly(btn) {
+  if (!quoteAirtableId) { alert('No quote record found.'); return; }
+  const notes = (document.getElementById('quote-notes')?.value || '').trim();
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${PROXY}/Quotes/${quoteAirtableId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Notes': notes } }),
+    });
+    if (!res.ok) throw new Error('Save failed');
+    showToast('Notes saved ✓');
+  } catch(e) {
+    alert('Could not save notes: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Notes';
+  }
 }
 
 function resetQuoteModal() {
