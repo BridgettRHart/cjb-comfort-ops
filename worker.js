@@ -3306,9 +3306,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 
         const activeWOs = wosData.filter(w => ACTIVE.has(w.fields['Status']) && w.fields['Work Order Type'] !== 'Estimate Only');
         const history   = wosData.filter(w => TERMINAL.has(w.fields['Status']) && w.fields['Work Order Type'] !== 'Estimate Only').slice(0, 24);
+        const PAID_ST = new Set(['Paid in Full', 'Void']);
         const unpaidInvoices = invoicesData.filter(i =>
           UNPAID_ST.has(i.fields['Status']) && Number(i.fields['Balance Due'] || 0) > 0
         );
+        const invoiceHistory = invoicesData.filter(i =>
+          PAID_ST.has(i.fields['Status']) || (!UNPAID_ST.has(i.fields['Status']) && i.fields['Status'] !== 'Draft' && Number(i.fields['Amount Paid'] || 0) > 0)
+        ).slice(0, 30);
 
         const addrStr = v => (Array.isArray(v) ? v[0] : v) || '';
 
@@ -3329,12 +3333,16 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         });
 
         const mapInv = i => ({
-          id:        i.id,
-          status:    i.fields['Status']             || '',
-          date:      i.fields['Invoice Date']       || '',
-          total:     Number(i.fields['Total']       || 0),
-          balanceDue:Number(i.fields['Balance Due'] || 0),
-          woIds:     i.fields['Work Orders']        || [],
+          id:          i.id,
+          status:      i.fields['Status']             || '',
+          date:        i.fields['Invoice Date']       || '',
+          paidDate:    i.fields['Paid Date']          || '',
+          total:       Number(i.fields['Total']       || 0),
+          balanceDue:  Number(i.fields['Balance Due'] || 0),
+          amountPaid:  Number(i.fields['Amount Paid'] || 0),
+          payMethod:   i.fields['Payment Method']     || '',
+          invoiceType: i.fields['Invoice Type']       || '',
+          woIds:       i.fields['Work Orders']        || [],
         });
 
         // Estimates: Quotes table (Open/sent) is source of truth; fall back to Estimate Only WOs with no linked Quote
@@ -3368,8 +3376,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           isProtectionPlus,
           activeWOs:     activeWOs.map(mapWO),
           estimates,
-          unpaidInvoices:unpaidInvoices.map(mapInv),
-          history:       history.map(mapWO),
+          unpaidInvoices:  unpaidInvoices.map(mapInv),
+          invoiceHistory:  invoiceHistory.map(mapInv),
+          history:         history.map(mapWO),
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch(e) {
@@ -5415,6 +5424,13 @@ footer a:hover{text-decoration:underline}
           <div id="list-estimates"></div>
         </div>
 
+        <div class="sec-block" id="sec-inv-history" style="display:none">
+          <div class="sec-label sec-label-toggle" onclick="toggleSection('list-inv-history',this.querySelector('.toggle-chev'))">
+            Invoice History <span class="toggle-chev">▶</span>
+          </div>
+          <div id="list-inv-history" style="display:none"></div>
+        </div>
+
         <div class="sec-block" id="sec-equipment" style="display:none">
           <div class="sec-label sec-label-toggle" onclick="toggleSection('list-equipment',this.querySelector('.toggle-chev'))">
             Your Equipment <span class="toggle-chev">▶</span>
@@ -5513,6 +5529,27 @@ function invCard(i) {
     <div class="amount-sub">Balance due</div>
     \${total}
     <div class="btn-row">\${btns}</div>
+  </div>\`;
+}
+
+function paidInvCard(i) {
+  const url    = payUrl(i.id);
+  const linked = _allWOs.find(w=>(i.woIds||[]).includes(w.id));
+  const ctx    = linked
+    ? \`<div class="card-sub" style="margin-bottom:8px">\${esc(linked.type||'Service')}\${linked.address?' · '+esc(linked.address):''}</div>\`
+    : '';
+  const amt    = i.amountPaid > 0 ? i.amountPaid : i.total;
+  const method = i.payMethod ? \` · \${esc(i.payMethod)}\` : '';
+  const isVoid = i.status === 'Void';
+  const dateLabel = i.paidDate ? fmtDate(i.paidDate) : fmtDate(i.date);
+  return \`<div class="card" style="opacity:\${isVoid?'0.6':'1'}">
+    <div class="card-eyebrow">\${isVoid?'Void':'Paid'} · \${dateLabel}\${method}</div>
+    \${ctx}
+    <div class="amount" style="font-size:20px;color:\${isVoid?'#9ca3af':'#16a34a'}">\${money(amt)}</div>
+    <div class="amount-sub">\${isVoid?'Voided':'Paid in full'}</div>
+    <div class="btn-row" style="margin-top:12px">
+      <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View &amp; Print Receipt</a>
+    </div>
   </div>\`;
 }
 
@@ -5786,6 +5823,11 @@ async function load() {
     if (d.estimates&&d.estimates.length) {
       document.getElementById('sec-estimates').style.display='block';
       document.getElementById('list-estimates').innerHTML=d.estimates.map(estCard).join('');
+    }
+
+    if (d.invoiceHistory&&d.invoiceHistory.length) {
+      document.getElementById('sec-inv-history').style.display='block';
+      document.getElementById('list-inv-history').innerHTML=d.invoiceHistory.map(paidInvCard).join('');
     }
 
     document.getElementById('list-history').innerHTML=d.history&&d.history.length
