@@ -5620,15 +5620,19 @@ function openWO(woId) {
         ...(d.invoiceIds||[]),
         ...Object.values(_invMap).filter(i=>(i.woIds||[]).includes(d.id)).map(i=>i.id)
       ]);
+      const woPaid = (d.status==='Paid'||d.status==='Paid in Full');
       const invBtns=[...linkedInvIds].map(id=>{
-        const inv   = _invMap[id];
-        const paid  = inv && (inv.status==='Paid in Full'||inv.status==='Void'||(Number(inv.balanceDue||0)===0&&Number(inv.amountPaid||0)>0));
-        const hasBal= inv && Number(inv.balanceDue||0)>0;
+        const inv    = _invMap[id];
+        const isVoid = inv && inv.status==='Void';
+        const paid   = woPaid || (inv && (inv.status==='Paid in Full'||inv.status==='Void'||(Number(inv.balanceDue||0)===0&&Number(inv.amountPaid||0)>0)));
+        const hasBal = !paid && inv && Number(inv.balanceDue||0)>0;
+        if (isVoid) return '';
         if (hasBal) {
           return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="pay-btn">Pay Invoice — \${money(inv.balanceDue)}</a>
                   <a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`;
         }
-        return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">\${paid?'View &amp; Print Receipt':'View Invoice'}</a>\`;
+        const amt = inv ? (inv.amountPaid>0?inv.amountPaid:inv.total) : 0;
+        return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn" style="\${paid?'border-color:#16a34a;color:#16a34a;':''}">\${paid?(amt?'Paid ✓ — '+money(amt)+' · View Receipt':'View &amp; Print Receipt'):'View Invoice'}</a>\`;
       }).join('');
       const rptBtn=\`<a href="\${esc(reportUrl(d.id))}" target="_blank" rel="noopener" class="view-btn">Service Report</a>\`;
       act.innerHTML = invBtns + rptBtn;
