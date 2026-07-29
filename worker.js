@@ -3346,6 +3346,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         });
 
         // Estimates: Quotes table (Open/sent) is source of truth; fall back to Estimate Only WOs with no linked Quote
+        const APPROVED_WO_ST = new Set(['Estimate Approved', 'Estimate Declined', 'Paid', 'Paid in Full', 'Cancelled']);
         const quoteWoIds = new Set(quotesData.map(q => (q.fields['Work Order'] || [])[0]).filter(Boolean));
         const mapQuote = q => {
           const woId = (q.fields['Work Order'] || [])[0] || null;
@@ -3369,7 +3370,16 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           !['Paid', 'Paid in Full', 'Cancelled', 'Estimate Approved', 'Estimate Declined'].includes(w.fields['Status']) &&
           !quoteWoIds.has(w.id)
         );
-        const estimates = [...quotesData.map(mapQuote), ...woEstimates.map(mapWO)];
+        const estimates = [
+          ...quotesData
+            .filter(q => {
+              const woId = (q.fields['Work Order'] || [])[0] || null;
+              const wo   = woId ? woById[woId] : null;
+              return !wo || !APPROVED_WO_ST.has(wo.fields['Status'] || '');
+            })
+            .map(mapQuote),
+          ...woEstimates.map(mapWO),
+        ];
 
         return new Response(JSON.stringify({
           customer: { id: cId, name: custName, firstName: cf['First Name'] || '', email: cf['Email'] || '' },
