@@ -2092,8 +2092,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const depositAmount  = body.depositAmount || 0;          // dollar amount for deposit invoices
         const discountType   = body.discountType  || 'pct';      // 'pct' | 'dollar'
         const discountValue  = Number(body.discountValue) || 0;  // percent (0-100) or dollar amount
-        const discountReason = body.discountReason || '';
-        const ccEmails       = (body.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
+        const discountReason    = body.discountReason || '';
+        const ccEmails          = (body.ccEmails || []).filter(e => e && typeof e === 'string' && e.includes('@'));
+        const paymentCollected  = body.paymentCollected || null; // { method, amount, date, note? }
 
         if (!customerId) throw new Error('customerId is required');
 
@@ -2271,40 +2272,71 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         let finalInv = inv;
         if (sendNow) {
           await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/finalize`, {});
-          finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
 
-          // Send our own branded invoice email via Resend (in addition to Stripe's)
-          if (custEmail && env.RESEND_API_KEY) {
-            const firstName      = custName.split(' ')[0] || custName;
-            const isDeposit      = invoiceType === 'deposit';
-            const isFinal        = invoiceType === 'final_balance';
-            const invoiceSubject = isDeposit
-              ? `Deposit invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`
-              : isFinal
-              ? `Final balance due — CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`
-              : `Your invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`;
-            await sendEmail(env.RESEND_API_KEY, {
-              to:      custEmail,
-              subject: invoiceSubject,
-              cc:      ccEmails,
-              html:    emailInvoiceHtml({
-                customerName:  firstName,
-                invoiceNumber: finalInv.number || null,
-                total:         subtotal,
-                hostedUrl:     finalInv.hosted_invoice_url || '',
-                dueDate,
-                isDeposit,
-                isFinal,
-              }),
-            }).catch(e => console.error('Invoice email error:', e));
-            logCommunication(env, {
-              type:        'Email',
-              trigger:     'Invoice Sent',
-              sentTo:      custEmail,
-              subject:     invoiceSubject,
-              customerId,
-              workOrderId: workOrderId || null,
-            }).catch(() => {});
+          if (paymentCollected) {
+            // Payment was collected in person — mark paid out-of-band instead of emailing invoice
+            finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/pay`, { paid_out_of_band: 'true' });
+            // Send a receipt email instead of an invoice email
+            if (custEmail && env.RESEND_API_KEY) {
+              const firstName      = custName.split(' ')[0] || custName;
+              const receiptSubject = `Payment receipt from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`;
+              await sendEmail(env.RESEND_API_KEY, {
+                to:      custEmail,
+                subject: receiptSubject,
+                cc:      ccEmails,
+                html:    emailPaymentThankYouHtml({
+                  customerName:  firstName,
+                  amountPaid:    paymentCollected.amount || (finalInv.amount_paid || 0) / 100,
+                  invoiceNumber: finalInv.number || null,
+                  googleReviewUrl: GOOGLE_REVIEW_URL,
+                }),
+              }).catch(e => console.error('Receipt email error:', e));
+              logCommunication(env, {
+                type:        'Email',
+                trigger:     'Receipt Sent',
+                sentTo:      custEmail,
+                subject:     receiptSubject,
+                customerId,
+                workOrderId: workOrderId || null,
+              }).catch(() => {});
+            }
+          } else {
+            // Standard path — send Stripe invoice email + branded Resend email
+            finalInv = await stripePost(STRIPE_KEY, `/v1/invoices/${inv.id}/send`, {});
+
+            // Send our own branded invoice email via Resend (in addition to Stripe's)
+            if (custEmail && env.RESEND_API_KEY) {
+              const firstName      = custName.split(' ')[0] || custName;
+              const isDeposit      = invoiceType === 'deposit';
+              const isFinal        = invoiceType === 'final_balance';
+              const invoiceSubject = isDeposit
+                ? `Deposit invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`
+                : isFinal
+                ? `Final balance due — CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`
+                : `Your invoice from CJB Comfort${finalInv.number ? ` — ${finalInv.number}` : ''}`;
+              await sendEmail(env.RESEND_API_KEY, {
+                to:      custEmail,
+                subject: invoiceSubject,
+                cc:      ccEmails,
+                html:    emailInvoiceHtml({
+                  customerName:  firstName,
+                  invoiceNumber: finalInv.number || null,
+                  total:         subtotal,
+                  hostedUrl:     finalInv.hosted_invoice_url || '',
+                  dueDate,
+                  isDeposit,
+                  isFinal,
+                }),
+              }).catch(e => console.error('Invoice email error:', e));
+              logCommunication(env, {
+                type:        'Email',
+                trigger:     'Invoice Sent',
+                sentTo:      custEmail,
+                subject:     invoiceSubject,
+                customerId,
+                workOrderId: workOrderId || null,
+              }).catch(() => {});
+            }
           }
         }
 
@@ -2365,17 +2397,25 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                             : invoiceType === 'ea_rebate'       ? 'EA Rebate'
                             : 'Standard';
 
+        const paidInFull  = paymentCollected && sendNow;
+        const paidDate    = paymentCollected?.date || today;
         const atFields = {
           'Invoice Name':   `${custName} — ${today}${invoiceType === 'deposit' ? ' (Deposit)' : invoiceType === 'final_balance' ? ' (Final)' : invoiceType === 'ea_rebate' ? ' (EA Rebate)' : ''}`,
           'Customers':      [customerId],
-          'Status':         sendNow ? 'Sent' : 'Draft',
+          'Status':         paidInFull ? 'Paid in Full' : sendNow ? 'Sent' : 'Draft',
           'Invoice Type':   atInvoiceType,
           'Invoice Date':   today,
           'Due Date':       dueDate,
           'Subtotal':       subtotal,
           'Stripe Invoice ID': finalInv.id,
-          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}`,
+          'Internal Notes': `Stripe Invoice ID: ${finalInv.id}${waveInvoiceId ? '\nWave Invoice ID: ' + waveInvoiceId : ''}${finalInv.hosted_invoice_url ? '\n' + finalInv.hosted_invoice_url : ''}${paymentCollected?.note ? '\nPayment note: ' + paymentCollected.note : ''}`,
           ...(sendNow ? { 'Sent Date': today } : {}),
+          ...(paidInFull ? {
+            'Paid Date':      paidDate,
+            'Amount Paid':    paymentCollected.amount,
+            'Payment Method': paymentCollected.method,
+            ...(paymentCollected.note ? { 'Payment Notes': paymentCollected.note } : {}),
+          } : {}),
           ...(waveInvoiceId ? { 'Wave Exported': true, 'Wave Invoice ID': waveInvoiceId } : {}),
           // Deposit-specific fields
           ...(invoiceType === 'deposit' ? {
@@ -2428,6 +2468,10 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             if (invoiceType === 'deposit') {
               // Deposit sent — don't flip WO to Invoiced; keep current status
               // (WO remains Scheduled/In Progress until deposit is paid)
+            } else if (paidInFull) {
+              // Payment already collected in person — mark WO as Paid immediately
+              woUpdate['Status'] = 'Paid';
+              await patchBillableJobs(woRecord?.fields?.['Jobs'] || [], 'Paid');
             } else {
               woUpdate['Status'] = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';
               const jobStatus = zeroDollarAutoPaid ? 'Paid' : 'Invoiced';

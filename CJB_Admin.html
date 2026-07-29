@@ -1251,6 +1251,44 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
 
     <textarea class="notes-inp" id="inv-notes" placeholder="Notes visible to the customer (optional)…"></textarea>
 
+    <!-- Pre-payment toggle -->
+    <div style="margin:14px 0 0;padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:#15803d;">
+        <input type="checkbox" id="inv-prepaid-toggle" onchange="togglePrepaidSection()" style="width:16px;height:16px;accent-color:#16a34a;cursor:pointer;">
+        Payment already collected
+      </label>
+      <div id="inv-prepaid-section" style="display:none;margin-top:12px;display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <label class="form-label" style="margin-bottom:4px;">Payment Method</label>
+            <select id="inv-prepaid-method" class="form-inp" style="font-size:13px;">
+              <option value="Cash">Cash</option>
+              <option value="Check">Check</option>
+              <option value="Zelle">Zelle</option>
+              <option value="Credit Card">Credit Card</option>
+              <option value="ACH">ACH</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px;">Date Collected</label>
+            <input type="date" id="inv-prepaid-date" class="form-inp" style="font-size:13px;">
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label class="form-label" style="margin-bottom:4px;">Amount Collected</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-weight:700;color:#374151;font-size:14px;">$</span>
+            <input type="number" id="inv-prepaid-amount" class="form-inp" step="0.01" min="0.01" placeholder="0.00" style="flex:1;font-size:13px;">
+          </div>
+        </div>
+        <div>
+          <label class="form-label" style="margin-bottom:4px;">Reference / Note <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
+          <input type="text" id="inv-prepaid-note" class="form-inp" placeholder="e.g. Check #1042" style="font-size:13px;">
+        </div>
+      </div>
+    </div>
+
     <div style="margin:12px 0 4px;">
       <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Also send to (CC)</div>
       <div id="inv-cc-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;"></div>
@@ -3715,6 +3753,7 @@ async function openInvoiceModal(workOrderId, customerId) {
 
   // Reset discount section
   clearDiscount();
+  resetPrepaidToggle();
 
   // Reset invoice type selector to standard
   const typeSelect = document.getElementById('inv-type-select');
@@ -4026,12 +4065,53 @@ function addLaborItem(jobs) {
   );
 }
 
+function togglePrepaidSection() {
+  const on  = document.getElementById('inv-prepaid-toggle')?.checked;
+  const sec = document.getElementById('inv-prepaid-section');
+  const sb  = document.getElementById('send-btn');
+  const db  = document.getElementById('draft-btn');
+  if (sec) sec.style.display = on ? '' : 'none';
+  if (sb)  sb.textContent    = on ? 'Send Receipt' : 'Send Invoice Now';
+  if (db)  db.style.display  = on ? 'none' : '';
+  // Pre-fill amount and date when toggling on
+  if (on) {
+    const totalEl = document.getElementById('inv-total');
+    const amtEl   = document.getElementById('inv-prepaid-amount');
+    const dateEl  = document.getElementById('inv-prepaid-date');
+    if (totalEl && amtEl && !amtEl.value) {
+      const totalStr = (totalEl.textContent || '').replace(/[^0-9.]/g, '');
+      if (totalStr) amtEl.value = parseFloat(totalStr).toFixed(2);
+    }
+    if (dateEl && !dateEl.value) {
+      dateEl.value = new Date().toISOString().split('T')[0];
+    }
+  }
+}
+
+function resetPrepaidToggle() {
+  const tog = document.getElementById('inv-prepaid-toggle');
+  const sec = document.getElementById('inv-prepaid-section');
+  const db  = document.getElementById('draft-btn');
+  if (tog) tog.checked = false;
+  if (sec) sec.style.display = 'none';
+  if (db)  db.style.display  = '';
+  const amtEl  = document.getElementById('inv-prepaid-amount');
+  const dateEl = document.getElementById('inv-prepaid-date');
+  const noteEl = document.getElementById('inv-prepaid-note');
+  const methEl = document.getElementById('inv-prepaid-method');
+  if (amtEl)  amtEl.value  = '';
+  if (dateEl) dateEl.value = '';
+  if (noteEl) noteEl.value = '';
+  if (methEl) methEl.value = 'Cash';
+}
+
 function closeModal() {
   const m = document.getElementById('invoice-modal');
   m.classList.add('hidden');
   delete m.dataset.invType;
   const sb = document.getElementById('send-btn');
   if (sb) sb.textContent = 'Send Invoice Now';
+  resetPrepaidToggle();
   // Reset type selector visibility (may have been hidden by deposit/final modal)
   const typeSelect = document.getElementById('inv-type-select');
   if (typeSelect) typeSelect.style.display = '';
@@ -5496,6 +5576,15 @@ async function submitInvoice(sendNow) {
 
   const notes = document.getElementById('inv-notes').value.trim();
 
+  // Pre-payment
+  const prepaidOn     = document.getElementById('inv-prepaid-toggle')?.checked;
+  const prepaidMethod = document.getElementById('inv-prepaid-method')?.value || 'Cash';
+  const prepaidAmount = parseFloat(document.getElementById('inv-prepaid-amount')?.value || '0') || 0;
+  const prepaidDate   = document.getElementById('inv-prepaid-date')?.value || new Date().toISOString().split('T')[0];
+  const prepaidNote   = (document.getElementById('inv-prepaid-note')?.value || '').trim();
+  if (prepaidOn && prepaidAmount <= 0) { alert('Please enter the amount already collected.'); return; }
+  const paymentCollected = prepaidOn ? { method: prepaidMethod, amount: prepaidAmount, date: prepaidDate, note: prepaidNote || undefined } : undefined;
+
   // Discount
   const discActive = document.getElementById('inv-discount-section')?.style.display !== 'none';
   const discVal    = discActive ? (parseFloat(document.getElementById('inv-discount-val')?.value) || 0) : 0;
@@ -5505,7 +5594,7 @@ async function submitInvoice(sendNow) {
   const sendBtn  = document.getElementById('send-btn');
   draftBtn.disabled = true;
   sendBtn.disabled  = true;
-  sendBtn.textContent = sendNow ? 'Sending…' : 'Saving…';
+  sendBtn.textContent = paymentCollected ? 'Sending Receipt…' : (sendNow ? 'Sending…' : 'Saving…');
 
   try {
     const res = await fetch(`${PROXY}/invoice`, {
@@ -5516,13 +5605,14 @@ async function submitInvoice(sendNow) {
         customerId:    invoiceCustId,
         lineItems,
         notes,
-        sendNow,
+        sendNow:       paymentCollected ? true : sendNow,
         invoiceType:   invType,
         depositAmount: depositAmount || undefined,
         discountType:  discActive ? _discountType : undefined,
         discountValue: discActive && discVal > 0 ? discVal : undefined,
         discountReason: discActive && discReason ? discReason : undefined,
-        ccEmails:      sendNow && _ccEmails.length ? _ccEmails : undefined,
+        ccEmails:      (paymentCollected ? true : sendNow) && _ccEmails.length ? _ccEmails : undefined,
+        paymentCollected,
       })
     });
     const data = await res.json();
@@ -5540,12 +5630,15 @@ async function submitInvoice(sendNow) {
     closeModal();
 
     if (data.hostedUrl) {
-      const go = confirm(sendNow
+      const msg = paymentCollected
+        ? '✅ Payment recorded & receipt sent!\n\nOpen the Stripe receipt to confirm?'
+        : sendNow
         ? '✅ Invoice sent to customer!\n\nOpen the Stripe invoice to confirm?'
-        : '✅ Draft invoice saved.\n\nOpen in Stripe to review before sending?');
+        : '✅ Draft invoice saved.\n\nOpen in Stripe to review before sending?';
+      const go = confirm(msg);
       if (go) window.open(data.hostedUrl, '_blank');
     } else {
-      alert(sendNow ? '✅ Invoice sent!' : '✅ Draft saved.');
+      alert(paymentCollected ? '✅ Payment recorded & receipt sent!' : sendNow ? '✅ Invoice sent!' : '✅ Draft saved.');
     }
 
     // Refresh work orders for this customer
@@ -5555,7 +5648,7 @@ async function submitInvoice(sendNow) {
     alert('Error: ' + err.message);
     draftBtn.disabled = false;
     sendBtn.disabled  = false;
-    sendBtn.textContent = 'Send Invoice Now';
+    sendBtn.textContent = paymentCollected ? 'Send Receipt' : 'Send Invoice Now';
   }
 }
 
