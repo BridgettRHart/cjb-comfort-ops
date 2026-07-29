@@ -5614,7 +5614,13 @@ function openWO(woId) {
       document.getElementById('dr-sections').innerHTML=html;
 
       const act=document.getElementById('dr-act');
-      const invBtns=(d.invoiceIds||[]).map(id=>{
+      // Cross-reference invoices by woId from client-side _invMap (more reliable than
+      // the WO's Invoices linked field, which isn't always back-populated in Airtable)
+      const linkedInvIds = new Set([
+        ...(d.invoiceIds||[]),
+        ...Object.values(_invMap).filter(i=>(i.woIds||[]).includes(d.id)).map(i=>i.id)
+      ]);
+      const invBtns=[...linkedInvIds].map(id=>{
         const inv   = _invMap[id];
         const paid  = inv && (inv.status==='Paid in Full'||inv.status==='Void'||(Number(inv.balanceDue||0)===0&&Number(inv.amountPaid||0)>0));
         const hasBal= inv && Number(inv.balanceDue||0)>0;
