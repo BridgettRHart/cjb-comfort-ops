@@ -5526,27 +5526,6 @@ function invCard(i) {
   </div>\`;
 }
 
-function paidInvCard(i) {
-  const url    = payUrl(i.id);
-  const linked = _allWOs.find(w=>(i.woIds||[]).includes(w.id));
-  const ctx    = linked
-    ? \`<div class="card-sub" style="margin-bottom:8px">\${esc(linked.type||'Service')}\${linked.address?' · '+esc(linked.address):''}</div>\`
-    : '';
-  const amt    = i.amountPaid > 0 ? i.amountPaid : i.total;
-  const method = i.payMethod ? \` · \${esc(i.payMethod)}\` : '';
-  const isVoid = i.status === 'Void';
-  const dateLabel = i.paidDate ? fmtDate(i.paidDate) : fmtDate(i.date);
-  return \`<div class="card" style="opacity:\${isVoid?'0.6':'1'}">
-    <div class="card-eyebrow">\${isVoid?'Void':'Paid'} · \${dateLabel}\${method}</div>
-    \${ctx}
-    <div class="amount" style="font-size:20px;color:\${isVoid?'#9ca3af':'#16a34a'}">\${money(amt)}</div>
-    <div class="amount-sub">\${isVoid?'Voided':'Paid in full'}</div>
-    <div class="btn-row" style="margin-top:12px">
-      <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View &amp; Print Receipt</a>
-    </div>
-  </div>\`;
-}
-
 function estCard(e) {
   const hasAmount  = e.totalAmount > 0;
   const amtLine    = hasAmount ? \`<div class="amount" style="font-size:20px">\${money(e.totalAmount)}</div><div class="amount-sub">Estimated cost</div>\` : '';
