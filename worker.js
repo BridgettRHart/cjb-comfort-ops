@@ -5628,8 +5628,7 @@ function openWO(woId) {
         const hasBal = !paid && inv && Number(inv.balanceDue||0)>0;
         if (isVoid) return '';
         if (hasBal) {
-          return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="pay-btn">Pay Invoice — \${money(inv.balanceDue)}</a>
-                  <a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`;
+          return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="pay-btn">Pay Invoice — \${money(inv.balanceDue)}</a>\`;
         }
         const amt = inv ? (inv.amountPaid>0?inv.amountPaid:inv.total) : 0;
         return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn" style="\${paid?'border-color:#16a34a;color:#16a34a;':''}">\${paid?(amt?'Paid ✓ — '+money(amt)+' · View Receipt':'View &amp; Print Receipt'):'View Invoice'}</a>\`;
