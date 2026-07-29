@@ -4302,8 +4302,9 @@ function renderQuoteActions(status) {
     el.innerHTML = `
       <button class="btn btn-gray" onclick="closeQuoteModal()">Close</button>
       <button class="btn btn-red btn-sm" onclick="declineQuote()">Record Customer Decline</button>
-      <button class="btn btn-gray" onclick="saveQuoteNotesOnly(this)" title="Save notes to Airtable without resending to customer">Save Notes</button>
-      <button class="btn btn-gray" onclick="submitQuote(true)">Update &amp; Resend</button>`;
+      <button class="btn btn-gray" id="quote-draft-btn" onclick="submitQuote(false)" title="Cancels current quote and saves as draft — no email sent">Save as Draft</button>
+      <button class="btn btn-gray" id="quote-pdf-btn" onclick="submitQuote('pdf')" title="Rebuilds and finalizes for PDF — no email sent">Finalize for PDF (no email)</button>
+      <button class="btn btn-green" id="quote-send-btn" onclick="submitQuote(true)">Update &amp; Resend</button>`;
     return;
   }
   if (status === 'declined' || status === 'expired') {
