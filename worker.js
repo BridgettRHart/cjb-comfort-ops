@@ -5424,13 +5424,6 @@ footer a:hover{text-decoration:underline}
           <div id="list-estimates"></div>
         </div>
 
-        <div class="sec-block" id="sec-inv-history" style="display:none">
-          <div class="sec-label sec-label-toggle" onclick="toggleSection('list-inv-history',this.querySelector('.toggle-chev'))">
-            Invoice History <span class="toggle-chev">▶</span>
-          </div>
-          <div id="list-inv-history" style="display:none"></div>
-        </div>
-
         <div class="sec-block" id="sec-equipment" style="display:none">
           <div class="sec-label sec-label-toggle" onclick="toggleSection('list-equipment',this.querySelector('.toggle-chev'))">
             Your Equipment <span class="toggle-chev">▶</span>
@@ -5498,6 +5491,7 @@ function payUrl(id)    { return '/api/portal/pay-invoice?id='+encodeURIComponent
 function reportUrl(id) { return '/api/portal/service-report?id='+encodeURIComponent(id)+'&token='+encodeURIComponent(TOKEN); }
 
 let _allWOs = [];
+let _invMap  = {}; // id → invoice object (unpaid + paid), used by openWO for button labels
 
 function woCard(w) {
   const prob = w.problem ? \`<div class="card-problem" title="\${esc(w.problem)}">\${esc(trunc(w.problem,110))}</div>\` : '';
@@ -5641,7 +5635,16 @@ function openWO(woId) {
       document.getElementById('dr-sections').innerHTML=html;
 
       const act=document.getElementById('dr-act');
-      const invBtns=(d.invoiceIds||[]).map(id=>\`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`).join('');
+      const invBtns=(d.invoiceIds||[]).map(id=>{
+        const inv   = _invMap[id];
+        const paid  = inv && (inv.status==='Paid in Full'||inv.status==='Void'||(Number(inv.balanceDue||0)===0&&Number(inv.amountPaid||0)>0));
+        const hasBal= inv && Number(inv.balanceDue||0)>0;
+        if (hasBal) {
+          return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="pay-btn">Pay Invoice — \${money(inv.balanceDue)}</a>
+                  <a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`;
+        }
+        return \`<a href="\${esc(payUrl(id))}" target="_blank" rel="noopener" class="view-btn">\${paid?'View &amp; Print Receipt':'View Invoice'}</a>\`;
+      }).join('');
       const rptBtn=\`<a href="\${esc(reportUrl(d.id))}" target="_blank" rel="noopener" class="view-btn">Service Report</a>\`;
       act.innerHTML = invBtns + rptBtn;
 
@@ -5825,10 +5828,9 @@ async function load() {
       document.getElementById('list-estimates').innerHTML=d.estimates.map(estCard).join('');
     }
 
-    if (d.invoiceHistory&&d.invoiceHistory.length) {
-      document.getElementById('sec-inv-history').style.display='block';
-      document.getElementById('list-inv-history').innerHTML=d.invoiceHistory.map(paidInvCard).join('');
-    }
+    // Build in-memory invoice map for drawer button labels (paid vs unpaid)
+    _invMap={};
+    [...(d.unpaidInvoices||[]),...(d.invoiceHistory||[])].forEach(i=>{ _invMap[i.id]=i; });
 
     document.getElementById('list-history').innerHTML=d.history&&d.history.length
       ? renderList(d.history,multi)
