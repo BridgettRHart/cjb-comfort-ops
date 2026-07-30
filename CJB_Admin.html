@@ -3191,9 +3191,13 @@ function renderDetail(customer, props, wos, contacts) {
             ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
             : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Send Deposit</button>`;
         } else if (status === 'Invoiced') {
+          const stripeInvId = wf['Stripe Invoice ID'] || '';
           invoiceBtn = `<button class="btn btn-green btn-sm" onclick="openAdminPayModal('${wo.id}')">Collect / Partial</button>`;
           if (stripeUrl || hasDraftInvoice) {
-            invoiceBtn += ` <button class="btn btn-gray btn-sm" onclick="viewStripeInvoice('${wf['Stripe Invoice ID'] || ''}','${escAttr(stripeUrl || '')}')">View Invoice ↗</button>`;
+            invoiceBtn += ` <button class="btn btn-gray btn-sm" onclick="viewStripeInvoice('${escAttr(stripeInvId)}','${escAttr(stripeUrl || '')}')">View Invoice ↗</button>`;
+          }
+          if (stripeInvId) {
+            invoiceBtn += ` <button class="btn btn-gray btn-sm" onclick="sendInvoiceReminder('${escAttr(stripeInvId)}',this)">Send Reminder</button>`;
           }
         } else if (status === 'Paid') {
           if (stripeUrl || hasDraftInvoice) {
@@ -6521,6 +6525,29 @@ function extractStripeUrl(internalNotes) {
 }
 
 // Open a Stripe invoice in a new tab. Prefers a URL already on hand (parsed from
+async function sendInvoiceReminder(stripeInvoiceId, btn) {
+  if (!confirm('Send a payment reminder email (and SMS if available) to this customer now?')) return;
+  const orig = btn.textContent;
+  btn.textContent = 'Sending…';
+  btn.disabled = true;
+  try {
+    const res  = await fetch(`${PROXY}/send-invoice-reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stripeInvoiceId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Unknown error');
+    btn.textContent = 'Sent ✓';
+    btn.style.color = '#16a34a';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.disabled = false; }, 4000);
+  } catch (e) {
+    alert('Reminder failed: ' + e.message);
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
 // Internal Notes); falls back to looking the invoice up by its Stripe Invoice ID
 // when that text never got saved but the invoice itself still exists.
 async function viewStripeInvoice(stripeInvoiceId, knownUrl) {

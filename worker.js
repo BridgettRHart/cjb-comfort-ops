@@ -64,6 +64,7 @@ export default {
     // Load secrets (same as fetch handler)
     AIRTABLE_BASE_ID = env.AIRTABLE_BASE_ID || AIRTABLE_BASE_ID;
     AIRTABLE_API_KEY = env.AIRTABLE_API_KEY || AIRTABLE_API_KEY;
+    _ctx = ctx; // needed so logCommunication can register with ctx.waitUntil()
     ctx.waitUntil(Promise.all([
       sendAppointmentReminders(env),
       checkContractRenewals(env),
@@ -2078,6 +2079,103 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Manual invoice reminder / resend ─────────────────────────────────
+    if (path === '/api/send-invoice-reminder' && request.method === 'POST') {
+      try {
+        const { stripeInvoiceId } = await request.json();
+        if (!stripeInvoiceId) return new Response(JSON.stringify({ error: 'stripeInvoiceId required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // Look up the Airtable invoice by its Stripe Invoice ID field
+        const invSearch = await fetch(
+          `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Invoices?filterByFormula=${encodeURIComponent(`{Stripe Invoice ID}="${stripeInvoiceId}"`)}&maxRecords=1`,
+          { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+        );
+        if (!invSearch.ok) return new Response(JSON.stringify({ error: 'Airtable lookup failed' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const { records: invRecs = [] } = await invSearch.json();
+        const atInv = invRecs[0] || null;
+        if (!atInv) return new Response(JSON.stringify({ error: 'Invoice not found in Airtable' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const f = atInv.fields;
+        const custId = (f['Customers'] || [])[0];
+        if (!custId) return new Response(JSON.stringify({ error: 'No customer on invoice' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const custRec = await airtableGetById('Customers', custId).catch(() => null);
+        if (!custRec) return new Response(JSON.stringify({ error: 'Customer not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const custEmail = custRec.fields['Email'] || '';
+        const custPhone = custRec.fields['Phone'] || '';
+        const custName  = custRec.fields['Customer Name'] || '';
+        const custFirst = custRec.fields['First Name'] || custName.split(' ')[0] || 'there';
+        if (!custEmail) return new Response(JSON.stringify({ error: 'Customer has no email address' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const stripeInvId = (f['Stripe Invoice ID'] || '').trim();
+        let hostedUrl = '', amountDue = 0, invNumber = '';
+        if (stripeInvId && env.STRIPE_SECRET_KEY) {
+          const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeInvId}`,
+            { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } });
+          if (sr.ok) {
+            const sd  = await sr.json();
+            hostedUrl = sd.hosted_invoice_url || '';
+            amountDue = (sd.amount_due || 0) / 100;
+            invNumber = sd.number || '';
+          }
+        }
+
+        const dueDate = f['Due Date'] || '';
+        const dueFmt  = dueDate ? new Date(dueDate + 'T12:00:00').toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '';
+        const amtStr  = amountDue > 0 ? ` ($${amountDue.toFixed(2)})` : '';
+        const payStr  = hostedUrl ? ` Pay here: ${hostedUrl}` : '';
+
+        const today       = new Date();
+        const daysPastDue = dueDate ? Math.floor((today - new Date(dueDate + 'T12:00:00')) / 86400000) : 0;
+        const todayStr    = today.toISOString().split('T')[0];
+
+        const emailSubject = daysPastDue > 0
+          ? `Reminder: your CJB Comfort invoice${invNumber ? ` #${invNumber}` : ''} is past due`
+          : `Reminder: your CJB Comfort invoice${invNumber ? ` #${invNumber}` : ''} is due${dueFmt ? ` on ${dueFmt}` : ''}`;
+        const emailBody = daysPastDue > 0
+          ? `Your invoice${invNumber ? ` #${invNumber}` : ''}${amtStr} was due on ${dueFmt} and has not been paid. Please pay as soon as possible.`
+          : `Your invoice${invNumber ? ` #${invNumber}` : ''}${amtStr} is due on ${dueFmt}. Please pay before the due date to avoid a late fee.`;
+        const smsBody = `Hi ${custFirst} — a reminder about your CJB Comfort invoice${amtStr}${dueFmt ? ` due ${dueFmt}` : ''}.${payStr} Questions? Call/text ${OFFICE_PHONE}. – CJB Comfort`;
+
+        await sendEmail(env.RESEND_API_KEY, {
+          to: custEmail, subject: emailSubject,
+          html: emailOverdueHtml({ customerName: custFirst, invoiceNumber: invNumber, amountDue, hostedUrl, dueDate, daysOverdue: Math.max(daysPastDue, 0), bodyText: emailBody, isWarning: daysPastDue >= 25 }),
+        }).catch(e => console.error('Manual reminder email error:', e));
+
+        await logCommunication(env, { type: 'Email', trigger: 'Manual Reminder', sentTo: custEmail, subject: emailSubject, customerId: custId }).catch(() => {});
+
+        if (custPhone && env.QUO_API_KEY) {
+          await sendSms(env.QUO_API_KEY, custPhone, smsBody)
+            .then(() => logCommunication(env, { type: 'SMS', trigger: 'Manual Reminder', sentTo: custPhone, subject: 'Manual reminder SMS', customerId: custId }))
+            .catch(e => console.error('Manual reminder SMS error:', e));
+        }
+
+        // Notify Bridgett
+        await sendEmail(env.RESEND_API_KEY, {
+          to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
+          subject: `📋 Manual invoice reminder sent: ${custName}${amountDue ? ` — $${amountDue.toFixed(2)}` : ''}`,
+          html: emailBase({ preheader: 'Manual reminder sent to customer.', body: `
+            <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Manual Reminder Sent</p>
+            <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 12px;">Reminder sent to <strong>${custName}</strong>${invNumber ? ` for invoice #${invNumber}` : ''}${amountDue ? ` ($${amountDue.toFixed(2)})` : ''} due ${dueFmt || 'N/A'}.</p>
+            ${hostedUrl ? `<div style="text-align:center;"><a href="${hostedUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">View Invoice ↗</a></div>` : ''}`,
+          }),
+        }).catch(() => {});
+
+        return new Response(JSON.stringify({ ok: true, sent: true, to: custEmail }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Stripe Invoice — create / update ─────────────────────────────────
     if (path === '/api/invoice' && request.method === 'POST') {
       try {
@@ -2402,6 +2500,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const atFields = {
           'Invoice Name':   `${custName} — ${today}${invoiceType === 'deposit' ? ' (Deposit)' : invoiceType === 'final_balance' ? ' (Final)' : invoiceType === 'ea_rebate' ? ' (EA Rebate)' : ''}`,
           'Customers':      [customerId],
+          'Active':         true,
           'Status':         paidInFull ? 'Paid in Full' : sendNow ? 'Sent' : 'Draft',
           'Invoice Type':   atInvoiceType,
           'Invoice Date':   today,
@@ -4466,9 +4565,9 @@ const COM_STAGES = ['com-pre', 'com-due'];                   // late fee handled
 
 function _targetStage(daysPastDue, isCommercial) {
   if (isCommercial) {
-    if (daysPastDue >= 0)  return 'com-due';
-    if (daysPastDue >= -5) return 'com-pre';
-    return null;
+    if (daysPastDue < -5) return null;
+    if (daysPastDue < 0)  return 'com-pre';
+    return 'com-due';
   }
   if (daysPastDue >= 25) return 'res-25';
   if (daysPastDue >= 15) return 'res-15';
@@ -4492,7 +4591,10 @@ async function checkOverdueInvoices(env) {
     const day30 = new Date(today.getTime() - 30 * 86400000).toISOString().split('T')[0];
 
     // Fetch all outstanding sent invoices in one pass
-    const formula = `AND({Status}="Sent",NOT({Late Fee Applied}),{Active})`;
+    // Note: no {Active} filter — Status="Sent" already excludes drafts/voids, and
+    // many invoices were created before Active was set on creation, so filtering on it
+    // would silently skip them all.
+    const formula = `AND({Status}="Sent",NOT({Late Fee Applied}))`;
     const res = await fetch(
       `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Invoices?filterByFormula=${encodeURIComponent(formula)}&fields[]=Due%20Date&fields[]=Customers&fields[]=Work%20Orders&fields[]=Stripe%20Invoice%20ID&fields[]=Reminder%20Stage&fields[]=Late%20Fee%20Applied&fields[]=Overdue%20Notice%20Sent`,
       { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
@@ -4599,10 +4701,10 @@ async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, today
     await sendEmail(env.RESEND_API_KEY, { to: custEmail, subject: emailSubject,
       html: emailOverdueHtml({ customerName: custFirst, invoiceNumber: invNumber, amountDue, hostedUrl, dueDate, daysOverdue: daysPastDue, bodyText: emailBody, isWarning }),
     }).catch(e => console.error('Reminder email error:', e));
-    logCommunication(env, { type: 'Email', trigger: `Reminder ${stage}`, sentTo: custEmail, subject: emailSubject, customerId: custId }).catch(() => {});
+    await logCommunication(env, { type: 'Email', trigger: `Reminder ${stage}`, sentTo: custEmail, subject: emailSubject, customerId: custId }).catch(() => {});
 
     if (custPhone && env.QUO_API_KEY) {
-      sendSms(env.QUO_API_KEY, custPhone, smsBody)
+      await sendSms(env.QUO_API_KEY, custPhone, smsBody)
         .then(() => logCommunication(env, { type: 'SMS', trigger: `Reminder ${stage}`, sentTo: custPhone, subject: `Reminder SMS ${stage}`, customerId: custId }))
         .catch(e => console.error('Reminder SMS error:', e));
     }
