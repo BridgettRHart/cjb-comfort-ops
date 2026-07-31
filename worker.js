@@ -1580,10 +1580,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           stripeGet(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}/lines?limit=100`)
         ]);
         return new Response(JSON.stringify({
-          id:          inv.id,
-          status:      inv.status,
-          description: inv.description || '',
-          hostedUrl:   inv.hosted_invoice_url || null,
+          id:            inv.id,
+          status:        inv.status,
+          number:        inv.number || '',
+          customer_name: inv.customer_name || inv.customer_email || '',
+          amount_due:    inv.amount_due || 0,
+          description:   inv.description || '',
+          hostedUrl:     inv.hosted_invoice_url || null,
           lines: (lines.data || []).map(l => {
             // unit_amount_excluding_tax is Stripe's most reliable per-unit field on invoice lines
             // (always present, always a string in cents). Fall back through price object then amount÷qty.
@@ -2169,6 +2172,116 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }).catch(() => {});
 
         return new Response(JSON.stringify({ ok: true, sent: true, to: custEmail }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Invoice — apply credit note to reduce amount ──────────────────────
+    if (path === '/api/invoice/adjust' && request.method === 'POST') {
+      try {
+        const { stripeInvoiceId, newAmountCents, memo, notifyCustomer } = await request.json();
+        if (!stripeInvoiceId || newAmountCents == null)
+          return new Response(JSON.stringify({ error: 'stripeInvoiceId and newAmountCents required' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeInvoiceId}`,
+          { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } });
+        if (!sr.ok) return new Response(JSON.stringify({ error: 'Failed to fetch invoice from Stripe' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const sd = await sr.json();
+
+        if (sd.status !== 'open') return new Response(JSON.stringify({ error: `Invoice is "${sd.status}" — can only adjust open (unpaid) invoices` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const currentCents = sd.amount_due;
+        const creditCents  = currentCents - newAmountCents;
+        if (creditCents <= 0) return new Response(JSON.stringify({ error: 'New amount must be less than the current amount due' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // Create the Stripe credit note — keeps the same invoice ID, just lowers amount_due
+        const cnBody = new URLSearchParams({ invoice: stripeInvoiceId, amount: String(creditCents), reason: 'order_change' });
+        if (memo) cnBody.set('memo', memo);
+        const cnRes = await fetch('https://api.stripe.com/v1/credit_notes', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: cnBody,
+        });
+        if (!cnRes.ok) {
+          const cnErr = await cnRes.json();
+          return new Response(JSON.stringify({ error: cnErr?.error?.message || 'Credit note creation failed' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const cn = await cnRes.json();
+
+        const newAmountDollars = newAmountCents / 100;
+        const creditDollars    = creditCents / 100;
+
+        // Update Airtable invoice record
+        const invSearch = await fetch(
+          `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Invoices?filterByFormula=${encodeURIComponent(`{Stripe Invoice ID}="${stripeInvoiceId}"`)}&maxRecords=1`,
+          { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+        );
+        const { records: invRecs = [] } = await invSearch.json();
+        const atInv = invRecs[0] || null;
+        let custId = null, custName = '', custEmail = '', custFirst = '';
+
+        if (atInv) {
+          custId = (atInv.fields['Customers'] || [])[0] || null;
+          const existingNotes = atInv.fields['Internal Notes'] || '';
+          const noteLine = `\nAdjustment ${new Date().toISOString().split('T')[0]}: −$${creditDollars.toFixed(2)} credit${memo ? ` — ${memo}` : ''}`;
+          await airtablePatch('Invoices', atInv.id, {
+            'Amount': newAmountDollars,
+            'Internal Notes': (existingNotes + noteLine).trim(),
+          }).catch(() => {});
+        }
+
+        if (custId) {
+          const custRec = await airtableGetById('Customers', custId).catch(() => null);
+          if (custRec) {
+            custName  = custRec.fields['Customer Name'] || '';
+            custEmail = custRec.fields['Email'] || '';
+            custFirst = custRec.fields['First Name'] || custName.split(' ')[0] || 'there';
+          }
+        }
+
+        // Optionally resend the updated invoice to customer via Stripe
+        if (notifyCustomer && custEmail) {
+          await fetch(`https://api.stripe.com/v1/invoices/${stripeInvoiceId}/send`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          }).catch(() => {});
+          if (custId) {
+            await logCommunication(env, {
+              type: 'Email', trigger: 'Invoice Adjusted',
+              sentTo: custEmail, subject: `Updated invoice — ${sd.number || stripeInvoiceId}`,
+              customerId: custId,
+            }).catch(() => {});
+          }
+        }
+
+        // Admin summary
+        await sendEmail(env.RESEND_API_KEY, {
+          to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
+          subject: `Invoice adjusted: ${custName || '(customer)'} — −$${creditDollars.toFixed(2)} credit`,
+          html: emailBase({ body: `
+            <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Invoice Adjusted</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;color:#374151;line-height:2;">
+              <tr><td style="color:#6b7280;padding-right:16px;">Customer</td><td>${custName || sd.customer_name || '—'}</td></tr>
+              <tr><td style="color:#6b7280;">Invoice</td><td>${sd.number || stripeInvoiceId}</td></tr>
+              <tr><td style="color:#6b7280;">Previous amount</td><td>$${(currentCents/100).toFixed(2)}</td></tr>
+              <tr><td style="color:#6b7280;">Credit applied</td><td style="color:#059669;">−$${creditDollars.toFixed(2)}</td></tr>
+              <tr><td style="color:#6b7280;font-weight:700;">New amount due</td><td style="font-weight:700;">$${newAmountDollars.toFixed(2)}</td></tr>
+              ${memo ? `<tr><td style="color:#6b7280;">Note</td><td>${memo}</td></tr>` : ''}
+              <tr><td style="color:#6b7280;">Customer notified</td><td>${notifyCustomer ? 'Yes — invoice resent via Stripe' : 'No'}</td></tr>
+            </table>
+            ${sd.hosted_invoice_url ? `<div style="text-align:center;margin-top:20px;"><a href="${sd.hosted_invoice_url}" style="display:inline-block;background:#c81f25;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">View Invoice ↗</a></div>` : ''}
+          `}),
+        }).catch(() => {});
+
+        return new Response(JSON.stringify({ ok: true, creditNoteId: cn.id, newAmount: newAmountDollars, creditAmount: creditDollars }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }),

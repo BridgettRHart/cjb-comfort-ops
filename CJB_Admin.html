@@ -1309,6 +1309,39 @@ body.dispatch-dragging .dispatch-assign-card:not(.dragging) { pointer-events:non
 </div>
 
 <!-- Collect Payment modal -->
+<div class="modal-bg hidden" id="adjust-invoice-modal" onclick="if(event.target===this)closeAdjustInvoiceModal()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title">Adjust Invoice</div>
+    <div id="aim-loading" style="padding:16px 0;color:#6b7280;font-size:14px;">Loading…</div>
+    <div id="aim-body" style="display:none;">
+      <div style="font-size:14px;color:#374151;margin-bottom:18px;">
+        <strong id="aim-customer"></strong> — Invoice <span id="aim-number" style="color:#6b7280;"></span><br>
+        <span style="color:#6b7280;">Current amount due: </span><strong id="aim-current-amount"></strong>
+      </div>
+      <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">New total ($)</label>
+      <input id="aim-new-amount" type="number" min="0.01" step="0.01" placeholder="e.g. 285.00"
+        style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:15px;margin-bottom:14px;"/>
+      <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Reason / note (optional)</label>
+      <input id="aim-memo" type="text" placeholder="e.g. Agreed discount per Cornell"
+        style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;margin-bottom:16px;"/>
+      <label style="display:flex;align-items:center;gap:10px;font-size:14px;color:#374151;cursor:pointer;margin-bottom:20px;">
+        <input type="checkbox" id="aim-notify" checked style="width:16px;height:16px;accent-color:#c81f25;"/>
+        Resend updated invoice to customer
+      </label>
+      <div id="aim-error" style="display:none;font-size:13px;color:#b91c1c;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-red btn-sm" id="aim-confirm-btn" onclick="submitAdjustInvoice()">Apply Adjustment</button>
+        <button class="btn btn-gray btn-sm" onclick="closeAdjustInvoiceModal()">Cancel</button>
+      </div>
+    </div>
+    <div id="aim-success" style="display:none;padding:8px 0;">
+      <p style="font-size:15px;color:#059669;font-weight:600;margin:0 0 8px;">✓ Adjustment applied</p>
+      <p id="aim-success-msg" style="font-size:14px;color:#374151;margin:0 0 16px;"></p>
+      <button class="btn btn-gray btn-sm" onclick="closeAdjustInvoiceModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg hidden" id="admin-pay-modal" onclick="if(event.target===this)closeAdminPayModal()">
   <div class="apm-sheet">
 
@@ -3198,6 +3231,7 @@ function renderDetail(customer, props, wos, contacts) {
           }
           if (stripeInvId) {
             invoiceBtn += ` <button class="btn btn-gray btn-sm" onclick="sendInvoiceReminder('${escAttr(stripeInvId)}',this)">Send Reminder</button>`;
+            invoiceBtn += ` <button class="btn btn-gray btn-sm" onclick="openAdjustInvoiceModal('${escAttr(stripeInvId)}')">Adjust Invoice</button>`;
           }
         } else if (status === 'Paid') {
           if (stripeUrl || hasDraftInvoice) {
@@ -6545,6 +6579,72 @@ async function sendInvoiceReminder(stripeInvoiceId, btn) {
     alert('Reminder failed: ' + e.message);
     btn.textContent = orig;
     btn.disabled = false;
+  }
+}
+
+let _aimStripeId = null;
+
+async function openAdjustInvoiceModal(stripeInvoiceId) {
+  _aimStripeId = stripeInvoiceId;
+  document.getElementById('aim-loading').style.display = '';
+  document.getElementById('aim-body').style.display    = 'none';
+  document.getElementById('aim-success').style.display = 'none';
+  document.getElementById('aim-error').style.display   = 'none';
+  document.getElementById('aim-new-amount').value      = '';
+  document.getElementById('aim-memo').value            = '';
+  document.getElementById('aim-notify').checked        = true;
+  document.getElementById('adjust-invoice-modal').classList.remove('hidden');
+
+  try {
+    const res  = await fetch(`${PROXY}/invoice/${encodeURIComponent(stripeInvoiceId)}`);
+    const data = await res.json();
+    const inv  = data.invoice || data; // worker returns the Stripe invoice object
+    document.getElementById('aim-customer').textContent       = inv.customer_name || inv.customer_email || '—';
+    document.getElementById('aim-number').textContent         = inv.number || stripeInvoiceId;
+    document.getElementById('aim-current-amount').textContent = `$${((inv.amount_due || 0) / 100).toFixed(2)}`;
+    document.getElementById('aim-loading').style.display      = 'none';
+    document.getElementById('aim-body').style.display         = '';
+  } catch (e) {
+    document.getElementById('aim-loading').textContent = 'Failed to load invoice details.';
+  }
+}
+
+function closeAdjustInvoiceModal() {
+  document.getElementById('adjust-invoice-modal').classList.add('hidden');
+  _aimStripeId = null;
+}
+
+async function submitAdjustInvoice() {
+  const newAmt = parseFloat(document.getElementById('aim-new-amount').value);
+  if (!newAmt || newAmt <= 0) {
+    document.getElementById('aim-error').textContent = 'Enter a valid new total.';
+    document.getElementById('aim-error').style.display = '';
+    return;
+  }
+  const memo           = document.getElementById('aim-memo').value.trim();
+  const notifyCustomer = document.getElementById('aim-notify').checked;
+  const btn            = document.getElementById('aim-confirm-btn');
+  btn.textContent = 'Applying…'; btn.disabled = true;
+  document.getElementById('aim-error').style.display = 'none';
+
+  try {
+    const res  = await fetch(`${PROXY}/invoice/adjust`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stripeInvoiceId: _aimStripeId, newAmountCents: Math.round(newAmt * 100), memo, notifyCustomer }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Unknown error');
+    document.getElementById('aim-body').style.display    = 'none';
+    document.getElementById('aim-success').style.display = '';
+    document.getElementById('aim-success-msg').textContent =
+      `Credit of $${data.creditAmount.toFixed(2)} applied. New amount due: $${data.newAmount.toFixed(2)}.` +
+      (notifyCustomer ? ' Updated invoice resent to customer.' : '');
+    loadCustomers(); // refresh WO cards so the amount reflects on next open
+  } catch (e) {
+    document.getElementById('aim-error').textContent = 'Error: ' + e.message;
+    document.getElementById('aim-error').style.display = '';
+    btn.textContent = 'Apply Adjustment'; btn.disabled = false;
   }
 }
 
