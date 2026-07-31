@@ -4587,9 +4587,6 @@ async function checkOverdueInvoices(env) {
     const today    = new Date();
     const todayStr = today.toISOString().split('T')[0];
 
-    // Late fee thresholds (days past due): residential 30d, commercial 30d past their due date
-    const day30 = new Date(today.getTime() - 30 * 86400000).toISOString().split('T')[0];
-
     // Fetch all outstanding sent invoices in one pass
     // Note: no {Active} filter — Status="Sent" already excludes drafts/voids, and
     // many invoices were created before Active was set on creation, so filtering on it
@@ -4602,10 +4599,40 @@ async function checkOverdueInvoices(env) {
     if (!res.ok) return;
     const { records = [] } = await res.json();
 
+    const remindersSent = []; // collect for end-of-run digest
+
     for (const inv of records) {
       const f            = inv.fields;
       const dueDate      = f['Due Date'];
       if (!dueDate) continue;
+
+      // Check Stripe first — if the invoice was already paid (e.g. customer paid
+      // via hosted link but Airtable wasn't synced), auto-heal and skip.
+      const stripeInvId = (f['Stripe Invoice ID'] || '').trim();
+      if (stripeInvId && env.STRIPE_SECRET_KEY) {
+        const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeInvId}`,
+          { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }).catch(() => null);
+        if (sr && sr.ok) {
+          const sd = await sr.json();
+          if (sd.status === 'paid') {
+            // Auto-heal: sync paid status back to Airtable and skip
+            await airtablePatch('Invoices', inv.id, {
+              'Status':      'Paid in Full',
+              'Paid Date':   sd.status_transitions?.paid_at
+                               ? new Date(sd.status_transitions.paid_at * 1000).toISOString().split('T')[0]
+                               : todayStr,
+              'Amount Paid': (sd.amount_paid || 0) / 100,
+            }).catch(() => {});
+            console.log(`Auto-healed paid invoice: ${inv.id} (Stripe: ${stripeInvId})`);
+            continue;
+          }
+          if (sd.status === 'void' || sd.status === 'uncollectible') {
+            // Skip — don't send reminders for voided invoices
+            console.log(`Skipping ${sd.status} Stripe invoice: ${inv.id}`);
+            continue;
+          }
+        }
+      }
 
       const daysPastDue  = Math.floor((today - new Date(dueDate + 'T12:00:00')) / 86400000);
       const custId       = (f['Customers'] || [])[0];
@@ -4614,11 +4641,10 @@ async function checkOverdueInvoices(env) {
       const custRec      = await airtableGetById('Customers', custId).catch(() => null);
       if (!custRec) continue;
       const isCommercial = (custRec.fields['Type'] || '').toLowerCase() === 'commercial';
-      const lateFeeDay   = isCommercial ? 30 : 30; // both: 30 days past due date
 
-      // Late fee takes priority — process first
-      if (daysPastDue >= lateFeeDay) {
-        await applyLateFee(env, inv, custRec, todayStr);
+      // Late fee takes priority — process first (30 days past due for both types)
+      if (daysPastDue >= 30) {
+        await applyLateFee(env, inv, custRec, todayStr, remindersSent);
         continue;
       }
 
@@ -4632,15 +4658,45 @@ async function checkOverdueInvoices(env) {
 
       // Only send if we've advanced beyond the last sent stage
       if (targetIdx > currentIdx) {
-        await sendReminderNotice(env, inv, custRec, targetStage, daysPastDue, todayStr);
+        await sendReminderNotice(env, inv, custRec, targetStage, daysPastDue, todayStr, remindersSent);
       }
+    }
+
+    // Send one digest email to Bridgett summarizing everything that fired this run
+    if (remindersSent.length > 0 && env.RESEND_API_KEY) {
+      const rows = remindersSent.map(r =>
+        `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;">${r.customer}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;">${r.label}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;text-align:right;">${r.amount ? `$${r.amount.toFixed(2)}` : '—'}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;">${r.type}</td>
+        </tr>`
+      ).join('');
+      await sendEmail(env.RESEND_API_KEY, {
+        to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
+        subject: `📋 Invoice reminders sent today (${remindersSent.length})`,
+        html: emailBase({ preheader: `${remindersSent.length} reminder${remindersSent.length > 1 ? 's' : ''} sent this hour.`, body: `
+          <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Invoice Reminders Sent</p>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#f9fafb;">
+                <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Customer</th>
+                <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Stage</th>
+                <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Amount</th>
+                <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Type</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`,
+        }),
+      }).catch(e => console.error('Digest email error:', e));
     }
   } catch(e) {
     console.error('checkOverdueInvoices error:', e.message);
   }
 }
 
-async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, todayStr) {
+async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, todayStr, remindersSent = []) {
   try {
     const f          = atInv.fields;
     const custEmail  = custRec.fields['Email'] || '';
@@ -4703,13 +4759,7 @@ async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, today
     }).catch(e => console.error('Reminder email error:', e));
     await logCommunication(env, { type: 'Email', trigger: `Reminder ${stage}`, sentTo: custEmail, subject: emailSubject, customerId: custId }).catch(() => {});
 
-    if (custPhone && env.QUO_API_KEY) {
-      await sendSms(env.QUO_API_KEY, custPhone, smsBody)
-        .then(() => logCommunication(env, { type: 'SMS', trigger: `Reminder ${stage}`, sentTo: custPhone, subject: `Reminder SMS ${stage}`, customerId: custId }))
-        .catch(e => console.error('Reminder SMS error:', e));
-    }
-
-    // Create Follow-Up for Bridgett only at warning (res-25) and commercial past due
+    // Create Follow-Up for Bridgett only at the final warning stage (res-25) and commercial past due
     if (isWarning || isPastDue) {
       const woIds = f['Work Orders'] || [];
       const fuFields = {
@@ -4717,7 +4767,7 @@ async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, today
         'Type':     'Follow-Up',
         'Status':   'Open',
         'Due Date': new Date().toISOString(),
-        'Notes':    `Invoice${invNumber ? ` #${invNumber}` : ''}${amountDue ? ` for $${amountDue.toFixed(2)}` : ''}: ${adminLabel}. Customer notified via email${custPhone ? ' and SMS' : ''}.`,
+        'Notes':    `Invoice${invNumber ? ` #${invNumber}` : ''}${amountDue ? ` for $${amountDue.toFixed(2)}` : ''}: ${adminLabel}. Customer notified by email.`,
       };
       if (custId)   fuFields['Customer']   = [custId];
       if (woIds[0]) fuFields['Work Order'] = [woIds[0]];
@@ -4728,23 +4778,8 @@ async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, today
       }).catch(e => console.error('Reminder Follow-Up error:', e.message));
     }
 
-    // Always notify Bridgett by email
-    await sendEmail(env.RESEND_API_KEY, {
-      to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
-      subject: `${isWarning ? '🔔' : '📋'} Invoice reminder sent: ${custName}${amtLabel} (${adminLabel})`,
-      html: emailBase({ preheader: `${adminLabel} — customer notified.`, body: `
-        <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Invoice Reminder Sent</p>
-        <div style="background:${isWarning ? '#fef3c7' : '#f3f4f6'};border-left:4px solid ${isWarning ? '#d97706' : '#6b7280'};border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:20px;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:${isWarning ? '#d97706' : '#6b7280'};margin-bottom:8px;">${adminLabel}</div>
-          <div style="font-size:16px;font-weight:700;color:#111827;">${custName}</div>
-          ${invNumber ? `<div style="font-size:13px;color:#374151;margin-top:4px;">Invoice ${invNumber}</div>` : ''}
-          ${amountDue ? `<div style="font-size:13px;color:#374151;">Amount due: $${amountDue.toFixed(2)}</div>` : ''}
-          ${dueFmt    ? `<div style="font-size:13px;color:#6b7280;">Due: ${dueFmt}</div>` : ''}
-        </div>
-        <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 20px;">Reminder stage <strong>${stage}</strong> — email${custPhone ? ' and SMS' : ''} sent to customer.</p>
-        ${hostedUrl ? `<div style="text-align:center;"><a href="${hostedUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">View Invoice ↗</a></div>` : ''}`,
-      }),
-    }).catch(e => console.error('Admin reminder email error:', e));
+    // Add to digest (no per-reminder admin email)
+    remindersSent.push({ customer: custName, label: adminLabel, amount: amountDue, type: 'Reminder' });
 
     await airtablePatch('Invoices', atInv.id, {
       'Reminder Stage':     stage,
@@ -4756,30 +4791,54 @@ async function sendReminderNotice(env, atInv, custRec, stage, daysPastDue, today
   }
 }
 
-async function applyLateFee(env, atInv, custRec, todayStr) {
+async function applyLateFee(env, atInv, custRec, todayStr, remindersSent = []) {
   try {
     const f       = atInv.fields;
     const custId  = (f['Customers'] || [])[0] || null;
     if (!custId || !env.STRIPE_SECRET_KEY) return;
 
     const custEmail = custRec?.fields?.['Email'] || '';
-    const custPhone = custRec?.fields?.['Phone'] || '';
     const custName  = custRec?.fields?.['Customer Name'] || '';
     const custFirst = custRec?.fields?.['First Name'] || custName.split(' ')[0] || 'there';
     if (!custEmail) return;
 
     // Fetch Stripe invoice for live amount and hosted URL
-    const stripeInvId = f['Stripe Invoice ID'] || '';
+    const stripeInvId = (f['Stripe Invoice ID'] || '').trim();
     let hostedUrl = '', amountDue = 0, invNumber = '';
     if (stripeInvId) {
       const sr = await fetch(`https://api.stripe.com/v1/invoices/${stripeInvId}`,
         { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } });
       if (sr.ok) {
         const sd = await sr.json();
+        // If Stripe shows this invoice as already paid, skip — shouldn't apply a late fee
+        if (sd.status === 'paid') {
+          await airtablePatch('Invoices', atInv.id, {
+            'Status':      'Paid in Full',
+            'Paid Date':   sd.status_transitions?.paid_at
+                             ? new Date(sd.status_transitions.paid_at * 1000).toISOString().split('T')[0]
+                             : todayStr,
+            'Amount Paid': (sd.amount_paid || 0) / 100,
+          }).catch(() => {});
+          console.log(`Late fee skipped — Stripe shows paid: ${atInv.id}`);
+          return;
+        }
         hostedUrl = sd.hosted_invoice_url || '';
         amountDue = (sd.amount_due || 0) / 100;
         invNumber = sd.number || '';
       }
+    }
+
+    // Guard: don't apply a late fee if the Stripe amount_due is $0
+    if (amountDue <= 0) {
+      console.log(`Late fee skipped — Stripe amount_due is $0 for invoice ${atInv.id}`);
+      // Still mark Late Fee Applied so we don't retry, but don't send anything
+      await airtablePatch('Invoices', atInv.id, {
+        'Late Fee Applied': true,
+        'Late Fee Date':    todayStr,
+        'Reminder Stage':   'late-fee',
+        'Internal Notes':   'Late fee skipped — Stripe amount_due was $0 at time of check.',
+      }).catch(() => {});
+      return;
     }
 
     // 1.5% of amount due, minimum $5
@@ -4795,13 +4854,19 @@ async function applyLateFee(env, atInv, custRec, todayStr) {
       ? srchData.data[0].id
       : (await stripePost(env.STRIPE_SECRET_KEY, '/v1/customers', { email: custEmail, name: custName })).id;
 
-    // Create and send a separate late fee invoice
-    await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoiceitems', {
+    // Create invoice item first — verify it was created before creating the invoice
+    const lfItem = await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoiceitems', {
       customer:    stripeCustId,
       amount:      Math.round(lateFee * 100),
       currency:    'usd',
       description: `Late fee (1.5%)${invNumber ? ` — Invoice ${invNumber}` : ''}`,
     });
+    if (!lfItem?.id) {
+      console.error(`Late fee invoice item creation failed for ${atInv.id}`);
+      return;
+    }
+
+    // Create the late fee invoice
     const lfInv  = await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoices', {
       customer:                   stripeCustId,
       description:                `Late fee — Invoice${invNumber ? ` ${invNumber}` : ''} (1.5% of $${amountDue.toFixed(2)})`,
@@ -4809,44 +4874,30 @@ async function applyLateFee(env, atInv, custRec, todayStr) {
       'collection_method':        'send_invoice',
       'days_until_due':           '15',
     });
+    if (!lfInv?.id) {
+      console.error(`Late fee invoice creation failed for ${atInv.id}`);
+      return;
+    }
+    // Verify the invoice picked up the line item and has a non-zero total
+    // before finalizing — a $0 total means the item attached to the wrong customer
+    const lfDraft = await fetch(`https://api.stripe.com/v1/invoices/${lfInv.id}`,
+      { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }).then(r => r.json()).catch(() => null);
+    if (!lfDraft || (lfDraft.total ?? 0) === 0) {
+      // Void the empty invoice so customer doesn't get a $0 notice
+      await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${lfInv.id}/void`, {}).catch(() => {});
+      console.error(`Late fee invoice was $0 — voided, not sent. atInv: ${atInv.id}, stripeCustId: ${stripeCustId}`);
+      return;
+    }
     await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${lfInv.id}/finalize`, {});
     const lfSent    = await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${lfInv.id}/send`, {});
     const lateFeeUrl = lfSent.hosted_invoice_url || '';
 
-    // Email customer
+    // Email customer (no SMS for late fees)
     const subject = `Late fee added to your CJB Comfort account`;
     await sendEmail(env.RESEND_API_KEY, { to: custEmail, subject,
       html: emailLateFeeHtml({ customerName: custFirst, invoiceNumber: invNumber, originalAmount: amountDue, lateFeeAmount: lateFee, hostedUrl, lateFeeUrl }),
     }).catch(e => console.error('Late fee email error:', e));
-    logCommunication(env, { type: 'Email', trigger: 'Late Fee', sentTo: custEmail, subject, customerId: custId }).catch(() => {});
-
-    // SMS customer
-    if (custPhone && env.QUO_API_KEY) {
-      sendSms(env.QUO_API_KEY, custPhone,
-        `Hi ${custFirst} — a 1.5% late fee ($${lateFee.toFixed(2)}) has been added to your CJB Comfort account.${hostedUrl ? ` Original invoice: ${hostedUrl}` : ''}${lateFeeUrl ? ` Late fee: ${lateFeeUrl}` : ''} Questions? Call or text ${OFFICE_PHONE}. – CJB Comfort`
-      ).then(() => logCommunication(env, { type: 'SMS', trigger: 'Late Fee', sentTo: custPhone, subject: 'Late fee SMS', customerId: custId }))
-       .catch(e => console.error('Late fee SMS error:', e));
-    }
-
-    // Notify Bridgett
-    await sendEmail(env.RESEND_API_KEY, {
-      to: ADMIN_EMAIL, replyTo: ADMIN_EMAIL,
-      subject: `💰 Late fee applied: ${custName} — $${lateFee.toFixed(2)}`,
-      html: emailBase({ preheader: `$${lateFee.toFixed(2)} late fee invoiced to ${custName}.`, body: `
-        <p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 16px;">Late Fee Applied &amp; Invoiced</p>
-        <div style="background:#fef2f2;border-left:4px solid #c81f25;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:20px;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#c81f25;margin-bottom:8px;">30 Days Past Due</div>
-          <div style="font-size:16px;font-weight:700;color:#111827;">${custName}</div>
-          ${invNumber  ? `<div style="font-size:13px;color:#374151;margin-top:4px;">Original invoice: ${invNumber} — $${amountDue.toFixed(2)}</div>` : ''}
-          <div style="font-size:13px;color:#374151;">Late fee sent: $${lateFee.toFixed(2)} (1.5%)</div>
-        </div>
-        <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 20px;">A separate late fee invoice was created in Stripe and sent to the customer via email${custPhone ? ' and SMS' : ''}.</p>
-        <div style="text-align:center;">
-          ${hostedUrl  ? `<a href="${hostedUrl}"  style="display:inline-block;background:#f3f4f6;color:#374151;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;text-decoration:none;margin-right:8px;">Original Invoice ↗</a>` : ''}
-          ${lateFeeUrl ? `<a href="${lateFeeUrl}" style="display:inline-block;background:#c81f25;color:white;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;text-decoration:none;">Late Fee Invoice ↗</a>` : ''}
-        </div>`,
-      }),
-    }).catch(e => console.error('Admin late fee email error:', e));
+    await logCommunication(env, { type: 'Email', trigger: 'Late Fee', sentTo: custEmail, subject, customerId: custId }).catch(() => {});
 
     await airtablePatch('Invoices', atInv.id, {
       'Late Fee Applied':    true,
@@ -4855,6 +4906,7 @@ async function applyLateFee(env, atInv, custRec, todayStr) {
       'Overdue Notice Sent': todayStr,
       'Reminder Stage':      'late-fee',
     });
+    remindersSent.push({ customer: custName, label: `Late fee — $${lateFee.toFixed(2)}`, amount: lateFee, type: 'Late Fee' });
     console.log(`Late fee applied: ${atInv.id} → ${custEmail}, $${lateFee}`);
   } catch(e) {
     console.error('applyLateFee error:', e.message);
