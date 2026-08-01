@@ -3579,7 +3579,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         };
         const woEstimates = wosData.filter(w =>
           w.fields['Work Order Type'] === 'Estimate Only' &&
-          !['Paid', 'Paid in Full', 'Cancelled', 'Estimate Approved', 'Estimate Declined'].includes(w.fields['Status']) &&
+          !APPROVED_WO_ST.has(w.fields['Status'] || '') &&
           !quoteWoIds.has(w.id)
         );
         const estimates = [
