@@ -3507,7 +3507,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           airtableFetchAll('Work Orders',         `{Customer Name}="${nameEsc}"`, 60, [{ field: 'Scheduled Date', direction: 'desc' }]),
           airtableFetchAll('Invoices',             `{Customers}="${nameEsc}"`,   50, [{ field: 'Invoice Date',   direction: 'desc' }]),
           airtableFetchAll('Maintenance Contracts', `{Customer}="${nameEsc}"`,   10),
-          airtableFetchAll('Quotes', `AND({Customer}="${nameEsc}",{Status}="Open")`, 20),
+          airtableFetchAll('Quotes', `AND({Customer}="${nameEsc}",OR({Status}="Open",{Status}="Accepted"))`, 30),
         ]);
 
         const isProtectionPlus = contractsData.some(c => c.fields['Plan Type'] === 'Protection Plus');
@@ -3566,7 +3566,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const rawNotes = q.fields['Notes'] || '';
           return {
             id:          woId || q.id,
-            status:      q.fields['Status'] || '',
+            quoteStatus: q.fields['Status'] || '',
             type:        'Estimate',
             date:        q.fields['Expiration Date'] || '',
             address:     wo ? addrStr(wo.fields['Service Address']) : '',
@@ -3575,6 +3575,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             totalAmount: Number(q.fields['Total Amount'] || 0),
             invoiceIds:  [],
             expiresDate: q.fields['Expiration Date'] || '',
+            stripeUrl:   q.fields['Stripe Quote URL'] || wo?.fields['Stripe Quote URL'] || '',
           };
         };
         const woEstimates = wosData.filter(w =>
@@ -3582,9 +3583,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           !APPROVED_WO_ST.has(w.fields['Status'] || '') &&
           !quoteWoIds.has(w.id)
         );
+        // Pending: open quotes whose WO hasn't moved past estimate stage + Estimate Only WOs with no quote
         const estimates = [
           ...quotesData
             .filter(q => {
+              if (q.fields['Status'] !== 'Open') return false;
               const woId = (q.fields['Work Order'] || [])[0] || null;
               const wo   = woId ? woById[woId] : null;
               return !wo || !APPROVED_WO_ST.has(wo.fields['Status'] || '');
@@ -3592,15 +3595,20 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             .map(mapQuote),
           ...woEstimates.map(mapWO),
         ];
+        // Approved: accepted quotes shown read-only (no action buttons)
+        const approvedEstimates = quotesData
+          .filter(q => q.fields['Status'] === 'Accepted')
+          .map(mapQuote);
 
         return new Response(JSON.stringify({
           customer: { id: cId, name: custName, firstName: cf['First Name'] || '', email: cf['Email'] || '' },
           isProtectionPlus,
-          activeWOs:     activeWOs.map(mapWO),
+          activeWOs:        activeWOs.map(mapWO),
           estimates,
-          unpaidInvoices:  unpaidInvoices.map(mapInv),
-          invoiceHistory:  invoiceHistory.map(mapInv),
-          history:         history.map(mapWO),
+          approvedEstimates,
+          unpaidInvoices:   unpaidInvoices.map(mapInv),
+          invoiceHistory:   invoiceHistory.map(mapInv),
+          history:          history.map(mapWO),
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch(e) {
@@ -5701,6 +5709,13 @@ footer a:hover{text-decoration:underline}
           <div id="list-estimates"></div>
         </div>
 
+        <div class="sec-block" id="sec-approved-estimates" style="display:none">
+          <div class="sec-label sec-label-toggle" onclick="toggleSection('list-approved-estimates',this.querySelector('.toggle-chev'))">
+            Past Estimates <span class="toggle-chev">▶</span>
+          </div>
+          <div id="list-approved-estimates" style="display:none"></div>
+        </div>
+
         <div class="sec-block" id="sec-equipment" style="display:none">
           <div class="sec-label sec-label-toggle" onclick="toggleSection('list-equipment',this.querySelector('.toggle-chev'))">
             Your Equipment <span class="toggle-chev">▶</span>
@@ -5819,6 +5834,22 @@ function estCard(e) {
     \${amtLine}
     \${urgencyChip(e.priority)}
     \${btns}
+  </div>\`;
+}
+
+function approvedEstCard(e) {
+  const hasAmount = e.totalAmount > 0;
+  const amtLine   = hasAmount ? \`<div class="amount" style="font-size:20px">\${money(e.totalAmount)}</div><div class="amount-sub">Approved amount</div>\` : '';
+  const prob      = e.problem ? \`<div class="card-problem" title="\${esc(e.problem)}">\${esc(trunc(e.problem,110))}</div>\` : '';
+  const dateLabel = e.date ? fmtDate(e.date) : '';
+  const viewBtn   = e.stripeUrl
+    ? \`<div class="btn-row"><a href="\${esc(e.stripeUrl)}" target="_blank" rel="noopener" class="view-btn">View Estimate →</a></div>\`
+    : '';
+  return \`<div class="card">
+    <div class="card-eyebrow" style="color:#059669;">✓ Approved\${dateLabel ? ' · ' + dateLabel : ''}</div>
+    \${prob}
+    \${amtLine}
+    \${viewBtn}
   </div>\`;
 }
 
@@ -6091,6 +6122,10 @@ async function load() {
     if (d.estimates&&d.estimates.length) {
       document.getElementById('sec-estimates').style.display='block';
       document.getElementById('list-estimates').innerHTML=d.estimates.map(estCard).join('');
+    }
+    if (d.approvedEstimates&&d.approvedEstimates.length) {
+      document.getElementById('sec-approved-estimates').style.display='block';
+      document.getElementById('list-approved-estimates').innerHTML=d.approvedEstimates.map(approvedEstCard).join('');
     }
 
     // Build in-memory invoice map for drawer button labels (paid vs unpaid)
