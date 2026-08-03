@@ -4064,13 +4064,18 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const custName  = cf['Customer Name'] || '';
         if (!custEmail) return new Response(JSON.stringify({ error: 'Customer has no email on file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-        // 3. Get Stripe Quote URL from first linked WO that has one
+        // 3. Get Stripe Quote URL + customer cost share from first linked WO that has a quote
         const woIds = ef['Work Orders'] || [];
         let stripeQuoteUrl = '';
+        let customerCostShare = 0; // WO Total Amount = what customer actually pays (after rebate)
         for (const woId of woIds) {
           try {
             const wo = await airtableGetById('Work Orders', woId);
-            if (wo.fields['Stripe Quote URL']) { stripeQuoteUrl = wo.fields['Stripe Quote URL']; break; }
+            if (wo.fields['Stripe Quote URL'] || wo.fields['Total Amount']) {
+              if (wo.fields['Stripe Quote URL']) stripeQuoteUrl = wo.fields['Stripe Quote URL'];
+              if (wo.fields['Total Amount'])     customerCostShare = Number(wo.fields['Total Amount']) || 0;
+              break;
+            }
           } catch(e) { /* non-fatal */ }
         }
 
@@ -4079,9 +4084,9 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         if (!sowRes.ok) return new Response(JSON.stringify({ error: 'Could not retrieve Customer SOW from storage' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         const sowBytes    = await sowRes.arrayBuffer();
         const sowBase64   = arrayBufferToBase64(sowBytes);
-        const sowFilename = sowUrl.split('/').pop() || 'Customer_SOW.pdf';
+        const sowFilename = decodeURIComponent(sowUrl.split('/').pop()) || 'Customer_SOW.pdf';
 
-        // 5. Build rebate rows from EA Project fields
+        // 5. Build rebate rows and financial summary
         const rebateRows = [
           { label: 'HVAC Heat Pump',    val: ef['HVAC Heat Pump Rebate'] },
           { label: 'Water Heater',      val: ef['Water Heater Rebate'] },
@@ -4090,12 +4095,16 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
           { label: 'Electrical Wiring', val: ef['Electrical Wiring Rebate'] },
           { label: 'Electrical Panel',  val: ef['Electrical Panel Rebate'] },
         ].filter(r => r.val > 0);
-        const totalRebate = ef['Total Rebate Available'] || rebateRows.reduce((s, r) => s + r.val, 0);
+        const totalRebate       = Number(ef['Total Rebate Available']) || rebateRows.reduce((s, r) => s + r.val, 0);
+        const depositPct        = Number(ef['EA Deposit Pct']) || 50;
+        const totalProjectCost  = customerCostShare > 0 ? customerCostShare + totalRebate : 0;
+        const depositAmt        = customerCostShare > 0 ? customerCostShare * depositPct / 100 : 0;
+        const balanceDue        = customerCostShare > 0 ? customerCostShare - depositAmt : 0;
         const projNum = ef['EA Project Number'] || '';
 
         // 6. Compose and send email
         const subject = `Your Efficiency Arizona Project Package${projNum ? ` — Project #${projNum}` : ''}`;
-        const html = emailEAPackageHtml({ custName, projNum, rebateRows, totalRebate, stripeQuoteUrl });
+        const html = emailEAPackageHtml({ custName, projNum, rebateRows, totalRebate, totalProjectCost, customerCostShare, depositPct, depositAmt, balanceDue, stripeQuoteUrl });
         await sendEmail(env.RESEND_API_KEY, {
           to:          custEmail,
           subject,
@@ -4608,64 +4617,89 @@ async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL, 
 }
 
 // ── EA Package email ──────────────────────────────────────────────────────────
-function emailEAPackageHtml({ custName, projNum, rebateRows, totalRebate, stripeQuoteUrl }) {
+function emailEAPackageHtml({ custName, projNum, rebateRows, totalRebate, totalProjectCost, customerCostShare, depositPct, depositAmt, balanceDue, stripeQuoteUrl }) {
   const firstName = (custName || 'there').trim().split(' ')[0] || 'there';
   const fmt = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Full HEAR disclosure table — matches the language on the estimate
   const rebateLines = rebateRows.map(r =>
-    `<tr><td style="padding:5px 0;color:#374151;font-size:14px;">${r.label} Rebate</td><td style="text-align:right;color:#1a6b35;font-weight:600;font-size:14px;">${fmt(r.val)}</td></tr>`
+    `<tr>
+      <td style="padding:5px 12px 5px 0;color:#374151;font-size:14px;">Efficiency Arizona HEAR Rebate — ${r.label}</td>
+      <td style="text-align:right;color:#1a6b35;font-weight:600;font-size:14px;white-space:nowrap;">−${fmt(r.val)}</td>
+    </tr>`
   ).join('');
-  const rebateBlock = rebateRows.length
-    ? `<table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;">
+
+  const hasFinancials = customerCostShare > 0;
+  const disclosureTable = hasFinancials
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 0;border-collapse:collapse;">
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#374151;font-size:14px;border-bottom:1px solid #e5e7eb;">Total project cost</td>
+          <td style="text-align:right;color:#374151;font-size:14px;font-weight:600;border-bottom:1px solid #e5e7eb;white-space:nowrap;">${fmt(totalProjectCost)}</td>
+        </tr>
         ${rebateLines}
-        <tr style="border-top:2px solid #e5e7eb;">
-          <td style="padding:8px 0 4px;font-weight:700;font-size:14px;">Total EA/HEAR Rebate</td>
-          <td style="text-align:right;font-weight:700;font-size:14px;color:#1a6b35;padding:8px 0 4px;">${fmt(totalRebate)}</td>
+        <tr style="border-top:2px solid #166534;">
+          <td style="padding:8px 12px 6px 0;color:#166534;font-weight:700;font-size:14px;">Total EA/HEAR rebate</td>
+          <td style="text-align:right;color:#166534;font-weight:700;font-size:14px;padding:8px 0 6px;white-space:nowrap;">−${fmt(totalRebate)}</td>
+        </tr>
+        <tr style="background:#f0fdf4;">
+          <td style="padding:8px 12px;color:#111827;font-weight:700;font-size:15px;border-radius:6px 0 0 6px;">Your cost-share total</td>
+          <td style="text-align:right;color:#111827;font-weight:700;font-size:15px;padding:8px 0 8px 12px;border-radius:0 6px 6px 0;white-space:nowrap;">${fmt(customerCostShare)}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 12px 4px 0;color:#374151;font-size:13px;">Deposit due to schedule (${depositPct}%)</td>
+          <td style="text-align:right;color:#374151;font-size:13px;font-weight:600;white-space:nowrap;">${fmt(depositAmt)}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 12px 6px 0;color:#374151;font-size:13px;">Balance due on completion</td>
+          <td style="text-align:right;color:#374151;font-size:13px;font-weight:600;white-space:nowrap;">${fmt(balanceDue)}</td>
         </tr>
       </table>`
-    : `<p style="color:#1a6b35;font-weight:700;font-size:16px;">Total Rebate: ${fmt(totalRebate)}</p>`;
+    : `<p style="margin:8px 0 0;font-size:13px;color:#6b7280;">Review your estimate for the full financial breakdown.</p>`;
+
   const estimateBtn = stripeQuoteUrl
     ? `<div style="text-align:center;margin:24px 0;">
         <a href="${stripeQuoteUrl}" style="display:inline-block;background:#c81f25;color:#ffffff;text-decoration:none;padding:13px 28px;border-radius:8px;font-weight:700;font-size:15px;">View &amp; Approve Your Estimate →</a>
        </div>`
     : '';
+
   const body = `
 <p style="margin:0 0 18px;font-size:16px;color:#111827;">Hi ${firstName},</p>
-<p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.6;">
-  Your Efficiency Arizona HEAR Program project has been approved! We're thrilled to help you upgrade your home's comfort and efficiency. Your project package is ready — please review everything below and follow the next steps.
+<p style="margin:0 0 20px;font-size:15px;color:#374151;line-height:1.6;">
+  Your Efficiency Arizona HEAR Program project has been approved and we're excited to move forward! Your complete project package is below — please review the financial summary and follow the signing instructions at the bottom.
 </p>
 
-<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:20px 24px;margin:0 0 24px;">
-  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#166534;margin-bottom:12px;">Efficiency Arizona HEAR Program — Project Summary</div>
-  ${projNum ? `<p style="margin:0 0 8px;font-size:13px;color:#374151;">EA Project #: <strong>${projNum}</strong></p>` : ''}
-  ${rebateBlock}
-  <p style="margin:8px 0 0;font-size:12px;color:#6b7280;line-height:1.5;">
-    The EA/HEAR rebate is paid directly to CJB Comfort on your behalf — you pay only your cost-share portion shown on your estimate. Review your estimate for the full breakdown including your deposit and balance-due amounts.
+<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:20px 24px;margin:0 0 8px;">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#166534;margin-bottom:4px;">Efficiency Arizona HEAR Program Disclosure</div>
+  ${projNum ? `<div style="font-size:12px;color:#6b7280;margin-bottom:14px;">EA Project #${projNum}</div>` : '<div style="margin-bottom:14px;"></div>'}
+  ${disclosureTable}
+  <p style="margin:12px 0 0;font-size:12px;color:#6b7280;line-height:1.5;">
+    The EA/HEAR rebate is applied on your behalf — you pay only your cost-share portion. The deposit is due when you schedule your installation; the balance is due upon completion.
   </p>
 </div>
 
 ${estimateBtn}
 
-<div style="border-top:1px solid #e5e7eb;padding-top:20px;margin-top:4px;">
-  <p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#111827;">Next Step: Sign Your Customer Scope of Work</p>
-  <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.6;">
-    The <strong>Customer Scope of Work</strong> is attached to this email. This document, provided by Efficiency Arizona, outlines the work to be performed at your home and must be signed before we can schedule your installation.
+<div style="border-top:1px solid #e5e7eb;padding-top:22px;margin-top:8px;">
+  <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;">Sign Your Customer Scope of Work</p>
+  <p style="margin:0 0 14px;font-size:14px;color:#374151;line-height:1.6;">
+    The <strong>Customer Scope of Work</strong> is attached to this email. This document from Efficiency Arizona must be signed before we can schedule your installation.
   </p>
-  <ol style="margin:0 0 16px;padding-left:20px;font-size:14px;color:#374151;line-height:2;">
-    <li>Print the attached Customer Scope of Work</li>
-    <li>Review and sign the document</li>
-    <li>Take a clear photo or scan of the signed document</li>
-    <li>Email the signed document to <a href="mailto:service@cjbcomfort.com" style="color:#c81f25;font-weight:600;">service@cjbcomfort.com</a></li>
-  </ol>
+  <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">
+    <tr><td style="padding:5px 0;font-size:14px;color:#374151;"><strong style="color:#c81f25;">1.</strong>&nbsp; Print the attached Customer Scope of Work</td></tr>
+    <tr><td style="padding:5px 0;font-size:14px;color:#374151;"><strong style="color:#c81f25;">2.</strong>&nbsp; Review and sign the document</td></tr>
+    <tr><td style="padding:5px 0;font-size:14px;color:#374151;"><strong style="color:#c81f25;">3.</strong>&nbsp; Take a clear photo or scan of the signed pages</td></tr>
+    <tr><td style="padding:5px 0;font-size:14px;color:#374151;"><strong style="color:#c81f25;">4.</strong>&nbsp; Email the signed document to <a href="mailto:service@cjbcomfort.com" style="color:#c81f25;font-weight:600;">service@cjbcomfort.com</a></td></tr>
+  </table>
   <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
-    Once we receive your signed Scope of Work, we will reach out to coordinate scheduling.
+    Once we receive your signed Scope of Work, we will contact you to schedule your installation.
   </p>
 </div>
 
 <p style="margin:24px 0 0;font-size:14px;color:#374151;line-height:1.6;">
-  Questions about your project? Reply to this email or call us at <a href="tel:4806048622" style="color:#c81f25;font-weight:600;">(480) 604-8622</a> — we're happy to walk you through everything.
+  Questions? Reply to this email or call us at <a href="tel:4806048622" style="color:#c81f25;font-weight:600;">(480) 604-8622</a>.
 </p>
-<p style="margin:12px 0 0;font-size:14px;color:#374151;">Thank you for choosing CJB Comfort!</p>`;
-  return emailBase({ preheader: `Your EA project package is ready — please review and sign your Scope of Work`, body });
+<p style="margin:10px 0 0;font-size:14px;color:#374151;">Thank you for choosing CJB Comfort!</p>`;
+  return emailBase({ preheader: `Your EA project package is ready — full cost breakdown and Scope of Work inside`, body });
 }
 
 // ── Communication log — fire-and-forget, never blocks main flow ───────────────
