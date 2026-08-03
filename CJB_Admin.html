@@ -9192,6 +9192,8 @@ async function renderEADetail(record) {
 
   const woIds = f['Work Orders'] || [];
   const eaCustId = (f['Customer'] || [])[0] || null;
+  const eaCustRecord = eaCustId ? (allCustomers.find(c => c.id === eaCustId) || null) : null;
+  const custEmail = (eaCustRecord?.fields?.['Email'] || '').trim();
 
   // Fetch linked Work Orders so estimate/WO actions can be surfaced directly on this page —
   // no more bouncing to the customer profile just to view/edit/send an EA estimate.
@@ -9264,6 +9266,45 @@ async function renderEADetail(record) {
       <div style="display:flex;flex-wrap:wrap;gap:8px;">${actionBtns}</div>
     </div>` : ''}
 
+    <div class="section" id="ea-pkg-section">
+      <div class="section-title">Send EA Package to Customer</div>
+      ${(() => {
+        const sowUrl      = f['Documents URL'] || '';
+        const sowFilename = sowUrl ? decodeURIComponent(sowUrl.split('/').pop()) : '';
+        const hasSow      = !!sowUrl;
+        const hasEmail    = !!(custEmail || '');
+        const hasQuote    = eaWOs.some(w => w.fields['Stripe Quote URL']);
+        const sowDisplay  = hasSow
+          ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f0fdf4;border:1px solid #86efac;border-radius:7px;font-size:13px;margin-bottom:12px;">
+               <span style="color:#166534;">✓</span>
+               <span style="flex:1;color:#166534;font-weight:600;word-break:break-all;">${esc(sowFilename)}</span>
+               <label class="btn btn-gray btn-sm" style="cursor:pointer;margin:0;">Replace <input type="file" accept="application/pdf" style="display:none;" onchange="uploadEASOW('${record.id}', this)"></label>
+             </div>`
+          : `<label style="display:flex;align-items:center;gap:10px;padding:14px 16px;border:2px dashed #d1d5db;border-radius:8px;cursor:pointer;font-size:13px;color:#6b7280;margin-bottom:12px;transition:border-color 0.15s;" onmouseover="this.style.borderColor='#1a6b35'" onmouseout="this.style.borderColor='#d1d5db'">
+               <span style="font-size:20px;">📄</span>
+               <span>Upload Customer SOW PDF<br><span style="font-size:11px;">EA's original filename will be preserved</span></span>
+               <input type="file" accept="application/pdf" style="display:none;" onchange="uploadEASOW('${record.id}', this)">
+             </label>`;
+        const checklist = `
+          <div style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:14px;font-size:13px;">
+            <div style="font-weight:700;color:#374151;margin-bottom:10px;">This email will include:</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="display:flex;gap:8px;align-items:flex-start;"><span style="${hasSow ? 'color:#16a34a;' : 'color:#d1d5db;'}">●</span><span style="color:${hasSow ? '#111827' : '#9ca3af'};">Customer Scope of Work PDF — attached (original filename)</span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start;"><span style="color:#16a34a;">●</span><span style="color:#111827;">EA HEAR Program rebate summary</span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start;"><span style="${hasQuote ? 'color:#16a34a;' : 'color:#f59e0b;'}">●</span><span style="color:${hasQuote ? '#111827' : '#92400e'};">${hasQuote ? 'Link to Stripe estimate for review & approval' : 'Stripe estimate link (not yet available — create an estimate first)'}</span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start;"><span style="${hasEmail ? 'color:#16a34a;' : 'color:#dc2626;'}">●</span><span style="color:${hasEmail ? '#111827' : '#dc2626'};">${hasEmail ? `Sending to ${esc(custEmail)}` : 'No email address on file for this customer'}</span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start;"><span style="color:#16a34a;">●</span><span style="color:#111827;">Sign &amp; return instructions (reply to service@cjbcomfort.com)</span></div>
+              <div style="display:flex;gap:8px;align-items:flex-start;"><span style="color:#16a34a;">●</span><span style="color:#111827;">BCC to bridgett@cjbcomfort.com</span></div>
+            </div>
+          </div>`;
+        const canSend = hasSow && hasEmail;
+        const sendBtn = `<button class="btn btn-green" ${canSend ? '' : 'disabled'} onclick="sendEAPackage('${record.id}', this)" style="${canSend ? '' : 'opacity:0.4;cursor:not-allowed;'}">
+          Send EA Package to Customer
+        </button>`;
+        return sowDisplay + checklist + sendBtn;
+      })()}
+    </div>
+
     <div class="section">
       <div class="section-title">Update EA Status</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -9327,6 +9368,59 @@ async function saveEANotes(recordId) {
     showToast('✓ Notes saved');
   } catch(err) {
     showToast('Error: ' + err.message);
+  }
+}
+
+async function uploadEASOW(eaProjectId, inputEl) {
+  const file = inputEl.files[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf') { showToast('Please select a PDF file'); return; }
+
+  const label = inputEl.closest('label') || inputEl.parentElement;
+  const origHtml = label.innerHTML;
+  label.innerHTML = '<span class="spinner"></span> Uploading…';
+
+  try {
+    const fd = new FormData();
+    fd.append('eaProjectId', eaProjectId);
+    fd.append('file', file, file.name);
+    const res  = await fetch(`${PROXY}/ea/upload-sow`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+    // Update cache so detail re-renders with the new Documents URL
+    const idx = _eaProjectsCache.findIndex(r => r.id === eaProjectId);
+    if (idx >= 0) _eaProjectsCache[idx].fields['Documents URL'] = data.url;
+
+    showToast('✓ SOW uploaded — ' + data.filename);
+    // Re-render detail with updated record
+    const record = _eaProjectsCache[idx];
+    if (record) await renderEADetail(record);
+  } catch(err) {
+    label.innerHTML = origHtml;
+    showToast('Upload error: ' + err.message);
+  }
+}
+
+async function sendEAPackage(eaProjectId, btn) {
+  if (!confirm('Send the EA package to the customer now?\n\nThis will email the Customer Scope of Work, rebate summary, estimate link, and signing instructions. You will receive a BCC.')) return;
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const res  = await fetch(`${PROXY}/ea/send-package`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eaProjectId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Send failed');
+    showToast(`✓ EA package sent to ${data.sentTo}`);
+    btn.textContent = '✓ Sent';
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = origText;
+    showToast('Send error: ' + err.message);
   }
 }
 

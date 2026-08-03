@@ -4019,6 +4019,106 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
       }
     }
 
+    // ── EA: upload Customer SOW PDF to R2 ────────────────────────────────
+    if (path === '/api/ea/upload-sow' && request.method === 'POST') {
+      try {
+        const formData    = await request.formData();
+        const eaProjectId = formData.get('eaProjectId') || '';
+        const file        = formData.get('file');
+        if (!eaProjectId || !file) return new Response(JSON.stringify({ error: 'Missing eaProjectId or file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        if (!env.PHOTOS_BUCKET) return new Response(JSON.stringify({ error: 'R2 not configured' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const filename = file.name;
+        const r2Key    = `ea-sow/${eaProjectId}/${filename}`;
+        const bytes    = await file.arrayBuffer();
+        await env.PHOTOS_BUCKET.put(r2Key, bytes, { httpMetadata: { contentType: 'application/pdf' } });
+        const publicUrl = `${R2_PUBLIC_URL}/${r2Key}`;
+
+        // Save the public URL to the EA Project's Documents URL field
+        await airtablePatch('EA Projects', eaProjectId, { 'Documents URL': publicUrl });
+
+        return new Response(JSON.stringify({ ok: true, filename, url: publicUrl }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── EA: send Customer Package (estimate + disclosure + SOW PDF) ───────
+    if (path === '/api/ea/send-package' && request.method === 'POST') {
+      try {
+        const { eaProjectId } = await request.json();
+        if (!eaProjectId) return new Response(JSON.stringify({ error: 'Missing eaProjectId' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // 1. Fetch EA Project
+        const eaRecord = await airtableGetById('EA Projects', eaProjectId);
+        const ef = eaRecord.fields || {};
+        const sowUrl = ef['Documents URL'] || '';
+        if (!sowUrl) return new Response(JSON.stringify({ error: 'No Customer SOW uploaded — upload the PDF first' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // 2. Fetch customer for email address
+        const custIds = ef['Customer'] || [];
+        if (!custIds.length) return new Response(JSON.stringify({ error: 'No customer linked to this EA Project' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const custRecord = await airtableGetById('Customers', custIds[0]);
+        const cf = custRecord.fields || {};
+        const custEmail = (cf['Email'] || '').trim();
+        const custName  = cf['Customer Name'] || '';
+        if (!custEmail) return new Response(JSON.stringify({ error: 'Customer has no email on file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // 3. Get Stripe Quote URL from first linked WO that has one
+        const woIds = ef['Work Orders'] || [];
+        let stripeQuoteUrl = '';
+        for (const woId of woIds) {
+          try {
+            const wo = await airtableGetById('Work Orders', woId);
+            if (wo.fields['Stripe Quote URL']) { stripeQuoteUrl = wo.fields['Stripe Quote URL']; break; }
+          } catch(e) { /* non-fatal */ }
+        }
+
+        // 4. Fetch SOW PDF bytes from R2 public URL
+        const sowRes = await fetch(sowUrl);
+        if (!sowRes.ok) return new Response(JSON.stringify({ error: 'Could not retrieve Customer SOW from storage' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const sowBytes    = await sowRes.arrayBuffer();
+        const sowBase64   = arrayBufferToBase64(sowBytes);
+        const sowFilename = sowUrl.split('/').pop() || 'Customer_SOW.pdf';
+
+        // 5. Build rebate rows from EA Project fields
+        const rebateRows = [
+          { label: 'HVAC Heat Pump',    val: ef['HVAC Heat Pump Rebate'] },
+          { label: 'Water Heater',      val: ef['Water Heater Rebate'] },
+          { label: 'Dryer',             val: ef['Dryer Rebate'] },
+          { label: 'Home Efficiency',   val: ef['Home Efficiency Rebate'] },
+          { label: 'Electrical Wiring', val: ef['Electrical Wiring Rebate'] },
+          { label: 'Electrical Panel',  val: ef['Electrical Panel Rebate'] },
+        ].filter(r => r.val > 0);
+        const totalRebate = ef['Total Rebate Available'] || rebateRows.reduce((s, r) => s + r.val, 0);
+        const projNum = ef['EA Project Number'] || '';
+
+        // 6. Compose and send email
+        const subject = `Your Efficiency Arizona Project Package${projNum ? ` — Project #${projNum}` : ''}`;
+        const html = emailEAPackageHtml({ custName, projNum, rebateRows, totalRebate, stripeQuoteUrl });
+        await sendEmail(env.RESEND_API_KEY, {
+          to:          custEmail,
+          subject,
+          html,
+          bcc:         [ADMIN_EMAIL],
+          attachments: [{ filename: sowFilename, content: sowBase64 }],
+        });
+
+        // 7. Log to Communication Log (fire-and-forget)
+        logCommunication(env, {
+          type:       'Email',
+          trigger:    'EA Package — Manual Send',
+          sentTo:     custEmail,
+          subject,
+          customerId: custIds[0],
+        });
+
+        return new Response(JSON.stringify({ ok: true, sentTo: custEmail }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Airtable proxy ────────────────────────────────────────────────────
     const match = path.match(/^\/api\/([^/]+)\/?([^/]*)$/);
     if (match) {
@@ -4489,11 +4589,13 @@ function emailBookingConfirmedHtml({ firstName, dateStr, timeStr, endTimeStr, ad
   return emailBase({ preheader, body });
 }
 
-async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL, cc = [] }) {
+async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL, cc = [], bcc = [], attachments = [] }) {
   if (!apiKey || !to) return; // non-fatal if key not configured or no email on file
   const payload = { from: RESEND_FROM, to: [to], subject, html };
   if (replyTo) payload.reply_to = replyTo;
-  if (cc && cc.length) payload.cc = cc; // Resend accepts cc as an array
+  if (cc && cc.length) payload.cc = cc;
+  if (bcc && bcc.length) payload.bcc = bcc;
+  if (attachments && attachments.length) payload.attachments = attachments; // [{ filename, content: base64 }]
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -4503,6 +4605,74 @@ async function sendEmail(apiKey, { to, subject, html, replyTo = REPLY_TO_EMAIL, 
     const err = await res.text();
     console.error('Resend error:', err);
   }
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+// ── EA Package email ──────────────────────────────────────────────────────────
+function emailEAPackageHtml({ custName, projNum, rebateRows, totalRebate, stripeQuoteUrl }) {
+  const firstName = (custName || 'there').trim().split(' ')[0] || 'there';
+  const fmt = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rebateLines = rebateRows.map(r =>
+    `<tr><td style="padding:5px 0;color:#374151;font-size:14px;">${r.label} Rebate</td><td style="text-align:right;color:#1a6b35;font-weight:600;font-size:14px;">${fmt(r.val)}</td></tr>`
+  ).join('');
+  const rebateBlock = rebateRows.length
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;">
+        ${rebateLines}
+        <tr style="border-top:2px solid #e5e7eb;">
+          <td style="padding:8px 0 4px;font-weight:700;font-size:14px;">Total EA/HEAR Rebate</td>
+          <td style="text-align:right;font-weight:700;font-size:14px;color:#1a6b35;padding:8px 0 4px;">${fmt(totalRebate)}</td>
+        </tr>
+      </table>`
+    : `<p style="color:#1a6b35;font-weight:700;font-size:16px;">Total Rebate: ${fmt(totalRebate)}</p>`;
+  const estimateBtn = stripeQuoteUrl
+    ? `<div style="text-align:center;margin:24px 0;">
+        <a href="${stripeQuoteUrl}" style="display:inline-block;background:#c81f25;color:#ffffff;text-decoration:none;padding:13px 28px;border-radius:8px;font-weight:700;font-size:15px;">View &amp; Approve Your Estimate →</a>
+       </div>`
+    : '';
+  const body = `
+<p style="margin:0 0 18px;font-size:16px;color:#111827;">Hi ${firstName},</p>
+<p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.6;">
+  Your Efficiency Arizona HEAR Program project has been approved! We're thrilled to help you upgrade your home's comfort and efficiency. Your project package is ready — please review everything below and follow the next steps.
+</p>
+
+<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:20px 24px;margin:0 0 24px;">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#166534;margin-bottom:12px;">Efficiency Arizona HEAR Program — Project Summary</div>
+  ${projNum ? `<p style="margin:0 0 8px;font-size:13px;color:#374151;">EA Project #: <strong>${projNum}</strong></p>` : ''}
+  ${rebateBlock}
+  <p style="margin:8px 0 0;font-size:12px;color:#6b7280;line-height:1.5;">
+    The EA/HEAR rebate is paid directly to CJB Comfort on your behalf — you pay only your cost-share portion shown on your estimate. Review your estimate for the full breakdown including your deposit and balance-due amounts.
+  </p>
+</div>
+
+${estimateBtn}
+
+<div style="border-top:1px solid #e5e7eb;padding-top:20px;margin-top:4px;">
+  <p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#111827;">Next Step: Sign Your Customer Scope of Work</p>
+  <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.6;">
+    The <strong>Customer Scope of Work</strong> is attached to this email. This document, provided by Efficiency Arizona, outlines the work to be performed at your home and must be signed before we can schedule your installation.
+  </p>
+  <ol style="margin:0 0 16px;padding-left:20px;font-size:14px;color:#374151;line-height:2;">
+    <li>Print the attached Customer Scope of Work</li>
+    <li>Review and sign the document</li>
+    <li>Take a clear photo or scan of the signed document</li>
+    <li>Email the signed document to <a href="mailto:service@cjbcomfort.com" style="color:#c81f25;font-weight:600;">service@cjbcomfort.com</a></li>
+  </ol>
+  <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">
+    Once we receive your signed Scope of Work, we will reach out to coordinate scheduling.
+  </p>
+</div>
+
+<p style="margin:24px 0 0;font-size:14px;color:#374151;line-height:1.6;">
+  Questions about your project? Reply to this email or call us at <a href="tel:4806048622" style="color:#c81f25;font-weight:600;">(480) 604-8622</a> — we're happy to walk you through everything.
+</p>
+<p style="margin:12px 0 0;font-size:14px;color:#374151;">Thank you for choosing CJB Comfort!</p>`;
+  return emailBase({ preheader: `Your EA project package is ready — please review and sign your Scope of Work`, body });
 }
 
 // ── Communication log — fire-and-forget, never blocks main flow ───────────────
