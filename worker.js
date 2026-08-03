@@ -4064,16 +4064,18 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const custName  = cf['Customer Name'] || '';
         if (!custEmail) return new Response(JSON.stringify({ error: 'Customer has no email on file' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-        // 3. Get Stripe Quote URL + customer cost share from first linked WO that has a quote
+        // 3. Get Stripe Quote URL + ID + customer cost share from first linked WO that has a quote
         const woIds = ef['Work Orders'] || [];
         let stripeQuoteUrl = '';
+        let stripeQuoteId  = '';
         let customerCostShare = 0; // WO Total Amount = what customer actually pays (after rebate)
         for (const woId of woIds) {
           try {
             const wo = await airtableGetById('Work Orders', woId);
-            if (wo.fields['Stripe Quote URL'] || wo.fields['Total Amount']) {
+            if (wo.fields['Stripe Quote URL'] || wo.fields['Stripe Quote ID'] || wo.fields['Total Amount']) {
               if (wo.fields['Stripe Quote URL']) stripeQuoteUrl = wo.fields['Stripe Quote URL'];
-              if (wo.fields['Total Amount'])     customerCostShare = Number(wo.fields['Total Amount']) || 0;
+              if (wo.fields['Stripe Quote ID'])  stripeQuoteId  = wo.fields['Stripe Quote ID'];
+              if (wo.fields['Total Amount'])      customerCostShare = Number(wo.fields['Total Amount']) || 0;
               break;
             }
           } catch(e) { /* non-fatal */ }
@@ -4101,6 +4103,43 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const depositAmt        = customerCostShare > 0 ? customerCostShare * depositPct / 100 : 0;
         const balanceDue        = customerCostShare > 0 ? customerCostShare - depositAmt : 0;
         const projNum = ef['EA Project Number'] || '';
+
+        // 5b. Guardrail: auto-apply EA disclosure to Stripe quote footer if missing
+        if (stripeQuoteId && env.STRIPE_SECRET_KEY && customerCostShare > 0) {
+          try {
+            const fmtD = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const existingQuote = await fetch(`https://api.stripe.com/v1/quotes/${stripeQuoteId}`,
+              { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } }).then(r => r.json());
+            const existingFooter = existingQuote.footer || '';
+            if (!existingFooter.includes('EFFICIENCY ARIZONA HEAR PROGRAM DISCLOSURE')) {
+              const rebateLinesTxt = rebateRows
+                .map(r => `Efficiency Arizona HEAR Rebate — ${r.label}: -${fmtD(r.val)}`)
+                .join('\n');
+              const disclosureFooter =
+                `EFFICIENCY ARIZONA HEAR PROGRAM DISCLOSURE\n` +
+                `Total project cost: ${fmtD(totalProjectCost)}\n` +
+                `${rebateLinesTxt}\n` +
+                `Total EA/HEAR rebate: -${fmtD(totalRebate)}\n` +
+                `Customer out-of-pocket total: ${fmtD(customerCostShare)}\n` +
+                `Deposit due to schedule (${depositPct}%): ${fmtD(depositAmt)}\n` +
+                `Balance due on completion: ${fmtD(balanceDue)}\n` +
+                `Customer Signature: _______________________  Date: __________`;
+              // Append disclosure to existing footer rather than replacing it
+              const newFooter = existingFooter
+                ? `${existingFooter}\n\n${disclosureFooter}`
+                : disclosureFooter;
+              const footerBody = new URLSearchParams({ footer: newFooter.slice(0, 5000) });
+              await fetch(`https://api.stripe.com/v1/quotes/${stripeQuoteId}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: footerBody.toString()
+              });
+            }
+          } catch(disclosureErr) {
+            // Non-fatal — email still goes out with full disclosure; log and continue
+            console.error('Auto-disclosure PATCH failed (non-fatal):', disclosureErr.message);
+          }
+        }
 
         // 6. Compose and send email
         const subject = `Your Efficiency Arizona Project Package${projNum ? ` — Project #${projNum}` : ''}`;
