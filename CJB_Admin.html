@@ -5492,11 +5492,12 @@ async function openDepositInvoiceModal(workOrderId, customerId) {
   if (!eaProjectIds.length) return;
   try {
     const eaId = eaProjectIds[0];
-    let eaRec = _eaProjectsCache.find(r => r.id === eaId);
-    if (!eaRec) {
-      const res = await fetch(`${PROXY}/EA%20Projects/${eaId}`);
-      if (res.ok) eaRec = await res.json();
+    if (!_eaProjectsCache.length) {
+      const records = await fetchAll('EA Projects',
+        'filterByFormula={Active}=1&sort[0][field]=Project%20Name&sort[0][direction]=asc');
+      _eaProjectsCache = records;
     }
+    const eaRec = _eaProjectsCache.find(r => r.id === eaId);
     if (!eaRec) return;
     const ef = eaRec.fields || {};
     // Prefer the modal's computed total (already loaded from quote line items)
