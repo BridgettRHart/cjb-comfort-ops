@@ -9570,7 +9570,14 @@ function eaClearProperty() {
 }
 
 // ── WO card — Link EA Project picker ─────────────────────────────────────────
-function linkEAProject(woId) {
+async function linkEAProject(woId) {
+  if (!_eaProjectsCache.length) {
+    try {
+      const records = await fetchAll('EA Projects',
+        'filterByFormula={Active}=1&sort[0][field]=Project%20Name&sort[0][direction]=asc');
+      _eaProjectsCache = records;
+    } catch(e) {}
+  }
   if (!_eaProjectsCache.length) {
     alert('No active EA projects found. Create one first in the ⚡ EA tab.');
     return;
