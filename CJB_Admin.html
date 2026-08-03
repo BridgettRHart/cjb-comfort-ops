@@ -3218,7 +3218,7 @@ function renderDetail(customer, props, wos, contacts) {
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">Edit Draft</button>`
             : `<button class="btn btn-green btn-sm" onclick="openInvoiceModal('${wo.id}','${customer.id}')">${label}</button>`;
-        } else if (['Scheduled','In Progress'].includes(status) && !depositPaid) {
+        } else if (['New','Scheduled','In Progress'].includes(status) && !depositPaid) {
           // Active WO, no deposit invoice yet
           invoiceBtn = hasDraftInvoice
             ? `<button class="btn btn-gray btn-sm" onclick="openDepositInvoiceModal('${wo.id}','${customer.id}')">Edit Deposit Draft</button>`
@@ -3302,8 +3302,6 @@ function renderDetail(customer, props, wos, contacts) {
               <a href="https://airtable.com/appi09WiT6MFsy9zo/pagzP7I4d1Z7niA8a/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Project Updates</a>
               <a href="https://airtable.com/appi09WiT6MFsy9zo/pagYzSdmOOWNPP7H6/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Change Order</a>
               <a href="https://airtable.com/appi09WiT6MFsy9zo/pagVVSoydYr6mRK1X/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Quality Install Report</a>
-              <a href="https://airtable.com/appi09WiT6MFsy9zo/pag0NLf2oRhixIZjV/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">Business Updates</a>
-              <a href="https://airtable.com/appi09WiT6MFsy9zo/pagRhdCs3NNsHe8TQ/form" target="_blank" rel="noopener" class="btn btn-gray btn-sm">General Questions</a>
             </div>
             <div style="padding:6px 8px;background:#fff3cd;border-radius:4px;font-size:11px;color:#7a5a00;">
               🚨 <strong>Emergency Only</strong> — non-functional system + heat-vulnerable occupant + 100°F+ temps
