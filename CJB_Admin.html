@@ -5502,10 +5502,12 @@ async function openDepositInvoiceModal(workOrderId, customerId) {
     // Prefer the modal's computed total (already loaded from quote line items)
     // over the Airtable field, which may be empty on a newly-created Job WO.
     const modalTotalText = document.getElementById('inv-total')?.textContent || '$0';
-    const woTotal = parseFloat(modalTotalText.replace(/[$,]/g, '')) || wo.fields['Total Amount'] || 0;
-    const depositPct   = ef['EA Deposit Pct'] ?? 50;
-    const totalRebate  = ef['Total Rebate Available'] || 0;
-    const depositAmt   = Math.round(woTotal * depositPct / 100 * 100) / 100;
+    const grossTotal     = parseFloat(modalTotalText.replace(/[$,]/g, '')) || wo.fields['Total Amount'] || 0;
+    const depositPct     = ef['EA Deposit Pct'] ?? 50;
+    const totalRebate    = ef['Total Rebate Available'] || 0;
+    // Customer pays the gross minus EA rebates; deposit is that net × deposit %
+    const custShare  = Math.max(0, grossTotal - totalRebate);
+    const depositAmt = Math.round(custShare * depositPct / 100 * 100) / 100;
     // Pre-fill the deposit amount
     const amtEl = document.getElementById('inv-deposit-amt');
     if (amtEl && depositAmt > 0) amtEl.value = depositAmt.toFixed(2);
@@ -5515,8 +5517,9 @@ async function openDepositInvoiceModal(workOrderId, customerId) {
       const banner = document.createElement('div');
       banner.style.cssText = 'background:#f0faf4;border:1px solid #c3dfc9;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#1a6b35;line-height:1.6;';
       banner.innerHTML = `⚡ <strong>EA Project #${esc(ef['EA Project Number'])}</strong> &nbsp;·&nbsp;
-        Customer cost-share: <strong>$${woTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong> &nbsp;·&nbsp;
+        Gross total: <strong>$${grossTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong> &nbsp;·&nbsp;
         EA rebate: <strong>$${totalRebate.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong> &nbsp;·&nbsp;
+        Customer share: <strong>$${custShare.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong> &nbsp;·&nbsp;
         Deposit (${depositPct}%): <strong>$${depositAmt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong>`;
       depositRow.parentNode.insertBefore(banner, depositRow);
     }
