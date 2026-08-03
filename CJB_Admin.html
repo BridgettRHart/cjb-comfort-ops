@@ -9148,7 +9148,7 @@ function _eaTotalRebate(f) {
   const sum = (f['HVAC Heat Pump Rebate'] || 0) + (f['Water Heater Rebate'] || 0) +
     (f['Dryer Rebate'] || 0) + (f['Home Efficiency Rebate'] || 0) +
     (f['Electrical Wiring Rebate'] || 0) + (f['Electrical Panel Rebate'] || 0);
-  return f['Total Rebate Available'] || sum;
+  return f['Total Rebate Expected'] || f['Total Rebate Available'] || sum;
 }
 
 function _eaStatusBadge(status) {
@@ -9216,7 +9216,7 @@ async function renderEADetail(record) {
   const rebateTable = rebateRows.length ? `
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
       <tr style="border-bottom:2px solid #e8e8e8;">
-        <td style="padding:6px 0;font-weight:700;font-size:14px;">Total Rebate Available</td>
+        <td style="padding:6px 0;font-weight:700;font-size:14px;">Total Rebate Expected</td>
         <td style="text-align:right;font-weight:700;font-size:16px;color:#1a6b35;">${_eaTotalRebate(f) > 0 ? '$' + Number(_eaTotalRebate(f)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
       </tr>
       ${rebateRows.map(row => `<tr>
