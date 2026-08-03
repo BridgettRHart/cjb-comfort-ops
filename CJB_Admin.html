@@ -5499,7 +5499,10 @@ async function openDepositInvoiceModal(workOrderId, customerId) {
     }
     if (!eaRec) return;
     const ef = eaRec.fields || {};
-    const woTotal      = wo.fields['Total Amount'] || 0;
+    // Prefer the modal's computed total (already loaded from quote line items)
+    // over the Airtable field, which may be empty on a newly-created Job WO.
+    const modalTotalText = document.getElementById('inv-total')?.textContent || '$0';
+    const woTotal = parseFloat(modalTotalText.replace(/[$,]/g, '')) || wo.fields['Total Amount'] || 0;
     const depositPct   = ef['EA Deposit Pct'] ?? 50;
     const totalRebate  = ef['Total Rebate Available'] || 0;
     const depositAmt   = Math.round(woTotal * depositPct / 100 * 100) / 100;
