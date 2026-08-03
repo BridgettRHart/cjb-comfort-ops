@@ -9235,7 +9235,8 @@ async function renderEADetail(record) {
     <div class="cust-card" style="border-left:4px solid #1a6b35;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px;">
         <div>
-          <div class="cust-card-name" style="margin-bottom:6px;">${esc(f['Project Name'] || '(unnamed)')}</div>
+          <div class="cust-card-name" style="margin-bottom:4px;">${esc(f['Project Name'] || '(unnamed)')}</div>
+          ${eaCustRecord ? `<div style="margin-bottom:6px;"><button class="btn-link" style="font-size:13px;color:#1a6b35;font-weight:600;" onclick="switchTab('customers',true);selectCustomer('${eaCustId}');">↗ ${esc(eaCustRecord.fields['Customer Name'] || '')}</button></div>` : ''}
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             ${f['EA Project Number'] ? `<span style="font-size:12px;font-weight:700;background:#e8f5e9;color:#1a6b35;border-radius:5px;padding:2px 9px;">${esc(f['EA Project Number'])}</span>` : ''}
             ${status ? _eaStatusBadge(status) : ''}
