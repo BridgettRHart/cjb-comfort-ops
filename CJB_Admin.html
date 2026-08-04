@@ -9307,6 +9307,29 @@ async function renderEADetail(record) {
       <div style="font-size:13px;color:#333;line-height:1.6;white-space:pre-wrap;">${esc(f['Recommended Measures'])}</div>
     </div>` : ''}
 
+    ${(() => {
+      const totalRebate = _eaTotalRebate(f);
+      if (!totalRebate || !eaWOs.length) return '';
+      // Prefer Installation WO; fall back to first linked WO
+      const billingWO = eaWOs.find(w => (w.fields['Work Order Type'] || '').toLowerCase().includes('install')) || eaWOs[0];
+      const existingRebateInvId = billingWO?.fields?.['EA Rebate Invoice Stripe ID'] || '';
+      return `<div class="section">
+        <div class="section-title">EA Rebate Invoice</div>
+        <div style="font-size:12px;color:#555;margin-bottom:10px;">
+          Internal draft invoice billed to Efficiency Arizona — HEAR Program. Never emailed. Collect from Stripe once the reimbursement check arrives.
+        </div>
+        ${existingRebateInvId
+          ? `<div style="display:flex;align-items:center;gap:10px;">
+               <span style="font-size:13px;color:#166534;font-weight:600;">✓ EA Rebate Invoice on file</span>
+               <button class="btn btn-gray btn-sm" onclick="createEARebateInvoice('${record.id}','${billingWO.id}',${totalRebate},this)">Recreate ($${totalRebate.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</button>
+             </div>`
+          : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="createEARebateInvoice('${record.id}','${billingWO.id}',${totalRebate},this)">
+               Create EA Rebate Invoice — $${totalRebate.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} (Draft)
+             </button>`
+        }
+      </div>`;
+    })()}
+
     ${actionBtns ? `<div class="section">
       <div class="section-title">EA Actions</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">${actionBtns}</div>
@@ -9373,6 +9396,39 @@ async function renderEADetail(record) {
       <div class="section-title">Linked Work Orders (${woIds.length})</div>
       ${eaWOsHtml}
     </div>`;
+}
+
+async function createEARebateInvoice(eaProjectId, woId, rebateAmt, btn) {
+  if (!confirm(`Create a draft EA rebate invoice for $${Number(rebateAmt).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}?\n\nThis will be billed to Efficiency Arizona — HEAR Program as a draft only. Not emailed.`)) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Creating…';
+  try {
+    const res = await fetch(`${PROXY}/invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workOrderId: woId,
+        invoiceType: 'ea_rebate',
+        lineItems: [{ productName: 'EA HEAR Program Rebate', quantity: 1, unitPrice: rebateAmt }],
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+    showToast('EA rebate invoice created (Draft) ✓');
+    // Refresh EA detail so the button state updates
+    const rec = _eaProjectsCache.find(r => r.id === eaProjectId);
+    if (rec) {
+      // Update the WO in cache so the button shows "Recreate" on next render
+      const wo = currentWorkOrders.find(w => w.id === woId);
+      if (wo && data.stripeInvoiceId) wo.fields['EA Rebate Invoice Stripe ID'] = data.stripeInvoiceId;
+      renderEADetail(rec);
+    }
+  } catch(e) {
+    showToast('⚠ Could not create EA rebate invoice: ' + (e.message || 'try again'));
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
 }
 
 async function updateEAStatus(recordId) {
