@@ -2625,7 +2625,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           ...(paidInFull ? {
             'Paid Date':      paidDate,
             'Amount Paid':    paymentCollected.amount,
-            'Payment Method': paymentCollected.method,
+            'Payment Method': [paymentCollected.method],
             ...(paymentCollected.note ? { 'Payment Notes': paymentCollected.note } : {}),
           } : {}),
           ...(waveInvoiceId ? { 'Wave Exported': true, 'Wave Invoice ID': waveInvoiceId } : {}),
