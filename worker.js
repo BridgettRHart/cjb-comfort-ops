@@ -1648,62 +1648,36 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             scheduleFirstContractVisit(env, contractId).catch(e => console.error('scheduleFirstContractVisit error:', e.message));
           }
 
-          // Maintenance contract renewal payment → roll contract forward one year
+          // Maintenance contract renewal payment → create Airtable Invoice record
+          // NOTE: date rolling, WO scheduling, and confirmation email are all handled by
+          // the quote.accepted webhook. This handler only records that payment was received.
           if (inv.metadata?.invoice_type === 'maintenance_renewal' && inv.metadata?.contract_airtable_id) {
             const contractId = inv.metadata.contract_airtable_id;
             try {
               const contract = await airtableGetById('Maintenance Contracts', contractId);
               const cf = contract.fields;
+              const custId   = (cf['Customer'] || [])[0] || null;
+              const custRec  = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+              const custName = custRec?.fields?.['Customer Name'] || inv.customer_name || '';
+              const amtPaid  = (inv.amount_paid || 0) / 100;
+              const paidDate = new Date().toISOString().split('T')[0];
 
-              // Roll dates: new start = old end + 1 day, new end = new start + 1 year - 1 day
-              const oldEnd      = cf['End Date'] ? new Date(cf['End Date'] + 'T12:00:00') : new Date();
-              const newStart    = new Date(oldEnd);
-              newStart.setDate(newStart.getDate() + 1);
-              const newEnd      = new Date(newStart);
-              newEnd.setFullYear(newEnd.getFullYear() + 1);
-              newEnd.setDate(newEnd.getDate() - 1);
+              const invFields = {
+                'Invoice Name':      `${custName} — Maintenance Contract Renewal`,
+                'Active':            true,
+                'Status':            'Paid in Full',
+                'Invoice Type':      'Maintenance Contract',
+                'Invoice Date':      paidDate,
+                'Paid Date':         paidDate,
+                'Amount Paid':       amtPaid,
+                'Stripe Invoice ID': inv.id,
+                'Internal Notes':    `Stripe Invoice ID: ${inv.id}${inv.hosted_invoice_url ? '\n' + inv.hosted_invoice_url : ''}\nContract: ${contractId}`,
+              };
+              if (custId) invFields['Customers'] = [custId];
 
-              await airtablePatch('Maintenance Contracts', contractId, {
-                'Status':                'Active',
-                'Start Date':            newStart.toISOString().split('T')[0],
-                'End Date':              newEnd.toISOString().split('T')[0],
-                'Visits Used This Year': 0,
-                'Renewal Invoice Sent':  null, // clear so next year's renewal can fire
-              });
-
-              // Send renewal confirmed email
-              const custId    = (cf['Customer'] || [])[0] || null;
-              const custRec   = custId ? await airtableGetById('Customers', custId) : null;
-              const custEmail = custRec?.fields?.['Email'] || inv.customer_email || '';
-              const custFirst = (custRec?.fields?.['First Name'] || inv.customer_name || '').split(' ')[0] || 'there';
-              const planName  = cf['Plan Name'] || 'Annual Maintenance Agreement';
-              const amtPaid   = (inv.amount_paid || 0) / 100;
-
-              if (custEmail && env.RESEND_API_KEY) {
-                const renewSubj = `Your CJB Comfort maintenance agreement has been renewed`;
-                await sendEmail(env.RESEND_API_KEY, {
-                  to:      custEmail,
-                  subject: renewSubj,
-                  html:    emailRenewalConfirmedHtml({
-                    customerName: custFirst,
-                    planName,
-                    amountPaid:   amtPaid,
-                    newStartDate: newStart.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-                    newEndDate:   newEnd.toLocaleDateString('en-US',   { month: 'long', day: 'numeric', year: 'numeric' }),
-                  }),
-                }).catch(e => console.error('Renewal confirmed email error:', e));
-                logCommunication(env, {
-                  type:       'Email',
-                  trigger:    'Contract Renewed',
-                  sentTo:     custEmail,
-                  subject:    renewSubj,
-                  customerId: custId,
-                }).catch(() => {});
-              }
-              // Schedule first visit WO + follow-up for the new year
-              scheduleFirstContractVisit(env, contractId).catch(e => console.error('scheduleFirstContractVisit (renewal) error:', e.message));
+              await airtablePost('Invoices', invFields);
             } catch(e) {
-              console.error('Contract renewal roll-forward error:', e.message);
+              console.error('Contract renewal invoice record error:', e.message);
             }
           }
         }
