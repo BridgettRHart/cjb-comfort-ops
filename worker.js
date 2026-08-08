@@ -1256,25 +1256,35 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 const newStartStr = newStart.toISOString().split('T')[0];
                 const newEndStr   = newEnd.toISOString().split('T')[0];
 
+                // Visit schedule — reads option-specific fields so WOs match what was sold
+                const fullMaintVisits = option === 'B'
+                  ? (cf['Option B Full Maintenance Visits'] || cf['Visits Per Year'] || 2)
+                  : (cf['Visits Per Year'] || 2);
+                const filterVisits    = option === 'B'
+                  ? (cf['Option B Filter Change Visits'] || 0)
+                  : 0;
+                const fullDesc   = cf['Included Services'] || '';
+                const filterDesc = cf['Option B Details']  || '';
+
                 const contractUpdate = {
                   'Annual Value':          acceptedPrice,
                   'Start Date':            newStartStr,
                   'End Date':              newEndStr,
                   'Renewal Date':          newEndStr,
+                  'Visits Per Year':       fullMaintVisits,
                   'Visits Used This Year': 0,
                   'Status':                'Active',
                   'Renewal Invoice Sent':  null,
                 };
-                if (option === 'B') {
-                  contractUpdate['Visits Per Year'] = (cf['Visits Per Year'] || 2) + 2;
-                }
                 await airtablePatch('Maintenance Contracts', contractId, contractUpdate);
 
-                // Create placeholder WOs for all visits in the new period
-                await scheduleAllContractVisits(env, contractId).catch(e =>
-                  console.error('scheduleAllContractVisits error:', e.message));
+                // Create placeholder WOs: full maintenance visits + filter-change visits
+                await scheduleAllContractVisits(env, contractId, {
+                  fullVisits: fullMaintVisits, fullDesc,
+                  filterVisits, filterDesc,
+                }).catch(e => console.error('scheduleAllContractVisits error:', e.message));
 
-                // Get contact/customer info for confirmation email + SMS
+                // Get contact/customer info for invoice + email + SMS
                 const contactIds = cf['Primary Contact'] || [];
                 const custId     = (cf['Customer'] || [])[0] || null;
                 let contactEmail = '', contactFirst = '', custName = '';
@@ -1283,22 +1293,56 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                     const cr = await airtableGetById('Contacts', contactIds[0]);
                     contactEmail = cr.fields?.['Email'] || '';
                     contactFirst = cr.fields?.['First Name'] || cr.fields?.['Contact Name']?.split(' ')[0] || 'there';
+                    custName     = cr.fields?.['Contact Name'] || '';
                   } catch(e) {}
                 }
                 if (!contactEmail && custId) {
                   const custRec = await airtableGetById('Customers', custId).catch(() => null);
                   contactEmail = custRec?.fields?.['Email'] || '';
                   contactFirst = custRec?.fields?.['First Name'] || custRec?.fields?.['Customer Name']?.split(' ')[0] || 'there';
-                  custName = custRec?.fields?.['Customer Name'] || '';
-                }
-                if (!custName && custId) {
-                  const cr2 = await airtableGetById('Customers', custId).catch(() => null);
-                  custName = cr2?.fields?.['Customer Name'] || '';
+                  custName     = custRec?.fields?.['Customer Name'] || '';
                 }
 
-                const planName = cf['Plan Name'] || 'Maintenance Contract';
+                const planName    = cf['Plan Name'] || 'Maintenance Contract';
                 const newStartFmt = new Date(newStartStr + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'});
                 const newEndFmt   = new Date(newEndStr   + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'});
+
+                // Auto-create and send renewal invoice
+                if (contactEmail && env.STRIPE_SECRET_KEY) {
+                  try {
+                    const srchRes  = await fetch(
+                      `https://api.stripe.com/v1/customers?email=${encodeURIComponent(contactEmail)}&limit=1`,
+                      { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Stripe-Version': STRIPE_VERSION } });
+                    const srchData = await srchRes.json();
+                    let stripeCustId;
+                    if (srchData.data?.length > 0) {
+                      stripeCustId = srchData.data[0].id;
+                    } else {
+                      const cc = await stripePost(env.STRIPE_SECRET_KEY, '/v1/customers', { email: contactEmail, name: custName });
+                      stripeCustId = cc.id;
+                    }
+                    await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoiceitems', {
+                      customer:    stripeCustId,
+                      amount:      Math.round(acceptedPrice * 100),
+                      currency:    'usd',
+                      description: `${planName} — Annual Renewal (Option ${option})`,
+                    });
+                    const inv = await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoices', {
+                      customer:                         stripeCustId,
+                      description:                      `${planName} — Annual Renewal`,
+                      'metadata[invoice_type]':         'maintenance_renewal',
+                      'metadata[contract_airtable_id]': contractId,
+                      'collection_method':              'send_invoice',
+                      'days_until_due':                 '30',
+                    });
+                    await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${inv.id}/finalize`, {});
+                    const sent = await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${inv.id}/send`, {});
+                    await airtablePatch('Maintenance Contracts', contractId, {
+                      'Stripe Invoice ID':  sent.id,
+                      'Stripe Invoice URL': sent.hosted_invoice_url || '',
+                    });
+                  } catch(e) { console.error('Renewal auto-invoice error:', e.message); }
+                }
 
                 if (contactEmail && env.RESEND_API_KEY) {
                   const confSubj = `Your maintenance agreement has been renewed — ${planName}`;
@@ -5534,27 +5578,35 @@ async function applyLateFee(env, atInv, custRec, todayStr, remindersSent = []) {
 }
 
 // ── Create placeholder WOs for ALL visits in a contract period ───────────────
-// Called on contract renewal acceptance. Creates one "On Hold" WO + Follow-Up
-// per contracted visit so Bridgett has concrete records to schedule against.
-async function scheduleAllContractVisits(env, contractId) {
+// fullVisits: count of full maintenance WOs (problem desc = fullDesc / Included Services)
+// filterVisits: count of filter-change-only WOs (problem desc = filterDesc / Option B Details)
+// Follow-up due dates are spaced evenly across a 12-month window.
+async function scheduleAllContractVisits(env, contractId, { fullVisits, fullDesc, filterVisits = 0, filterDesc = '' } = {}) {
   const contract = await airtableGetById('Maintenance Contracts', contractId);
   const cf       = contract.fields;
   const custId   = (cf['Customer'] || [])[0] || null;
   const propId   = (cf['Property'] || [])[0] || null;
   const planName = cf['Plan Name'] || 'Maintenance Agreement';
-  const visitsPerYear = cf['Visits Per Year'] || 2;
+
+  // Fall back to contract fields if caller didn't supply explicit counts
+  const fv = fullVisits   ?? (cf['Visits Per Year'] || 2);
+  const lv = filterVisits ?? 0;
+  const fd = fullDesc     || cf['Included Services'] || '';
+  const ld = filterDesc   || cf['Option B Details']  || '';
 
   const custRec  = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
   const custName = custRec?.fields?.['Customer Name'] || 'Customer';
 
-  for (let i = 1; i <= visitsPerYear; i++) {
-    const woName = `${custName} — ${planName} (Visit ${i})`;
+  const totalVisits = fv + lv;
+
+  const makeWO = async (label, problemDesc, visitIndex) => {
+    const woName = `${custName} — ${planName} (${label})`;
     const woFields = {
-      'Work Order Name': woName,
-      'Work Order Type': 'Maintenance',
-      'Status':          'On Hold',
-      'Active':          true,
-      'Notes':           `Contract renewal — visit ${i} of ${visitsPerYear}. Contact customer to schedule. Contract: ${planName}.`,
+      'Work Order Name':      woName,
+      'Work Order Type':      'Maintenance',
+      'Status':               'On Hold',
+      'Active':               true,
+      'Problem Description':  problemDesc,
       'Maintenance Contract': [contractId],
     };
     if (custId) woFields['Customer'] = [custId];
@@ -5566,17 +5618,16 @@ async function scheduleAllContractVisits(env, contractId) {
       body:    JSON.stringify({ fields: woFields }),
     });
     const woData = await woRes.json();
-    const woId   = woData.id || null;
+    const woId = woData.id || null;
 
-    // Space follow-up due dates ~6 months apart for a 2-visit contract
-    const monthsOut = Math.round((i / visitsPerYear) * 12);
-    const fuDue = new Date(Date.now() + monthsOut * 30 * 86400000).toISOString();
+    const monthsOut = Math.round((visitIndex / totalVisits) * 12);
+    const fuDue = new Date(Date.now() + Math.max(1, monthsOut) * 30 * 86400000).toISOString();
     const fuFields = {
-      'Title':    `Schedule Visit ${i} of ${visitsPerYear} — ${custName} · ${planName}`,
+      'Title':    `Schedule ${label} — ${custName} · ${planName}`,
       'Type':     'Follow-Up',
       'Status':   'Open',
       'Due Date': fuDue,
-      'Notes':    `Contract renewed. Schedule maintenance visit ${i} of ${visitsPerYear}. WO: "${woName}".`,
+      'Notes':    `Contract renewed. WO: "${woName}".`,
     };
     if (custId) fuFields['Customer']   = [custId];
     if (woId)   fuFields['Work Order'] = [woId];
@@ -5586,8 +5637,16 @@ async function scheduleAllContractVisits(env, contractId) {
       headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
       body:    JSON.stringify({ fields: fuFields }),
     });
+  };
+
+  for (let i = 1; i <= fv; i++) {
+    await makeWO(`Visit ${i} of ${fv}`, fd, i);
   }
-  console.log(`scheduleAllContractVisits: ${visitsPerYear} WO(s) created for contract ${contractId}`);
+  for (let i = 1; i <= lv; i++) {
+    await makeWO(`Filter Change ${i} of ${lv}`, ld, fv + i);
+  }
+
+  console.log(`scheduleAllContractVisits: ${fv} maintenance + ${lv} filter-change WO(s) for contract ${contractId}`);
 }
 
 // ── Create first-visit Work Order + Follow-Up when a contract activates/renews ─
