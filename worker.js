@@ -2233,17 +2233,17 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (!contractId || !quoteAId) return new Response(JSON.stringify({ error: 'contractId and quoteAId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
         const qA = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteAId}`);
-        const quoteAUrl = qA.url || '';
+        const quoteAUrl = qA.hosted_url || qA.url || '';
         let quoteBUrl = '';
         if (quoteBId) {
           const qB = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteBId}`);
-          quoteBUrl = qB.url || '';
+          quoteBUrl = qB.hosted_url || qB.url || '';
         }
         await airtablePatch('Maintenance Contracts', contractId, {
           'Renewal Quote A URL': quoteAUrl || null,
           'Renewal Quote B URL': quoteBUrl || null,
         });
-        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl, debug_qA_keys: Object.keys(qA) }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
