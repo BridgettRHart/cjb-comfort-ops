@@ -2024,7 +2024,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
     if (path === '/api/contract/send-renewal-proposal' && request.method === 'POST') {
       const STRIPE_KEY = env.STRIPE_SECRET_KEY;
       try {
-        const { contractId, preview } = await request.json();
+        const { contractId, preview, customNote = '' } = await request.json();
         if (!contractId) return new Response(JSON.stringify({ error: 'Missing contractId' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
@@ -2076,6 +2076,16 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           description: optionBDetails || `Enhanced coverage — contact us for details`,
         } : null;
 
+        // Fetch property name for the contract
+        const propId = (cf['Property'] || [])[0] || null;
+        let propertyName = '';
+        if (propId) {
+          try {
+            const propRec = await airtableGetById('Properties', propId);
+            propertyName = propRec.fields?.['Property Name'] || propRec.fields?.['Service Address'] || '';
+          } catch(e) {}
+        }
+
         // Generate or reuse customer portal link
         const _custId = (cf['Customer'] || [])[0] || '';
         let portalLink = '';
@@ -2102,7 +2112,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         if (preview) {
           return new Response(JSON.stringify({
             ok: true,
-            preview: { contactEmail, contactName, contactFirst, planName, endDateFmt, optionA, optionB, portalLink },
+            preview: { contactEmail, contactName, contactFirst, planName, propertyName, endDateFmt, optionA, optionB, portalLink },
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
@@ -2176,10 +2186,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           html:    emailRenewalProposalHtml({
             contactFirst,
             planName,
+            propertyName,
             endDateFmt,
             optionA: { ...optionA, url: quoteAUrl },
             optionB: optionB ? { ...optionB, url: quoteBUrl } : null,
             portalLink,
+            customNote,
           }),
         });
         logCommunication(env, {
@@ -6140,7 +6152,7 @@ function emailRenewalInvoiceHtml({ customerName, planName, annualValue, hostedUr
 }
 
 // ── Renewal proposal email: two-option Stripe Quote links ────────────────────
-function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA, optionB, portalLink }) {
+function emailRenewalProposalHtml({ contactFirst, planName, propertyName, endDateFmt, optionA, optionB, portalLink, customNote }) {
   const optCard = (opt, letter, color) => `
     <div style="border:2px solid ${color};border-radius:10px;padding:20px 24px;margin-bottom:20px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:${color};margin-bottom:8px;">Option ${letter}</div>
@@ -6148,26 +6160,37 @@ function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA,
         $${Number(opt.price).toLocaleString('en-US', {minimumFractionDigits:2})}
         <span style="font-size:14px;font-weight:400;color:#6b7280;"> / year</span>
       </div>
-      <div style="font-size:14px;color:#6b7280;margin:8px 0 18px;">${opt.description}</div>
+      <div style="font-size:14px;color:#374151;margin:8px 0 18px;white-space:pre-line;">${opt.description}</div>
       <a href="${opt.url}" style="display:inline-block;background:${color};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 28px;border-radius:7px;">Accept Option ${letter} →</a>
     </div>`;
 
+  const propLine   = propertyName ? ` for <strong>${propertyName}</strong>` : '';
+  const noteSection = customNote ? `
+    <div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:20px;font-size:14px;color:#374151;line-height:1.6;">${customNote.replace(/\n/g,'<br>')}</div>` : '';
+
   const portalSection = portalLink ? `
-    <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:20px;">
-      <p style="font-size:13px;color:#374151;margin:0 0 8px;">You can also view your service history, invoices, and equipment records anytime through your customer portal:</p>
-      <a href="${portalLink}" style="display:inline-block;background:#f3f4f6;color:#1e40af;text-decoration:none;font-size:13px;font-weight:600;padding:9px 20px;border-radius:6px;border:1px solid #d1d5db;">View Your Customer Portal →</a>
+    <div style="border-top:1px solid #e5e7eb;margin-top:28px;padding-top:20px;text-align:center;">
+      <p style="font-size:13px;color:#6b7280;margin:0 0 12px;">View your service history, equipment records, and invoices anytime in your customer portal:</p>
+      <a href="${portalLink}" style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 28px;border-radius:7px;">View Your Customer Portal →</a>
     </div>` : '';
+
+  // ── DISCLAIMER — paste your contract disclaimer language here ──────────────
+  const disclaimer = `
+    <div style="border-top:1px solid #e5e7eb;margin-top:28px;padding-top:16px;font-size:11px;color:#9ca3af;line-height:1.6;">
+      This proposal expires 30 days from the date it was sent. Services are subject to the terms of the CJB Comfort Annual Maintenance Agreement. By accepting an option above, you agree to those terms. Questions? Reply to this email or call us at (480) 604-8622.
+    </div>`;
 
   const preheader = `Your ${planName} is up for renewal — review your options and accept online.`;
   const body = `
     <p>Hi ${contactFirst},</p>
-    <p>Your <strong>${planName}</strong> is coming up for renewal${endDateFmt ? ` (current term ends ${endDateFmt})` : ''}. We've prepared two options for your review below.</p>
+    ${noteSection}
+    <p>Your <strong>${planName}</strong>${propLine} is coming up for renewal${endDateFmt ? ` (current term ends ${endDateFmt})` : ''}. We've prepared the option${optionB ? 's' : ''} below for your review.</p>
     <p>Click the button on your preferred option to review and accept it securely online.</p>
     ${optCard(optionA, 'A', '#1a6b35')}
     ${optionB ? optCard(optionB, 'B', '#0369a1') : ''}
-    <p style="font-size:13px;color:#9ca3af;">These proposals expire in 30 days. Once you accept an option, you'll receive a confirmation with your new coverage dates.</p>
     <p>Thank you for trusting CJB Comfort with your HVAC systems. We look forward to another great year of service.</p>
-    ${portalSection}`;
+    ${portalSection}
+    ${disclaimer}`;
   return emailBase({ preheader, body });
 }
 

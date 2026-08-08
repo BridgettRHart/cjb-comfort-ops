@@ -8281,55 +8281,65 @@ async function showRenewalProposalModal(contractId) {
   }
   if (btn) { btn.disabled = false; btn.textContent = '📬 Send Renewal Proposal'; }
 
-  const { contactEmail, contactName, contactFirst, planName, endDateFmt, optionA, optionB, portalLink } = preview;
+  const { contactEmail, contactName, contactFirst, planName, propertyName, endDateFmt, optionA, optionB, portalLink } = preview;
+
+  const propLine = propertyName ? ` for <strong>${esc(propertyName)}</strong>` : '';
 
   const optCard = (opt, letter, color) => `
-    <div style="border:2px solid ${color};border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+    <div style="border:2px solid ${color};border-radius:10px;padding:18px 20px;margin-bottom:16px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:${color};margin-bottom:6px;">Option ${letter}</div>
-      <div style="font-size:22px;font-weight:700;color:#111;line-height:1;">$${Number(opt.price).toLocaleString('en-US',{minimumFractionDigits:2})}<span style="font-size:13px;font-weight:400;color:#6b7280;"> / year</span></div>
-      <div style="font-size:13px;color:#374151;margin:8px 0 12px;white-space:pre-line;line-height:1.5;">${esc(opt.description)}</div>
-      <div style="display:inline-block;background:${color};color:#fff;font-size:12px;font-weight:600;padding:7px 18px;border-radius:5px;opacity:0.75;">Accept Option ${letter} →</div>
-      <div style="font-size:11px;color:#9ca3af;margin-top:6px;">Customer clicks this button in the email to accept</div>
+      <div style="font-size:24px;font-weight:700;color:#111;line-height:1;">$${Number(opt.price).toLocaleString('en-US',{minimumFractionDigits:2})}<span style="font-size:13px;font-weight:400;color:#6b7280;"> / year</span></div>
+      <div style="font-size:13px;color:#374151;margin:8px 0 14px;white-space:pre-line;line-height:1.5;">${esc(opt.description)}</div>
+      <div style="display:inline-block;background:${color};color:#fff;font-size:13px;font-weight:600;padding:9px 22px;border-radius:6px;">Accept Option ${letter} →</div>
     </div>`;
+
+  const portalBtn = portalLink ? `
+    <div style="border-top:1px solid #e5e7eb;margin-top:20px;padding-top:16px;text-align:center;">
+      <p style="margin:0 0 10px;font-size:12px;color:#6b7280;">View your service history, equipment records, and invoices anytime in your customer portal:</p>
+      <div style="display:inline-block;background:#1e40af;color:#fff;font-size:13px;font-weight:600;padding:9px 22px;border-radius:6px;"><a href="${portalLink}" target="_blank" style="color:#fff;text-decoration:none;">View Your Customer Portal →</a></div>
+    </div>` : '';
 
   document.getElementById('renewal-proposal-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'renewal-proposal-modal';
   modal.className = 'modal-bg';
   modal.innerHTML = `
-    <div class="modal" style="max-width:560px;">
+    <div class="modal" style="max-width:600px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
         <div class="modal-title" style="margin:0;">Renewal Proposal Preview</div>
         <button class="btn btn-gray btn-sm" onclick="document.getElementById('renewal-proposal-modal').remove()">✕ Cancel</button>
       </div>
 
-      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:8px;">
+      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;align-items:center;gap:8px;">
         <span style="font-size:16px;">📧</span>
-        <div>
-          <div style="font-weight:600;color:#166534;">Email will be sent to:</div>
-          <div style="color:#374151;">${esc(contactName)} &lt;${esc(contactEmail)}&gt;</div>
+        <div><span style="font-weight:600;color:#166534;">To:</span> ${esc(contactName)} &lt;${esc(contactEmail)}&gt;</div>
+      </div>
+
+      <div style="font-size:11px;color:#6b7280;margin-bottom:4px;"><strong>SUBJECT:</strong> ${esc(planName)}${propertyName ? ' — ' + esc(propertyName) : ''} — Your Renewal Options</div>
+
+      <div style="border:1px solid #e5e7eb;border-radius:10px;overflow-y:auto;max-height:60vh;margin-bottom:14px;">
+        <div style="padding:20px 22px;font-size:14px;color:#374151;">
+          <p style="margin:0 0 14px;">Hi ${esc(contactFirst)},</p>
+          <div id="renewal-note-preview" style="display:none;background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:16px;font-size:14px;color:#374151;line-height:1.6;"></div>
+          <p style="margin:0 0 14px;">Your <strong>${esc(planName)}</strong>${propLine} is coming up for renewal${endDateFmt ? ` (current term ends ${esc(endDateFmt)})` : ''}. We've prepared the option${optionB ? 's' : ''} below for your review.</p>
+          <p style="margin:0 0 16px;">Click the button on your preferred option to review and accept it securely online.</p>
+          ${optCard(optionA, 'A', '#1a6b35')}
+          ${optionB ? optCard(optionB, 'B', '#0369a1') : ''}
+          <p style="margin:0;">Thank you for trusting CJB Comfort with your HVAC systems. We look forward to another great year of service.</p>
+          ${portalBtn}
+          <div style="border-top:1px solid #e5e7eb;margin-top:20px;padding-top:14px;font-size:11px;color:#9ca3af;line-height:1.6;">
+            This proposal expires 30 days from the date it was sent. Services are subject to the terms of the CJB Comfort Annual Maintenance Agreement. By accepting an option above, you agree to those terms. Questions? Reply to this email or call us at (480) 604-8622.
+          </div>
         </div>
       </div>
 
-      <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:16px;">
-        <div style="background:#f9fafb;border-bottom:1px solid #e5e7eb;padding:10px 16px;font-size:11px;color:#6b7280;">
-          <strong>SUBJECT:</strong> ${esc(planName)} — Your Renewal Options
-        </div>
-        <div style="padding:16px 20px;">
-          <p style="margin:0 0 12px;font-size:14px;color:#374151;">Hi ${esc(contactFirst)},</p>
-          <p style="margin:0 0 16px;font-size:13px;color:#6b7280;">Your <strong>${esc(planName)}</strong> is coming up for renewal${endDateFmt ? ` (current term ends ${esc(endDateFmt)})` : ''}. Please choose the option that works best for you.</p>
-
-          ${optCard(optionA, 'A', '#1a6b35')}
-          ${optionB ? optCard(optionB, 'B', '#0369a1') : ''}
-
-          <p style="margin:12px 0 0;font-size:12px;color:#9ca3af;">Each button above is a secure link — clicking it lets the customer review and accept that option in Stripe. The contract updates automatically once they accept.</p>
-
-          ${portalLink ? `
-          <div style="border-top:1px solid #e5e7eb;margin-top:16px;padding-top:14px;">
-            <p style="margin:0 0 6px;font-size:12px;color:#374151;">Customer portal link included in the email:</p>
-            <a href="${portalLink}" target="_blank" style="font-size:12px;color:#1e40af;word-break:break-all;">${portalLink}</a>
-          </div>` : ''}
-        </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Personal note (optional — appears at the top of the email)</label>
+        <textarea id="renewal-custom-note" rows="3" placeholder="e.g. Great working with you this year — looking forward to another!" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit;resize:vertical;" oninput="
+          const v = this.value.trim();
+          const p = document.getElementById('renewal-note-preview');
+          if (p) { p.textContent = v; p.style.display = v ? 'block' : 'none'; }
+        "></textarea>
       </div>
 
       <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -8343,10 +8353,11 @@ async function sendRenewalProposal(contractId, contactName) {
   const btn = document.getElementById('renewal-send-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
+    const customNote = document.getElementById('renewal-custom-note')?.value?.trim() || '';
     const res = await fetch(`${PROXY}/contract/send-renewal-proposal`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contractId }),
+      body: JSON.stringify({ contractId, customNote }),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || 'Unknown error');
