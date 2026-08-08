@@ -6174,10 +6174,13 @@ function emailRenewalProposalHtml({ contactFirst, planName, propertyName, endDat
       <a href="${portalLink}" style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 28px;border-radius:7px;">View Your Customer Portal →</a>
     </div>` : '';
 
-  // ── DISCLAIMER — paste your contract disclaimer language here ──────────────
+  // ── DISCLAIMER ─────────────────────────────────────────────────────────────
+  // Note: "alteration or deviation from above specifications" (clause 2) is
+  // project-estimate language — consider softening to "changes to services
+  // described above" if this ever feels out of place for a maintenance renewal.
   const disclaimer = `
-    <div style="border-top:1px solid #e5e7eb;margin-top:28px;padding-top:16px;font-size:11px;color:#9ca3af;line-height:1.6;">
-      This proposal expires 30 days from the date it was sent. Services are subject to the terms of the CJB Comfort Annual Maintenance Agreement. By accepting an option above, you agree to those terms. Questions? Reply to this email or call us at (480) 604-8622.
+    <div style="border-top:1px solid #e5e7eb;margin-top:28px;padding-top:16px;font-size:11px;color:#9ca3af;line-height:1.7;">
+      Due to the instability of equipment, supply chain and commodity, raw material costs, none of which are controlled by us or our suppliers, CJB Comfort reserves the right to pass on these increases during contractual agreement. Any alteration or deviation from above specifications involving extra costs, will be executed only upon written orders, and will become an extra charge over and above the proposal. All agreements contingent upon strikes, accidents, or delays beyond our control. Owner to carry fire, tornado, and other necessary insurance at time of above work.
     </div>`;
 
   const preheader = `Your ${planName} is up for renewal — review your options and accept online.`;
