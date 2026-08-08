@@ -4150,6 +4150,23 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           .filter(q => q.fields['Status'] === 'Accepted')
           .map(mapQuote);
 
+        const mapContract = c => ({
+          id:              c.id,
+          planName:        c.fields['Plan Name']              || '',
+          status:          c.fields['Status']                 || '',
+          startDate:       c.fields['Start Date']             || '',
+          endDate:         c.fields['End Date']               || '',
+          services:        c.fields['Included Services']      || '',
+          visitsPerYear:   Number(c.fields['Visits Per Year']       || 0),
+          visitsUsed:      Number(c.fields['Visits Used This Year'] || 0),
+          annualValue:     Number(c.fields['Annual Value']    || 0),
+          renewalQuoteAUrl: c.fields['Renewal Quote A URL']  || '',
+          renewalQuoteBUrl: c.fields['Renewal Quote B URL']  || '',
+          renewalSent:     c.fields['Renewal Invoice Sent']  || '',
+          optionAPrice:    Number(c.fields['Option A Price'] || c.fields['Annual Value'] || 0),
+          optionBPrice:    Number(c.fields['Option B Price'] || 0),
+        });
+
         return new Response(JSON.stringify({
           customer: { id: cId, name: custName, firstName: cf['First Name'] || '', email: cf['Email'] || '' },
           isProtectionPlus,
@@ -4159,6 +4176,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           unpaidInvoices:   unpaidInvoices.map(mapInv),
           invoiceHistory:   invoiceHistory.map(mapInv),
           history:          history.map(mapWO),
+          contracts:        contractsData.filter(c => c.fields['Status'] !== 'Cancelled').map(mapContract),
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       } catch(e) {
@@ -6593,6 +6611,22 @@ footer a:hover{text-decoration:underline}
 .spec-value{font-size:14px;color:#111;font-weight:500;margin-bottom:8px}
 .job-block{border-left:3px solid #e5e7eb;padding-left:14px;margin-bottom:18px}
 .job-block-header{font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+/* ── Maintenance contract card ── */
+.contract-card{background:#fff;border-radius:10px;border:1px solid #e0e0e0;overflow:hidden;margin-bottom:8px}
+.contract-header{background:#f0fdf4;border-bottom:1px solid #d1fae5;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.contract-plan{font-size:15px;font-weight:700;color:#111}
+.contract-body{padding:14px 16px}
+.contract-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:8px}
+.contract-label{font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
+.contract-val{font-size:13px;color:#374151;font-weight:600;text-align:right}
+.contract-services{font-size:13px;color:#6b7280;line-height:1.55;margin-top:10px;padding-top:10px;border-top:1px solid #f0f0f0;white-space:pre-wrap}
+.visits-bar{height:6px;background:#e5e7eb;border-radius:3px;margin:6px 0 2px;overflow:hidden}
+.visits-fill{height:100%;background:#16a34a;border-radius:3px;transition:width .3s}
+.renewal-banner{background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-top:12px}
+.renewal-banner-title{font-size:13px;font-weight:700;color:#92400e;margin-bottom:8px}
+.renewal-btns{display:flex;gap:8px;flex-wrap:wrap}
+.renewal-opt-btn{display:inline-flex;align-items:center;background:#1e40af;color:#fff;border-radius:7px;padding:8px 16px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap}
+.renewal-opt-btn:hover{background:#1e3a8a}
 </style>
 </head>
 <body>
@@ -6630,6 +6664,11 @@ footer a:hover{text-decoration:underline}
         <div class="sec-block" id="sec-invoices">
           <div class="sec-label">Invoices Due</div>
           <div id="list-invoices"></div>
+        </div>
+
+        <div class="sec-block" id="sec-contracts" style="display:none">
+          <div class="sec-label">Your Maintenance Agreement</div>
+          <div id="list-contracts"></div>
         </div>
 
         <div class="sec-block" id="sec-estimates" style="display:none">
@@ -6903,6 +6942,62 @@ async function declineEst(woId, btn) {
   }
 }
 
+// ── Maintenance contracts ─────────────────────────────────────────────────
+function contractStatusChip(st) {
+  const map = { 'Active': 'chip-green', 'Pending': 'chip-blue', 'Expired': 'chip-red' };
+  return \`<span class="chip \${map[st]||'chip-gray'}" style="margin-top:0">\${esc(st)}</span>\`;
+}
+
+function contractCard(c) {
+  const used   = Math.min(c.visitsUsed, c.visitsPerYear);
+  const pct    = c.visitsPerYear > 0 ? Math.round((used / c.visitsPerYear) * 100) : 0;
+  const visitLabel = c.visitsPerYear > 0
+    ? \`\${used} of \${c.visitsPerYear} visits used this year\`
+    : '';
+  const visitBar = c.visitsPerYear > 0 ? \`
+    <div class="visits-bar"><div class="visits-fill" style="width:\${pct}%"></div></div>
+    <div style="font-size:11px;color:#9ca3af">\${visitLabel}</div>\` : '';
+
+  const dateRange = (c.startDate || c.endDate)
+    ? \`\${fmtDate(c.startDate)} &ndash; \${fmtDate(c.endDate)}\`
+    : '&mdash;';
+
+  const svcBlock = c.services
+    ? \`<div class="contract-services">\${esc(c.services)}</div>\`
+    : '';
+
+  // Pending renewal proposal
+  let renewalBanner = '';
+  if (c.renewalSent && (c.renewalQuoteAUrl || c.renewalQuoteBUrl)) {
+    const optA = c.renewalQuoteAUrl
+      ? \`<a href="\${esc(c.renewalQuoteAUrl)}" target="_blank" rel="noopener" class="renewal-opt-btn">Option A\${c.optionAPrice ? ' &mdash; ' + money(c.optionAPrice) + '/yr' : ''} &rarr;</a>\`
+      : '';
+    const optB = c.renewalQuoteBUrl
+      ? \`<a href="\${esc(c.renewalQuoteBUrl)}" target="_blank" rel="noopener" class="renewal-opt-btn" style="background:#0369a1">Option B\${c.optionBPrice ? ' &mdash; ' + money(c.optionBPrice) + '/yr' : ''} &rarr;</a>\`
+      : '';
+    renewalBanner = \`<div class="renewal-banner">
+      <div class="renewal-banner-title">🔄 Your renewal proposal is ready — choose your option to continue coverage</div>
+      <div class="renewal-btns">\${optA}\${optB}</div>
+    </div>\`;
+  }
+
+  return \`<div class="contract-card">
+    <div class="contract-header">
+      <div class="contract-plan">\${esc(c.planName)}</div>
+      \${contractStatusChip(c.status)}
+    </div>
+    <div class="contract-body">
+      <div class="contract-row">
+        <span class="contract-label">Coverage Period</span>
+        <span class="contract-val">\${dateRange}</span>
+      </div>
+      \${visitBar}
+      \${svcBlock}
+      \${renewalBanner}
+    </div>
+  </div>\`;
+}
+
 // ── Equipment ─────────────────────────────────────────────────────────────
 function renderEqList(items) {
   const groups = groupByAddress(items);
@@ -7046,6 +7141,11 @@ async function load() {
     document.getElementById('list-invoices').innerHTML=d.unpaidInvoices&&d.unpaidInvoices.length
       ? d.unpaidInvoices.map(invCard).join('')
       : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
+
+    if (d.contracts&&d.contracts.length) {
+      document.getElementById('sec-contracts').style.display='block';
+      document.getElementById('list-contracts').innerHTML=d.contracts.map(contractCard).join('');
+    }
 
     if (d.estimates&&d.estimates.length) {
       document.getElementById('sec-estimates').style.display='block';
