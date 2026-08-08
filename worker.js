@@ -1347,23 +1347,24 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 }
 
                 if (contactEmail && env.RESEND_API_KEY) {
-                  const confSubj = `Your maintenance agreement has been renewed — ${planName}`;
+                  const acceptSubj = `You've accepted your renewal — invoice on the way`;
                   sendEmail(env.RESEND_API_KEY, {
                     to:      contactEmail,
-                    subject: confSubj,
-                    html:    emailRenewalConfirmedHtml({
+                    subject: acceptSubj,
+                    html:    emailRenewalProposalAcceptedHtml({
                       customerName: contactFirst,
                       planName,
-                      amountPaid:   acceptedPrice,
+                      acceptedPrice,
+                      option,
                       newStartDate: newStartFmt,
                       newEndDate:   newEndFmt,
                     }),
-                  }).catch(e => console.error('Renewal confirmation email error:', e));
+                  }).catch(e => console.error('Renewal accepted email error:', e));
                   logCommunication(env, {
                     type:    'Email',
-                    trigger: 'Contract Renewal Confirmation',
+                    trigger: 'Renewal Proposal Accepted',
                     sentTo:  contactEmail,
-                    subject: `Your maintenance agreement has been renewed — ${planName}`,
+                    subject: acceptSubj,
                     customerId: custId,
                   }).catch(() => {});
                 }
@@ -1606,8 +1607,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 });
               }
 
-              // Send thank you + Google Review ask
-              if (custEmail && env.RESEND_API_KEY) {
+              // Send thank you + Google Review ask (skip if receipt was already sent at invoice creation)
+              if (custEmail && env.RESEND_API_KEY && inv.metadata?.skip_payment_email !== 'true') {
                 const tySubject = 'Thank you for your payment — CJB Comfort';
                 await sendEmail(env.RESEND_API_KEY, {
                   to:      custEmail,
@@ -1631,26 +1632,56 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             }
           }
 
-          // Maintenance contract proposal payment → activate contract
+          // Maintenance contract proposal payment → activate contract + create Invoice record
           if (inv.metadata?.invoice_type === 'maintenance_contract' && inv.metadata?.contract_airtable_id) {
             const contractId = inv.metadata.contract_airtable_id;
             const startDate  = new Date();
             const endDate    = new Date(startDate);
             endDate.setFullYear(endDate.getFullYear() + 1);
             endDate.setDate(endDate.getDate() - 1);
+            const startStr = startDate.toISOString().split('T')[0];
+            const endStr   = endDate.toISOString().split('T')[0];
             await airtablePatch('Maintenance Contracts', contractId, {
               'Status':                 'Active',
-              'Start Date':             startDate.toISOString().split('T')[0],
-              'End Date':               endDate.toISOString().split('T')[0],
+              'Start Date':             startStr,
+              'End Date':               endStr,
               'Visits Used This Year':  0,
             });
+
+            // Create Airtable Invoice record for the initial contract payment
+            try {
+              const contract   = await airtableGetById('Maintenance Contracts', contractId);
+              const cf         = contract.fields;
+              const custId     = (cf['Customer'] || [])[0] || null;
+              const custRec    = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+              const custName   = custRec?.fields?.['Customer Name'] || inv.customer_name || '';
+              const planName   = cf['Plan Name'] || 'Maintenance Contract';
+              const amtPaid    = (inv.amount_paid || 0) / 100;
+              const paidDate   = startStr;
+
+              const invFields = {
+                'Invoice Name':      `${custName} — ${planName}`,
+                'Active':            true,
+                'Status':            'Paid in Full',
+                'Invoice Type':      'Maintenance Contract',
+                'Invoice Date':      paidDate,
+                'Paid Date':         paidDate,
+                'Amount Paid':       amtPaid,
+                'Stripe Invoice ID': inv.id,
+                'Internal Notes':    `Stripe Invoice ID: ${inv.id}${inv.hosted_invoice_url ? '\n' + inv.hosted_invoice_url : ''}\nContract: ${contractId}`,
+              };
+              if (custId) invFields['Customers'] = [custId];
+              await airtablePost('Invoices', invFields);
+            } catch(e) {
+              console.error('New contract Invoice record error:', e.message);
+            }
+
             // Schedule first visit WO + follow-up
             scheduleFirstContractVisit(env, contractId).catch(e => console.error('scheduleFirstContractVisit error:', e.message));
           }
 
-          // Maintenance contract renewal payment → create Airtable Invoice record
-          // NOTE: date rolling, WO scheduling, and confirmation email are all handled by
-          // the quote.accepted webhook. This handler only records that payment was received.
+          // Maintenance contract renewal payment → create Airtable Invoice record + send receipt
+          // NOTE: date rolling, WO scheduling are handled by quote.accepted; this only records payment.
           if (inv.metadata?.invoice_type === 'maintenance_renewal' && inv.metadata?.contract_airtable_id) {
             const contractId = inv.metadata.contract_airtable_id;
             try {
@@ -1661,6 +1692,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               const custName = custRec?.fields?.['Customer Name'] || inv.customer_name || '';
               const amtPaid  = (inv.amount_paid || 0) / 100;
               const paidDate = new Date().toISOString().split('T')[0];
+              const planName = cf['Plan Name'] || 'Maintenance Contract';
+              const newEndStr   = cf['End Date']   || '';
+              const newStartStr = cf['Start Date'] || '';
 
               const invFields = {
                 'Invoice Name':      `${custName} — Maintenance Contract Renewal`,
@@ -1674,8 +1708,46 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 'Internal Notes':    `Stripe Invoice ID: ${inv.id}${inv.hosted_invoice_url ? '\n' + inv.hosted_invoice_url : ''}\nContract: ${contractId}`,
               };
               if (custId) invFields['Customers'] = [custId];
+              // If you add a "Maintenance Contracts" linked field to the Invoices table in Airtable,
+              // uncomment the next line to link this Invoice to the contract record:
+              // invFields['Maintenance Contracts'] = [contractId];
 
               await airtablePost('Invoices', invFields);
+
+              // Get contact info for confirmation email
+              const contactIds = cf['Primary Contact'] || [];
+              let contactEmail = '', contactFirst = '';
+              if (contactIds[0]) {
+                const cr = await airtableGetById('Contacts', contactIds[0]).catch(() => null);
+                contactEmail = cr?.fields?.['Email'] || '';
+                contactFirst = cr?.fields?.['First Name'] || cr?.fields?.['Contact Name']?.split(' ')[0] || 'there';
+              }
+              if (!contactEmail) {
+                contactEmail = custRec?.fields?.['Email'] || inv.customer_email || '';
+                contactFirst = custRec?.fields?.['First Name'] || custName.split(' ')[0] || 'there';
+              }
+
+              if (contactEmail && env.RESEND_API_KEY) {
+                const confSubj = `Your maintenance agreement has been renewed — ${planName}`;
+                await sendEmail(env.RESEND_API_KEY, {
+                  to:   contactEmail,
+                  subject: confSubj,
+                  html: emailRenewalConfirmedHtml({
+                    customerName: contactFirst,
+                    planName,
+                    amountPaid:   amtPaid,
+                    newStartDate: newStartStr ? new Date(newStartStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '',
+                    newEndDate:   newEndStr   ? new Date(newEndStr   + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '',
+                  }),
+                }).catch(e => console.error('Renewal payment confirmed email error:', e));
+                logCommunication(env, {
+                  type:       'Email',
+                  trigger:    'Renewal Payment Received',
+                  sentTo:     contactEmail,
+                  subject:    confSubj,
+                  customerId: custId,
+                }).catch(() => {});
+              }
             } catch(e) {
               console.error('Contract renewal invoice record error:', e.message);
             }
@@ -2809,6 +2881,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // Tag invoice type so the paid webhook knows what to do
         invParams['metadata[invoice_type]'] = invoiceType;
         if (workOrderId) invParams['metadata[airtable_wo_id]'] = workOrderId;
+        // Receipt was sent at creation time — tell the webhook to skip the duplicate email
+        if (paymentCollected) invParams['metadata[skip_payment_email]'] = 'true';
         inv = await stripePost(STRIPE_KEY, '/v1/invoices', invParams);
 
         // Compute subtotal and discount BEFORE attaching line items to Stripe
@@ -6349,6 +6423,27 @@ function emailRenewalConfirmedHtml({ customerName, planName, amountPaid, newStar
     </div>
 
     <p style="font-size:15px;color:#374151;line-height:1.65;margin:0 0 24px;">We&rsquo;ll be in touch to schedule your first maintenance visit of the new agreement year. As always, if you notice anything with your system before then, just give us a call or text &mdash; you&rsquo;re a priority customer.</p>
+
+    <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
+
+  return emailBase({ preheader, body });
+}
+
+function emailRenewalProposalAcceptedHtml({ customerName, planName, acceptedPrice, option, newStartDate, newEndDate }) {
+  const amountStr = typeof acceptedPrice === 'number' && acceptedPrice > 0 ? `$${acceptedPrice.toFixed(2)}` : '';
+  const preheader = `Great news — you've accepted your ${planName} renewal. Your invoice will arrive shortly.`;
+
+  const body = `
+    <p style="font-size:18px;font-weight:700;color:#111827;margin:0 0 4px;">Hi ${customerName},</p>
+    <p style="font-size:15px;color:#6b7280;margin:0 0 24px;">We&rsquo;ve received your acceptance for the ${planName} renewal &mdash; thank you! Your invoice will arrive in your inbox shortly.</p>
+
+    <div style="background:#eff6ff;border-left:4px solid #1e40af;border-radius:0 10px 10px 0;padding:20px 22px;margin-bottom:24px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#1e40af;margin-bottom:10px;">Renewal Accepted &mdash; ${planName}</div>
+      ${amountStr ? `<div style="font-size:28px;font-weight:800;color:#111827;margin-bottom:8px;">${amountStr}/yr</div>` : ''}
+      ${newStartDate && newEndDate ? `<div style="font-size:14px;color:#374151;">Coverage period: <strong>${newStartDate}</strong> &ndash; <strong>${newEndDate}</strong></div>` : ''}
+    </div>
+
+    <p style="font-size:15px;color:#374151;line-height:1.65;margin:0 0 24px;">Once your invoice is paid your agreement will be fully renewed and we&rsquo;ll be in touch to schedule your visits for the new year. As always, if anything comes up with your system before then, just reach out &mdash; you&rsquo;re a priority customer.</p>
 
     <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 
