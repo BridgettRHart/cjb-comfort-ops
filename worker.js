@@ -2157,11 +2157,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'line_items[0][quantity]':              '1',
         });
         await stripePost(STRIPE_KEY, `/v1/quotes/${quoteA.id}/finalize`, {});
-        const quoteAFinal = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteA.id}`);
-        const quoteAUrl = quoteAFinal.url || '';
+        const quoteAAcceptUrl = `https://cjb-comfort-proxy.bridgettrhart.workers.dev/accept-renewal?id=${quoteA.id}`;
+        const quoteAUrl       = `https://dashboard.stripe.com/quotes/${quoteA.id}`;
 
         // Create and finalize Quote B (if upgrade price is set)
-        let quoteBId = '', quoteBUrl = '';
+        let quoteBId = '', quoteBUrl = '', quoteBAcceptUrl = '';
         if (optionB) {
           const prodB = await stripePost(STRIPE_KEY, '/v1/products', {
             name: `${planName} — Option B`,
@@ -2181,9 +2181,9 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'line_items[0][quantity]':              '1',
           });
           await stripePost(STRIPE_KEY, `/v1/quotes/${quoteB.id}/finalize`, {});
-          const quoteBFinal = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteB.id}`);
-          quoteBId  = quoteB.id;
-          quoteBUrl = quoteBFinal.url || '';
+          quoteBId        = quoteB.id;
+          quoteBUrl       = `https://dashboard.stripe.com/quotes/${quoteB.id}`;
+          quoteBAcceptUrl = `https://cjb-comfort-proxy.bridgettrhart.workers.dev/accept-renewal?id=${quoteB.id}`;
         }
 
         // Send proposal email
@@ -2196,8 +2196,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             planName,
             propertyName,
             endDateFmt,
-            optionA: { ...optionA, url: quoteAUrl },
-            optionB: optionB ? { ...optionB, url: quoteBUrl } : null,
+            optionA: { ...optionA, url: quoteAAcceptUrl },
+            optionB: optionB ? { ...optionB, url: quoteBAcceptUrl } : null,
             portalLink,
             customNote,
           }),
@@ -2232,18 +2232,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const { contractId, quoteAId, quoteBId } = await request.json();
         if (!contractId || !quoteAId) return new Response(JSON.stringify({ error: 'contractId and quoteAId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
-        const qA = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteAId}`);
-        const quoteAUrl = qA.hosted_url || qA.url || '';
-        let quoteBUrl = '';
-        if (quoteBId) {
-          const qB = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteBId}`);
-          quoteBUrl = qB.hosted_url || qB.url || '';
-        }
+        const quoteAUrl = `https://dashboard.stripe.com/quotes/${quoteAId}`;
+        const quoteBUrl = quoteBId ? `https://dashboard.stripe.com/quotes/${quoteBId}` : '';
         await airtablePatch('Maintenance Contracts', contractId, {
-          'Renewal Quote A URL': quoteAUrl || null,
+          'Renewal Quote A URL': quoteAUrl,
           'Renewal Quote B URL': quoteBUrl || null,
         });
-        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl, debug_qA: { status: qA.status, number: qA.number, invoice: qA.invoice, computed: qA.computed } }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
@@ -3849,6 +3844,113 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         status: atRes.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
+    }
+
+    // ── Contract renewal acceptance page ─────────────────────────────────
+    if (path === '/accept-renewal' && request.method === 'GET') {
+      const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+      const reqUrl  = new URL(request.url);
+      const quoteId = reqUrl.searchParams.get('id') || '';
+      if (!quoteId) return new Response('<p>Invalid renewal link.</p>', { status: 400, headers: { 'Content-Type': 'text/html' } });
+      try {
+        const quote = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteId}`);
+        const option     = quote.metadata?.option || 'A';
+        const contractId = quote.metadata?.contract_id || '';
+        const priceDollars = ((quote.amount_total || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
+        const alreadyAccepted = quote.status === 'accepted';
+        const expired = quote.status === 'canceled' || (quote.expires_at && Date.now() / 1000 > quote.expires_at);
+
+        let planName = '', propertyName = '', serviceDesc = '';
+        if (contractId) {
+          try {
+            const contract = await airtableGetById('Maintenance Contracts', contractId);
+            const cf = contract.fields;
+            planName = cf['Plan Name'] || '';
+            const propId = (cf['Property'] || [])[0] || null;
+            if (propId) {
+              const propRec = await airtableGetById('Properties', propId).catch(() => null);
+              propertyName = propRec?.fields?.['Property Name'] || propRec?.fields?.['Service Address'] || '';
+            }
+            serviceDesc = option === 'B' ? (cf['Option B Details'] || '') : (cf['Included Services'] || '');
+          } catch(e) {}
+        }
+
+        const titleLine = [planName, propertyName].filter(Boolean).join(' — ');
+        const descHtml  = serviceDesc
+          ? `<div style="background:#f9fafb;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151;line-height:1.6;white-space:pre-line;">${serviceDesc}</div>`
+          : '';
+
+        let bodyHtml;
+        if (alreadyAccepted) {
+          bodyHtml = `<div style="text-align:center;padding:24px 0;">
+            <div style="font-size:40px;margin-bottom:12px;">✅</div>
+            <div style="font-size:20px;font-weight:700;color:#111;margin-bottom:8px;">Option ${option} Accepted</div>
+            <p style="color:#6b7280;">Your maintenance agreement has been renewed. You'll receive a confirmation email with your new coverage dates and invoice shortly.</p>
+          </div>`;
+        } else if (expired) {
+          bodyHtml = `<div style="text-align:center;padding:24px 0;">
+            <div style="font-size:40px;margin-bottom:12px;">⏰</div>
+            <div style="font-size:20px;font-weight:700;color:#111;margin-bottom:8px;">This proposal has expired</div>
+            <p style="color:#6b7280;">Please contact CJB Comfort at (480) 604-8622 to get a fresh renewal proposal.</p>
+          </div>`;
+        } else {
+          bodyHtml = `
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:${option==='B'?'#0369a1':'#1a6b35'};margin-bottom:6px;">Option ${option}</div>
+            <div style="font-size:32px;font-weight:800;color:#111;line-height:1;margin-bottom:4px;">$${priceDollars}<span style="font-size:15px;font-weight:400;color:#6b7280;"> / year</span></div>
+            ${titleLine ? `<div style="font-size:15px;color:#6b7280;margin-bottom:4px;">${titleLine}</div>` : ''}
+            ${descHtml}
+            <p style="font-size:14px;color:#374151;margin:0 0 20px;">By clicking below you are accepting this renewal option. A renewal invoice will be sent to you automatically.</p>
+            <form method="POST" action="/accept-renewal">
+              <input type="hidden" name="quoteId" value="${quoteId}">
+              <button type="submit" style="width:100%;background:${option==='B'?'#0369a1':'#1a6b35'};color:#fff;font-size:17px;font-weight:700;padding:16px;border:none;border-radius:10px;cursor:pointer;">Accept Option ${option} →</button>
+            </form>`;
+        }
+
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CJB Comfort — Renewal Proposal</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="background:#0f1729;padding:16px 20px;border-radius:10px 10px 0 0;text-align:center;">
+      <span style="color:white;font-size:20px;font-weight:800;letter-spacing:1px;">CJB COMFORT</span>
+    </div>
+    <div style="background:white;padding:28px 24px;border-radius:0 0 10px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+      <h2 style="font-size:18px;font-weight:700;margin:0 0 16px;">Maintenance Agreement Renewal</h2>
+      ${bodyHtml}
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services · (480) 604-8622</p>
+  </div>
+</body></html>`;
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      } catch(e) {
+        return new Response('<p>Could not load renewal details. Please contact CJB Comfort at (480) 604-8622.</p>', { status: 500, headers: { 'Content-Type': 'text/html' } });
+      }
+    }
+
+    if (path === '/accept-renewal' && request.method === 'POST') {
+      const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+      try {
+        const body    = await request.formData();
+        const quoteId = body.get('quoteId') || '';
+        if (!quoteId) return new Response('<p>Missing quote ID.</p>', { status: 400, headers: { 'Content-Type': 'text/html' } });
+        await stripePost(STRIPE_KEY, `/v1/quotes/${quoteId}/accept`, {});
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CJB Comfort — Accepted</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="background:#0f1729;padding:16px 20px;border-radius:10px 10px 0 0;text-align:center;">
+      <span style="color:white;font-size:20px;font-weight:800;letter-spacing:1px;">CJB COMFORT</span>
+    </div>
+    <div style="background:white;padding:28px 24px;border-radius:0 0 10px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);text-align:center;">
+      <div style="font-size:48px;margin-bottom:16px;">✅</div>
+      <h2 style="font-size:20px;font-weight:700;margin:0 0 12px;">You're all set!</h2>
+      <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 20px;">Your maintenance agreement has been renewed. We'll send a confirmation email with your new coverage dates and invoice shortly.</p>
+      <p style="font-size:14px;color:#6b7280;">Questions? Call or text us at (480) 604-8622.</p>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services · (480) 604-8622</p>
+  </div>
+</body></html>`;
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      } catch(e) {
+        return new Response(`<p>Error accepting proposal: ${e.message}. Please contact CJB Comfort at (480) 604-8622.</p>`, { status: 500, headers: { 'Content-Type': 'text/html' } });
+      }
     }
 
     // ── Customer portal — serve HTML page ────────────────────────────────
