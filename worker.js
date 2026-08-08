@@ -1230,6 +1230,109 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           const STRIPE_KEY   = env.STRIPE_SECRET_KEY;
           const today        = new Date().toISOString().split('T')[0];
 
+          // Contract renewal quotes bypass the normal quote flow entirely
+          if (quote.metadata?.renewal_type === 'contract_renewal') {
+            const contractId    = quote.metadata.contract_id;
+            const option        = quote.metadata.option || 'A';
+            const acceptedPrice = (quote.amount_total || 0) / 100;
+            if (contractId) {
+              try {
+                const contract = await airtableGetById('Maintenance Contracts', contractId);
+                const cf = contract.fields;
+
+                // New contract period: start the day after current end date
+                const currentEndStr = cf['End Date'];
+                let newStart;
+                if (currentEndStr) {
+                  const d = new Date(currentEndStr + 'T12:00:00');
+                  d.setDate(d.getDate() + 1);
+                  newStart = d;
+                } else {
+                  newStart = new Date();
+                }
+                const newEnd = new Date(newStart);
+                newEnd.setFullYear(newEnd.getFullYear() + 1);
+                newEnd.setDate(newEnd.getDate() - 1);
+                const newStartStr = newStart.toISOString().split('T')[0];
+                const newEndStr   = newEnd.toISOString().split('T')[0];
+
+                const contractUpdate = {
+                  'Annual Value':          acceptedPrice,
+                  'Start Date':            newStartStr,
+                  'End Date':              newEndStr,
+                  'Renewal Date':          newEndStr,
+                  'Visits Used This Year': 0,
+                  'Status':                'Active',
+                  'Renewal Invoice Sent':  null,
+                };
+                if (option === 'B') {
+                  contractUpdate['Visits Per Year'] = (cf['Visits Per Year'] || 2) + 2;
+                }
+                await airtablePatch('Maintenance Contracts', contractId, contractUpdate);
+
+                // Create placeholder WOs for all visits in the new period
+                await scheduleAllContractVisits(env, contractId).catch(e =>
+                  console.error('scheduleAllContractVisits error:', e.message));
+
+                // Get contact/customer info for confirmation email + SMS
+                const contactIds = cf['Primary Contact'] || [];
+                const custId     = (cf['Customer'] || [])[0] || null;
+                let contactEmail = '', contactFirst = '', custName = '';
+                if (contactIds[0]) {
+                  try {
+                    const cr = await airtableGetById('Contacts', contactIds[0]);
+                    contactEmail = cr.fields?.['Email'] || '';
+                    contactFirst = cr.fields?.['First Name'] || cr.fields?.['Contact Name']?.split(' ')[0] || 'there';
+                  } catch(e) {}
+                }
+                if (!contactEmail && custId) {
+                  const custRec = await airtableGetById('Customers', custId).catch(() => null);
+                  contactEmail = custRec?.fields?.['Email'] || '';
+                  contactFirst = custRec?.fields?.['First Name'] || custRec?.fields?.['Customer Name']?.split(' ')[0] || 'there';
+                  custName = custRec?.fields?.['Customer Name'] || '';
+                }
+                if (!custName && custId) {
+                  const cr2 = await airtableGetById('Customers', custId).catch(() => null);
+                  custName = cr2?.fields?.['Customer Name'] || '';
+                }
+
+                const planName = cf['Plan Name'] || 'Maintenance Contract';
+                const newStartFmt = new Date(newStartStr + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'});
+                const newEndFmt   = new Date(newEndStr   + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'});
+
+                if (contactEmail && env.RESEND_API_KEY) {
+                  const confSubj = `Your maintenance agreement has been renewed — ${planName}`;
+                  sendEmail(env.RESEND_API_KEY, {
+                    to:      contactEmail,
+                    subject: confSubj,
+                    html:    emailRenewalConfirmedHtml({
+                      customerName: contactFirst,
+                      planName,
+                      amountPaid:   acceptedPrice,
+                      newStartDate: newStartFmt,
+                      newEndDate:   newEndFmt,
+                    }),
+                  }).catch(e => console.error('Renewal confirmation email error:', e));
+                  logCommunication(env, {
+                    type:    'Email',
+                    trigger: 'Contract Renewal Confirmation',
+                    sentTo:  contactEmail,
+                    subject: `Your maintenance agreement has been renewed — ${planName}`,
+                    customerId: custId,
+                  }).catch(() => {});
+                }
+
+                if (env.OWNER_PHONE && env.QUO_API_KEY) {
+                  sendSms(env.QUO_API_KEY, env.OWNER_PHONE,
+                    `✅ Contract renewal accepted — ${custName || planName} · Option ${option} · $${Number(acceptedPrice).toLocaleString('en-US',{minimumFractionDigits:2})}/yr. Extended through ${newEndStr}.`
+                  ).catch(() => {});
+                }
+
+              } catch(e) { console.error('Contract renewal acceptance error:', e.message); }
+            }
+          } else {
+
+          // Normal quote accepted — find Airtable quote record
           const quoteSearch = await airtableGet('Quotes', `{Stripe Quote ID}="${stripeQuoteId}"`);
           const atQuote     = quoteSearch.records?.[0];
 
@@ -1299,6 +1402,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             // never touched after creation, so it just accumulated as permanent dead weight in
             // the Stripe Drafts list for every quote ever accepted.
           }
+          } // end else (normal quote, not contract renewal)
         }
 
         // ── quote.will_expire: update Airtable statuses ──────────────────
@@ -1866,6 +1970,164 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           hostedUrl: sent.hosted_invoice_url || '',
           proposalUrl,
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(err) {
+        return new Response(JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Send renewal proposal: two Stripe Quotes (Option A and B) ─────────────
+    if (path === '/api/contract/send-renewal-proposal' && request.method === 'POST') {
+      const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+      try {
+        const { contractId, preview } = await request.json();
+        if (!contractId) return new Response(JSON.stringify({ error: 'Missing contractId' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const contract = await airtableGetById('Maintenance Contracts', contractId);
+        const cf = contract.fields;
+
+        // Prefer Primary Contact email over Customer email for commercial clients
+        const contactIds = cf['Primary Contact'] || [];
+        let contactEmail = '', contactName = '', contactFirst = '';
+        if (contactIds[0]) {
+          try {
+            const cr = await airtableGetById('Contacts', contactIds[0]);
+            contactEmail = cr.fields?.['Email'] || '';
+            contactName  = cr.fields?.['Contact Name'] || '';
+            contactFirst = cr.fields?.['First Name'] || contactName.split(' ')[0] || 'there';
+          } catch(e) {}
+        }
+        if (!contactEmail) {
+          const custId  = (cf['Customer'] || [])[0];
+          const custRec = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+          contactEmail = custRec?.fields?.['Email'] || '';
+          contactName  = custRec?.fields?.['Customer Name'] || '';
+          contactFirst = custRec?.fields?.['First Name'] || contactName.split(' ')[0] || 'there';
+        }
+        if (!contactEmail) return new Response(JSON.stringify({ error: 'No email address found for primary contact or customer.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const planName     = cf['Plan Name'] || 'Annual Maintenance Agreement';
+        const annualValue  = cf['Annual Value'] || 0;
+        const upgradePrice = cf['Renewal Upgrade Price'] || 0;
+        const visitsPerYr  = cf['Visits Per Year'] || 2;
+        const endDate      = cf['End Date'] || '';
+        const endDateFmt   = endDate
+          ? new Date(endDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'})
+          : '';
+
+        const optionA = {
+          label: 'Option A — Renewal at Current Rate',
+          price: annualValue,
+          visits: visitsPerYr,
+          description: `${visitsPerYr} scheduled maintenance visit${visitsPerYr !== 1 ? 's' : ''} per year`,
+        };
+        const upgradeVisits = visitsPerYr + 2;
+        const optionB = upgradePrice > 0 ? {
+          label: 'Option B — Enhanced Coverage',
+          price: upgradePrice,
+          visits: upgradeVisits,
+          description: `${upgradeVisits} scheduled maintenance visits per year (${upgradeVisits - visitsPerYr} additional)`,
+        } : null;
+
+        if (preview) {
+          return new Response(JSON.stringify({
+            ok: true,
+            preview: { contactEmail, contactName, contactFirst, planName, endDateFmt, optionA, optionB },
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        if (!STRIPE_KEY || !env.RESEND_API_KEY) return new Response(
+          JSON.stringify({ error: 'Missing Stripe or email API keys.' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        // Find or create Stripe customer for the contact
+        const srchRes  = await fetch(
+          `https://api.stripe.com/v1/customers?email=${encodeURIComponent(contactEmail)}&limit=1`,
+          { headers: { Authorization: `Bearer ${STRIPE_KEY}`, 'Stripe-Version': STRIPE_VERSION } });
+        const srchData = await srchRes.json();
+        let stripeCustId;
+        if (srchData.data?.length > 0) {
+          stripeCustId = srchData.data[0].id;
+        } else {
+          const cc = await stripePost(STRIPE_KEY, '/v1/customers', { email: contactEmail, name: contactName });
+          stripeCustId = cc.id;
+        }
+
+        const expiresAt = Math.floor(Date.now() / 1000) + 30 * 86400;
+        const quoteFooter = 'Questions? Reply to this email or call us at (480) 604-8622.';
+
+        // Create and finalize Quote A
+        const quoteAParams = {
+          customer:                                        stripeCustId,
+          expires_at:                                      expiresAt,
+          header:                                          `${planName} — Renewal Proposal`,
+          footer:                                          quoteFooter,
+          'metadata[renewal_type]':                        'contract_renewal',
+          'metadata[contract_id]':                         contractId,
+          'metadata[option]':                              'A',
+          'line_items[0][price_data][currency]':           'usd',
+          'line_items[0][price_data][unit_amount]':        String(Math.round(annualValue * 100)),
+          'line_items[0][price_data][product_data][name]': optionA.description,
+          'line_items[0][quantity]':                       '1',
+        };
+        const quoteA = await stripePost(STRIPE_KEY, '/v1/quotes', quoteAParams);
+        await stripePost(STRIPE_KEY, `/v1/quotes/${quoteA.id}/finalize`, {});
+        const quoteAFinal = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteA.id}`);
+        const quoteAUrl = quoteAFinal.url || '';
+
+        // Create and finalize Quote B (if upgrade price is set)
+        let quoteBId = '', quoteBUrl = '';
+        if (optionB) {
+          const quoteBParams = {
+            customer:                                        stripeCustId,
+            expires_at:                                      expiresAt,
+            header:                                          `${planName} — Renewal Proposal`,
+            footer:                                          quoteFooter,
+            'metadata[renewal_type]':                        'contract_renewal',
+            'metadata[contract_id]':                         contractId,
+            'metadata[option]':                              'B',
+            'line_items[0][price_data][currency]':           'usd',
+            'line_items[0][price_data][unit_amount]':        String(Math.round(upgradePrice * 100)),
+            'line_items[0][price_data][product_data][name]': optionB.description,
+            'line_items[0][quantity]':                       '1',
+          };
+          const quoteB = await stripePost(STRIPE_KEY, '/v1/quotes', quoteBParams);
+          await stripePost(STRIPE_KEY, `/v1/quotes/${quoteB.id}/finalize`, {});
+          const quoteBFinal = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteB.id}`);
+          quoteBId  = quoteB.id;
+          quoteBUrl = quoteBFinal.url || '';
+        }
+
+        // Send proposal email
+        const subject = `${planName} — Your Renewal Options`;
+        await sendEmail(env.RESEND_API_KEY, {
+          to:      contactEmail,
+          subject,
+          html:    emailRenewalProposalHtml({
+            contactFirst,
+            planName,
+            endDateFmt,
+            optionA: { ...optionA, url: quoteAUrl },
+            optionB: optionB ? { ...optionB, url: quoteBUrl } : null,
+          }),
+        });
+        logCommunication(env, {
+          type:    'Email',
+          trigger: 'Contract Renewal Proposal',
+          sentTo:  contactEmail,
+          subject,
+        }).catch(() => {});
+
+        const today = new Date().toISOString().split('T')[0];
+        await airtablePatch('Maintenance Contracts', contractId, { 'Renewal Invoice Sent': today });
+
+        return new Response(JSON.stringify({
+          ok: true, quoteAId: quoteA.id, quoteAUrl,
+          ...(optionB ? { quoteBId, quoteBUrl } : {}),
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
       } catch(err) {
         return new Response(JSON.stringify({ error: err.message }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -5270,6 +5532,63 @@ async function applyLateFee(env, atInv, custRec, todayStr, remindersSent = []) {
   }
 }
 
+// ── Create placeholder WOs for ALL visits in a contract period ───────────────
+// Called on contract renewal acceptance. Creates one "On Hold" WO + Follow-Up
+// per contracted visit so Bridgett has concrete records to schedule against.
+async function scheduleAllContractVisits(env, contractId) {
+  const contract = await airtableGetById('Maintenance Contracts', contractId);
+  const cf       = contract.fields;
+  const custId   = (cf['Customer'] || [])[0] || null;
+  const propId   = (cf['Property'] || [])[0] || null;
+  const planName = cf['Plan Name'] || 'Maintenance Agreement';
+  const visitsPerYear = cf['Visits Per Year'] || 2;
+
+  const custRec  = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
+  const custName = custRec?.fields?.['Customer Name'] || 'Customer';
+
+  for (let i = 1; i <= visitsPerYear; i++) {
+    const woName = `${custName} — ${planName} (Visit ${i})`;
+    const woFields = {
+      'Work Order Name': woName,
+      'Work Order Type': 'Maintenance',
+      'Status':          'On Hold',
+      'Active':          true,
+      'Notes':           `Contract renewal — visit ${i} of ${visitsPerYear}. Contact customer to schedule. Contract: ${planName}.`,
+      'Maintenance Contract': [contractId],
+    };
+    if (custId) woFields['Customer'] = [custId];
+    if (propId) woFields['Property'] = [propId];
+
+    const woRes = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Work%20Orders`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ fields: woFields }),
+    });
+    const woData = await woRes.json();
+    const woId   = woData.id || null;
+
+    // Space follow-up due dates ~6 months apart for a 2-visit contract
+    const monthsOut = Math.round((i / visitsPerYear) * 12);
+    const fuDue = new Date(Date.now() + monthsOut * 30 * 86400000).toISOString();
+    const fuFields = {
+      'Title':    `Schedule Visit ${i} of ${visitsPerYear} — ${custName} · ${planName}`,
+      'Type':     'Follow-Up',
+      'Status':   'Open',
+      'Due Date': fuDue,
+      'Notes':    `Contract renewed. Schedule maintenance visit ${i} of ${visitsPerYear}. WO: "${woName}".`,
+    };
+    if (custId) fuFields['Customer']   = [custId];
+    if (woId)   fuFields['Work Order'] = [woId];
+
+    await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/Follow-Ups`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ fields: fuFields }),
+    });
+  }
+  console.log(`scheduleAllContractVisits: ${visitsPerYear} WO(s) created for contract ${contractId}`);
+}
+
 // ── Create first-visit Work Order + Follow-Up when a contract activates/renews ─
 async function scheduleFirstContractVisit(env, contractId) {
   const contract  = await airtableGetById('Maintenance Contracts', contractId);
@@ -5733,6 +6052,31 @@ function emailRenewalInvoiceHtml({ customerName, planName, annualValue, hostedUr
 
     <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Questions? Call or text us at <a href="${OFFICE_PHONE_URL}" style="color:#c81f25;font-weight:600;">${OFFICE_PHONE}</a>.</p>`;
 
+  return emailBase({ preheader, body });
+}
+
+// ── Renewal proposal email: two-option Stripe Quote links ────────────────────
+function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA, optionB }) {
+  const optCard = (opt, letter, color) => `
+    <div style="border:2px solid ${color};border-radius:10px;padding:20px 24px;margin-bottom:20px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:${color};margin-bottom:8px;">Option ${letter}</div>
+      <div style="font-size:26px;font-weight:700;color:#111;line-height:1;">
+        $${Number(opt.price).toLocaleString('en-US', {minimumFractionDigits:2})}
+        <span style="font-size:14px;font-weight:400;color:#6b7280;"> / year</span>
+      </div>
+      <div style="font-size:14px;color:#6b7280;margin:8px 0 18px;">${opt.description}</div>
+      <a href="${opt.url}" style="display:inline-block;background:${color};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 28px;border-radius:7px;">Accept Option ${letter} →</a>
+    </div>`;
+
+  const preheader = `Your ${planName} is up for renewal — review your options and accept online.`;
+  const body = `
+    <p>Hi ${contactFirst},</p>
+    <p>Your <strong>${planName}</strong> is coming up for renewal${endDateFmt ? ` (current term ends ${endDateFmt})` : ''}. We've prepared two options for your review below.</p>
+    <p>Click the button on your preferred option to review and accept it securely online.</p>
+    ${optCard(optionA, 'A', '#1a6b35')}
+    ${optionB ? optCard(optionB, 'B', '#0369a1') : ''}
+    <p style="font-size:13px;color:#9ca3af;">These proposals expire in 30 days. Once you accept an option, you'll receive a confirmation with your new coverage dates.</p>
+    <p>Thank you for trusting CJB Comfort with your HVAC systems. We look forward to another great year of service.</p>`;
   return emailBase({ preheader, body });
 }
 
