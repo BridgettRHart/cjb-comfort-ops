@@ -2136,21 +2136,24 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const expiresAt = Math.floor(Date.now() / 1000) + 30 * 86400;
         const quoteFooter = 'Questions? Reply to this email or call us at (480) 604-8622.';
 
-        // Create and finalize Quote A
-        const quoteAParams = {
-          customer:                                        stripeCustId,
-          expires_at:                                      expiresAt,
-          header:                                          `${planName} — Renewal Proposal`,
-          footer:                                          quoteFooter,
-          'metadata[renewal_type]':                        'contract_renewal',
-          'metadata[contract_id]':                         contractId,
-          'metadata[option]':                              'A',
-          'line_items[0][price_data][currency]':           'usd',
-          'line_items[0][price_data][unit_amount]':        String(Math.round(annualValue * 100)),
-          'line_items[0][price_data][product_data][name]': optionA.description,
-          'line_items[0][quantity]':                       '1',
-        };
-        const quoteA = await stripePost(STRIPE_KEY, '/v1/quotes', quoteAParams);
+        // Stripe Quotes require a Product ID in price_data — create one-time products
+        const prodA = await stripePost(STRIPE_KEY, '/v1/products', {
+          name: `${planName} — Option A`,
+          description: optionA.description.slice(0, 500),
+        });
+        const quoteA = await stripePost(STRIPE_KEY, '/v1/quotes', {
+          customer:                               stripeCustId,
+          expires_at:                             expiresAt,
+          header:                                 `${planName} — Renewal Proposal`,
+          footer:                                 quoteFooter,
+          'metadata[renewal_type]':               'contract_renewal',
+          'metadata[contract_id]':                contractId,
+          'metadata[option]':                     'A',
+          'line_items[0][price_data][currency]':  'usd',
+          'line_items[0][price_data][unit_amount]': String(Math.round(annualValue * 100)),
+          'line_items[0][price_data][product]':   prodA.id,
+          'line_items[0][quantity]':              '1',
+        });
         await stripePost(STRIPE_KEY, `/v1/quotes/${quoteA.id}/finalize`, {});
         const quoteAFinal = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteA.id}`);
         const quoteAUrl = quoteAFinal.url || '';
@@ -2158,20 +2161,23 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         // Create and finalize Quote B (if upgrade price is set)
         let quoteBId = '', quoteBUrl = '';
         if (optionB) {
-          const quoteBParams = {
-            customer:                                        stripeCustId,
-            expires_at:                                      expiresAt,
-            header:                                          `${planName} — Renewal Proposal`,
-            footer:                                          quoteFooter,
-            'metadata[renewal_type]':                        'contract_renewal',
-            'metadata[contract_id]':                         contractId,
-            'metadata[option]':                              'B',
-            'line_items[0][price_data][currency]':           'usd',
-            'line_items[0][price_data][unit_amount]':        String(Math.round(upgradePrice * 100)),
-            'line_items[0][price_data][product_data][name]': optionB.description,
-            'line_items[0][quantity]':                       '1',
-          };
-          const quoteB = await stripePost(STRIPE_KEY, '/v1/quotes', quoteBParams);
+          const prodB = await stripePost(STRIPE_KEY, '/v1/products', {
+            name: `${planName} — Option B`,
+            description: optionB.description.slice(0, 500),
+          });
+          const quoteB = await stripePost(STRIPE_KEY, '/v1/quotes', {
+            customer:                               stripeCustId,
+            expires_at:                             expiresAt,
+            header:                                 `${planName} — Renewal Proposal`,
+            footer:                                 quoteFooter,
+            'metadata[renewal_type]':               'contract_renewal',
+            'metadata[contract_id]':                contractId,
+            'metadata[option]':                     'B',
+            'line_items[0][price_data][currency]':  'usd',
+            'line_items[0][price_data][unit_amount]': String(Math.round(upgradePrice * 100)),
+            'line_items[0][price_data][product]':   prodB.id,
+            'line_items[0][quantity]':              '1',
+          });
           await stripePost(STRIPE_KEY, `/v1/quotes/${quoteB.id}/finalize`, {});
           const quoteBFinal = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteB.id}`);
           quoteBId  = quoteB.id;
