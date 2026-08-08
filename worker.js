@@ -2227,6 +2227,29 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    if (path === '/api/contract/reset-renewal' && request.method === 'POST') {
+      try {
+        const { contractId, quoteAId, quoteBId } = await request.json();
+        if (!contractId) return new Response(JSON.stringify({ error: 'contractId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        const cancelled = [];
+        for (const qId of [quoteAId, quoteBId].filter(Boolean)) {
+          try {
+            await stripePost(STRIPE_KEY, `/v1/quotes/${qId}/cancel`, {});
+            cancelled.push(qId);
+          } catch(e) { cancelled.push(`${qId} (already closed: ${e.message})`); }
+        }
+        await airtablePatch('Maintenance Contracts', contractId, {
+          'Renewal Invoice Sent': null,
+          'Renewal Quote A URL':  null,
+          'Renewal Quote B URL':  null,
+        });
+        return new Response(JSON.stringify({ ok: true, cancelled }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     if (path === '/api/contract/backfill-quote-urls' && request.method === 'POST') {
       try {
         const { contractId, quoteAId, quoteBId } = await request.json();
