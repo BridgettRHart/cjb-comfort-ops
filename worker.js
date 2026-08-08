@@ -3981,7 +3981,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
   <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
     <div style="background:#0f1729;padding:16px 20px;border-radius:10px 10px 0 0;text-align:center;">
-      <span style="color:white;font-size:20px;font-weight:800;letter-spacing:1px;">CJB COMFORT</span>
+      <img src="${BRAND_LOGO_URL}" alt="CJB Comfort" style="height:36px;width:auto;display:block;margin:0 auto;">
     </div>
     <div style="background:white;padding:28px 24px;border-radius:0 0 10px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
       <h2 style="font-size:18px;font-weight:700;margin:0 0 16px;">Maintenance Agreement Renewal</h2>
@@ -4153,6 +4153,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const mapContract = c => ({
           id:              c.id,
           planName:        c.fields['Plan Name']              || '',
+          propertyName:    ((c.fields['Property'] || [])[0] || {}).name || '',
           status:          c.fields['Status']                 || '',
           startDate:       c.fields['Start Date']             || '',
           endDate:         c.fields['End Date']               || '',
@@ -6983,7 +6984,10 @@ function contractCard(c) {
 
   return \`<div class="contract-card">
     <div class="contract-header">
-      <div class="contract-plan">\${esc(c.planName)}</div>
+      <div>
+        <div class="contract-plan">\${esc(c.planName)}</div>
+        \${c.propertyName ? \`<div style="font-size:12px;color:#374151;margin-top:2px;">\${esc(c.propertyName)}</div>\` : ''}
+      </div>
       \${contractStatusChip(c.status)}
     </div>
     <div class="contract-body">
