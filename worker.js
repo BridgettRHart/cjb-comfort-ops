@@ -5156,6 +5156,9 @@ function emailEstimateHtml({ customerName, approveUrl, description, lineItems, t
         <a href="${approveUrl}" style="display:inline-block;background:#059669;color:white;font-size:17px;font-weight:700;padding:16px 32px;border-radius:10px;text-decoration:none;">Review &amp; Respond to Estimate →</a>
       </div>
       <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Or copy this link into your browser:<br><span style="color:#1e40af;">${approveUrl}</span></p>
+      <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:14px;font-size:11px;color:#9ca3af;line-height:1.7;">
+        Due to the instability of equipment, supply chain and commodity, raw material costs, none of which are controlled by us or our suppliers, CJB Comfort reserves the right to pass on these increases during contractual agreement. Any alteration or deviation from above specifications involving extra costs, will be executed only upon written orders, and will become an extra charge over and above the proposal. All agreements contingent upon strikes, accidents, or delays beyond our control. Owner to carry fire, tornado, and other necessary insurance at time of above work.
+      </div>
     </div>
     <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services</p>
   </div>
