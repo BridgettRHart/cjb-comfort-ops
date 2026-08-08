@@ -2243,7 +2243,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Renewal Quote A URL': quoteAUrl || null,
           'Renewal Quote B URL': quoteBUrl || null,
         });
-        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl, debug_qA_keys: Object.keys(qA) }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl, debug_qA: { status: qA.status, number: qA.number, invoice: qA.invoice, computed: qA.computed } }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch(e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
