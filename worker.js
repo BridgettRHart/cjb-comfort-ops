@@ -2203,7 +2203,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'line_items[0][quantity]':              '1',
         });
         await stripePost(STRIPE_KEY, `/v1/quotes/${quoteA.id}/finalize`, {});
-        const quoteAAcceptUrl = `https://app.cjbcomfort.com/accept-renewal?id=${quoteA.id}`;
+        const quoteAAcceptUrl = `https://portal.cjbcomfort.com/accept-renewal?id=${quoteA.id}`;
         const quoteAUrl       = quoteAAcceptUrl;
 
         // Create and finalize Quote B (if upgrade price is set)
@@ -2228,7 +2228,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           });
           await stripePost(STRIPE_KEY, `/v1/quotes/${quoteB.id}/finalize`, {});
           quoteBId        = quoteB.id;
-          quoteBAcceptUrl = `https://app.cjbcomfort.com/accept-renewal?id=${quoteB.id}`;
+          quoteBAcceptUrl = `https://portal.cjbcomfort.com/accept-renewal?id=${quoteB.id}`;
           quoteBUrl       = quoteBAcceptUrl;
         }
 
@@ -2301,8 +2301,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         const { contractId, quoteAId, quoteBId } = await request.json();
         if (!contractId || !quoteAId) return new Response(JSON.stringify({ error: 'contractId and quoteAId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         const STRIPE_KEY = env.STRIPE_SECRET_KEY;
-        const quoteAUrl = `https://app.cjbcomfort.com/accept-renewal?id=${quoteAId}`;
-        const quoteBUrl = quoteBId ? `https://app.cjbcomfort.com/accept-renewal?id=${quoteBId}` : '';
+        const quoteAUrl = `https://portal.cjbcomfort.com/accept-renewal?id=${quoteAId}`;
+        const quoteBUrl = quoteBId ? `https://portal.cjbcomfort.com/accept-renewal?id=${quoteBId}` : '';
         await airtablePatch('Maintenance Contracts', contractId, {
           'Renewal Quote A URL': quoteAUrl,
           'Renewal Quote B URL': quoteBUrl || null,
