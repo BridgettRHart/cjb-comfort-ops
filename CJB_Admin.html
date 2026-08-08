@@ -7861,10 +7861,28 @@ function renderContractDetail(cf, jobs, contractId) {
       </div>`;
     }
   } else if (renewal) {
-    actionBar = `<div class="ctr-action-bar">
-      ${repairBtn}
-      <button class="btn btn-red btn-sm" id="renewal-proposal-btn-${contractId}" onclick="showRenewalProposalModal('${contractId}')">📬 Send Renewal Proposal</button>
-    </div>`;
+    const renewalSentDate = cf['Renewal Invoice Sent'] || '';
+    const quoteAUrl       = cf['Renewal Quote A URL']  || '';
+    const quoteBUrl       = cf['Renewal Quote B URL']  || '';
+    const sentFmt = renewalSentDate
+      ? new Date(renewalSentDate + 'T12:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : '';
+
+    const pendingBanner = (sentFmt && (quoteAUrl || quoteBUrl)) ? `
+      <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400e;margin-bottom:8px;">Renewal Proposal Sent ${sentFmt} — Awaiting Customer Response</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          ${quoteAUrl ? `<a href="${escAttr(quoteAUrl)}" target="_blank" rel="noopener" class="btn btn-gray btn-sm" style="text-decoration:none;font-size:11px;">Option A — View in Stripe ↗</a>` : ''}
+          ${quoteBUrl ? `<a href="${escAttr(quoteBUrl)}" target="_blank" rel="noopener" class="btn btn-gray btn-sm" style="text-decoration:none;font-size:11px;">Option B — View in Stripe ↗</a>` : ''}
+        </div>
+      </div>` : '';
+
+    actionBar = `
+      ${pendingBanner}
+      <div class="ctr-action-bar">
+        ${repairBtn}
+        <button class="btn ${sentFmt ? 'btn-gray' : 'btn-red'} btn-sm" id="renewal-proposal-btn-${contractId}" onclick="showRenewalProposalModal('${contractId}')">📬 ${sentFmt ? 'Resend Renewal Proposal' : 'Send Renewal Proposal'}</button>
+      </div>`;
   } else if (repairBtn) {
     actionBar = `<div class="ctr-action-bar">${repairBtn}</div>`;
   }

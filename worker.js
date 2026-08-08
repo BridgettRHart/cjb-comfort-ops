@@ -1275,6 +1275,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                   'Visits Used This Year': 0,
                   'Status':                'Active',
                   'Renewal Invoice Sent':  null,
+                  'Renewal Quote A URL':   null,
+                  'Renewal Quote B URL':   null,
                 };
                 await airtablePatch('Maintenance Contracts', contractId, contractUpdate);
 
@@ -2208,7 +2210,11 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }).catch(() => {});
 
         const today = new Date().toISOString().split('T')[0];
-        await airtablePatch('Maintenance Contracts', contractId, { 'Renewal Invoice Sent': today });
+        await airtablePatch('Maintenance Contracts', contractId, {
+          'Renewal Invoice Sent':   today,
+          'Renewal Quote A URL':    quoteAUrl || null,
+          'Renewal Quote B URL':    quoteBUrl || null,
+        });
 
         return new Response(JSON.stringify({
           ok: true, quoteAId: quoteA.id, quoteAUrl,
