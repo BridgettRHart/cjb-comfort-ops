@@ -8281,7 +8281,7 @@ async function showRenewalProposalModal(contractId) {
   }
   if (btn) { btn.disabled = false; btn.textContent = '📬 Send Renewal Proposal'; }
 
-  const { contactEmail, contactName, planName, endDateFmt, optionA, optionB } = preview;
+  const { contactEmail, contactName, contactFirst, planName, endDateFmt, optionA, optionB, portalLink } = preview;
 
   const optCard = (opt, letter, color) => `
     <div style="border:2px solid ${color};border-radius:8px;padding:14px 16px;margin-bottom:12px;">
@@ -8323,6 +8323,12 @@ async function showRenewalProposalModal(contractId) {
           ${optionB ? optCard(optionB, 'B', '#0369a1') : ''}
 
           <p style="margin:12px 0 0;font-size:12px;color:#9ca3af;">Each button above is a secure link — clicking it lets the customer review and accept that option in Stripe. The contract updates automatically once they accept.</p>
+
+          ${portalLink ? `
+          <div style="border-top:1px solid #e5e7eb;margin-top:16px;padding-top:14px;">
+            <p style="margin:0 0 6px;font-size:12px;color:#374151;">Customer portal link included in the email:</p>
+            <a href="${portalLink}" target="_blank" style="font-size:12px;color:#1e40af;word-break:break-all;">${portalLink}</a>
+          </div>` : ''}
         </div>
       </div>
 

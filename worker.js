@@ -2076,10 +2076,33 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           description: optionBDetails || `Enhanced coverage — contact us for details`,
         } : null;
 
+        // Generate or reuse customer portal link
+        const _custId = (cf['Customer'] || [])[0] || '';
+        let portalLink = '';
+        if (_custId && env.PORTAL_KV) {
+          try {
+            const existingToken = await env.PORTAL_KV.get(`cust:${_custId}`);
+            if (existingToken) {
+              const stored = await env.PORTAL_KV.get(existingToken, { type: 'json' });
+              if (stored && stored.expiresAt > Date.now()) {
+                portalLink = `${PORTAL_URL}/p/${existingToken}`;
+              }
+            }
+            if (!portalLink) {
+              const rand    = crypto.getRandomValues(new Uint8Array(32));
+              const token   = [...rand].map(b => b.toString(16).padStart(2, '0')).join('');
+              const ttlSecs = 365 * 24 * 60 * 60;
+              await env.PORTAL_KV.put(token, JSON.stringify({ customerId: _custId, createdAt: Date.now(), expiresAt: Date.now() + ttlSecs * 1000 }), { expirationTtl: ttlSecs });
+              await env.PORTAL_KV.put(`cust:${_custId}`, token, { expirationTtl: ttlSecs });
+              portalLink = `${PORTAL_URL}/p/${token}`;
+            }
+          } catch(e) {}
+        }
+
         if (preview) {
           return new Response(JSON.stringify({
             ok: true,
-            preview: { contactEmail, contactName, contactFirst, planName, endDateFmt, optionA, optionB },
+            preview: { contactEmail, contactName, contactFirst, planName, endDateFmt, optionA, optionB, portalLink },
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
@@ -2156,6 +2179,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             endDateFmt,
             optionA: { ...optionA, url: quoteAUrl },
             optionB: optionB ? { ...optionB, url: quoteBUrl } : null,
+            portalLink,
           }),
         });
         logCommunication(env, {
@@ -6116,7 +6140,7 @@ function emailRenewalInvoiceHtml({ customerName, planName, annualValue, hostedUr
 }
 
 // ── Renewal proposal email: two-option Stripe Quote links ────────────────────
-function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA, optionB }) {
+function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA, optionB, portalLink }) {
   const optCard = (opt, letter, color) => `
     <div style="border:2px solid ${color};border-radius:10px;padding:20px 24px;margin-bottom:20px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:${color};margin-bottom:8px;">Option ${letter}</div>
@@ -6128,6 +6152,12 @@ function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA,
       <a href="${opt.url}" style="display:inline-block;background:${color};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 28px;border-radius:7px;">Accept Option ${letter} →</a>
     </div>`;
 
+  const portalSection = portalLink ? `
+    <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:20px;">
+      <p style="font-size:13px;color:#374151;margin:0 0 8px;">You can also view your service history, invoices, and equipment records anytime through your customer portal:</p>
+      <a href="${portalLink}" style="display:inline-block;background:#f3f4f6;color:#1e40af;text-decoration:none;font-size:13px;font-weight:600;padding:9px 20px;border-radius:6px;border:1px solid #d1d5db;">View Your Customer Portal →</a>
+    </div>` : '';
+
   const preheader = `Your ${planName} is up for renewal — review your options and accept online.`;
   const body = `
     <p>Hi ${contactFirst},</p>
@@ -6136,7 +6166,8 @@ function emailRenewalProposalHtml({ contactFirst, planName, endDateFmt, optionA,
     ${optCard(optionA, 'A', '#1a6b35')}
     ${optionB ? optCard(optionB, 'B', '#0369a1') : ''}
     <p style="font-size:13px;color:#9ca3af;">These proposals expire in 30 days. Once you accept an option, you'll receive a confirmation with your new coverage dates.</p>
-    <p>Thank you for trusting CJB Comfort with your HVAC systems. We look forward to another great year of service.</p>`;
+    <p>Thank you for trusting CJB Comfort with your HVAC systems. We look forward to another great year of service.</p>
+    ${portalSection}`;
   return emailBase({ preheader, body });
 }
 
