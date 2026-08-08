@@ -2227,6 +2227,28 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    if (path === '/api/contract/backfill-quote-urls' && request.method === 'POST') {
+      try {
+        const { contractId, quoteAId, quoteBId } = await request.json();
+        if (!contractId || !quoteAId) return new Response(JSON.stringify({ error: 'contractId and quoteAId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        const qA = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteAId}`);
+        const quoteAUrl = qA.url || '';
+        let quoteBUrl = '';
+        if (quoteBId) {
+          const qB = await stripeGet(STRIPE_KEY, `/v1/quotes/${quoteBId}`);
+          quoteBUrl = qB.url || '';
+        }
+        await airtablePatch('Maintenance Contracts', contractId, {
+          'Renewal Quote A URL': quoteAUrl || null,
+          'Renewal Quote B URL': quoteBUrl || null,
+        });
+        return new Response(JSON.stringify({ ok: true, quoteAUrl, quoteBUrl }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     if (path === '/api/config/stripe-pk' && request.method === 'GET') {
       const pk = env.STRIPE_PUBLISHABLE_KEY || '';
       return new Response(JSON.stringify({ publishableKey: pk }),
