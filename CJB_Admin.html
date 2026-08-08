@@ -8287,7 +8287,7 @@ async function showRenewalProposalModal(contractId) {
     <div style="border:2px solid ${color};border-radius:8px;padding:14px;margin-bottom:12px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:${color};margin-bottom:4px;">Option ${letter}</div>
       <div style="font-size:22px;font-weight:700;color:#111;">$${Number(opt.price).toLocaleString('en-US',{minimumFractionDigits:2})}<span style="font-size:13px;font-weight:400;color:#6b7280;"> / year</span></div>
-      <div style="font-size:13px;color:#6b7280;margin-top:4px;">${esc(opt.description)}</div>
+      <div style="font-size:13px;color:#374151;margin-top:6px;white-space:pre-line;">${esc(opt.description)}</div>
     </div>`;
 
   document.getElementById('renewal-proposal-modal')?.remove();

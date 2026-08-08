@@ -2017,18 +2017,19 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           ? new Date(endDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'})
           : '';
 
+        const includedServices = cf['Included Services'] || '';
+        const optionBDetails   = cf['Option B Details']  || '';
+
         const optionA = {
           label: 'Option A — Renewal at Current Rate',
           price: annualValue,
           visits: visitsPerYr,
-          description: `${visitsPerYr} scheduled maintenance visit${visitsPerYr !== 1 ? 's' : ''} per year`,
+          description: includedServices || `${visitsPerYr} scheduled maintenance visit${visitsPerYr !== 1 ? 's' : ''} per year`,
         };
-        const upgradeVisits = visitsPerYr + 2;
         const optionB = upgradePrice > 0 ? {
           label: 'Option B — Enhanced Coverage',
           price: upgradePrice,
-          visits: upgradeVisits,
-          description: `${upgradeVisits} scheduled maintenance visits per year (${upgradeVisits - visitsPerYr} additional)`,
+          description: optionBDetails || `Enhanced coverage — contact us for details`,
         } : null;
 
         if (preview) {
