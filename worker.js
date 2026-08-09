@@ -1671,6 +1671,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 'Internal Notes':    `Stripe Invoice ID: ${inv.id}${inv.hosted_invoice_url ? '\n' + inv.hosted_invoice_url : ''}\nContract: ${contractId}`,
               };
               if (custId) invFields['Customers'] = [custId];
+              invFields['Maintenance Contracts'] = [contractId];
               await airtablePost('Invoices', invFields);
             } catch(e) {
               console.error('New contract Invoice record error:', e.message);
@@ -1708,9 +1709,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 'Internal Notes':    `Stripe Invoice ID: ${inv.id}${inv.hosted_invoice_url ? '\n' + inv.hosted_invoice_url : ''}\nContract: ${contractId}`,
               };
               if (custId) invFields['Customers'] = [custId];
-              // If you add a "Maintenance Contracts" linked field to the Invoices table in Airtable,
-              // uncomment the next line to link this Invoice to the contract record:
-              // invFields['Maintenance Contracts'] = [contractId];
+              invFields['Maintenance Contracts'] = [contractId];
 
               await airtablePost('Invoices', invFields);
 
