@@ -2260,6 +2260,8 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Renewal Invoice Sent':   today,
           'Renewal Quote A URL':    quoteAUrl || null,
           'Renewal Quote B URL':    quoteBUrl || null,
+          'Option A Price':         optionA.price || null,
+          ...(optionB ? { 'Option B Price': optionB.price || null } : {}),
         });
 
         return new Response(JSON.stringify({
@@ -4150,10 +4152,20 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           .filter(q => q.fields['Status'] === 'Accepted')
           .map(mapQuote);
 
+        // Batch-fetch property names for all contracts (linked field returns IDs only)
+        const propIds = [...new Set(contractsData.flatMap(c => c.fields['Property'] || []).filter(Boolean))];
+        const propMap = {};
+        await Promise.all(propIds.map(async id => {
+          try {
+            const p = await airtableGetById('Properties', id);
+            propMap[id] = p.fields['Property Name'] || p.fields['Service Address'] || '';
+          } catch(e) {}
+        }));
+
         const mapContract = c => ({
           id:              c.id,
           planName:        c.fields['Plan Name']              || '',
-          propertyName:    ((c.fields['Property'] || [])[0] || {}).name || '',
+          propertyName:    propMap[(c.fields['Property'] || [])[0]] || '',
           status:          c.fields['Status']                 || '',
           startDate:       c.fields['Start Date']             || '',
           endDate:         c.fields['End Date']               || '',
