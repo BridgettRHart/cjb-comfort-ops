@@ -2261,7 +2261,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           'Renewal Quote A URL':    quoteAUrl || null,
           'Renewal Quote B URL':    quoteBUrl || null,
           'Option A Price':         optionA.price || null,
-          ...(optionB ? { 'Option B Price': optionB.price || null } : {}),
+          ...(optionB ? { 'Renewal Upgrade Price': optionB.price || null } : {}),
         });
 
         return new Response(JSON.stringify({
@@ -4177,7 +4177,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           renewalQuoteBUrl: c.fields['Renewal Quote B URL']  || '',
           renewalSent:     c.fields['Renewal Invoice Sent']  || '',
           optionAPrice:    Number(c.fields['Option A Price'] || c.fields['Annual Value'] || 0),
-          optionBPrice:    Number(c.fields['Option B Price'] || 0),
+          optionBPrice:    Number(c.fields['Renewal Upgrade Price'] || 0),
         });
 
         return new Response(JSON.stringify({
