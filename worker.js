@@ -729,11 +729,13 @@ export default {
       try {
         const reqUrl = new URL(request.url);
         const woId   = reqUrl.searchParams.get('wo');
+        const qtParam = reqUrl.searchParams.get('qt') || ''; // replacement quote ID for dual estimates
         if (!woId) return new Response(JSON.stringify({ error: 'Missing wo parameter' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
         const wo       = await airtableGetById('Work Orders', woId);
         const woFields = wo.fields;
-        const stripeQuoteId = woFields['Stripe Quote ID'] || '';
+        // Use the explicit quote ID if provided (dual estimate replacement option); otherwise fall back to WO's primary quote
+        const stripeQuoteId = qtParam || woFields['Stripe Quote ID'] || '';
         const STRIPE_KEY    = env.STRIPE_SECRET_KEY;
 
         let lineItems   = [];
@@ -791,11 +793,13 @@ export default {
     // ── Customer estimate approval page — record decision ─────────────────
     if (path === '/api/approve' && request.method === 'POST') {
       try {
-        const { woId, decision } = await request.json();
+        const body0 = await request.json();
+        const { woId, decision } = body0;
+        const qt = body0.qt || ''; // explicit quote ID for dual-estimate replacement option
         if (!woId || !decision) return new Response(JSON.stringify({ error: 'Missing woId or decision' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
         // Don't overwrite Invoiced/Paid — the service call is already closed;
-        // the new Repair WO created by the quote.accepted webhook is the follow-up.
+        // the new Repair/Install WO created by the quote.accepted webhook is the follow-up.
         const wo0 = await airtableGetById('Work Orders', woId);
         const currentStatus = wo0.fields['Status'] || '';
         const newStatus = decision === 'approved' ? 'Estimate Approved' : 'Estimate Declined';
@@ -809,7 +813,7 @@ export default {
             const wo = await airtableGetById('Work Orders', woId);
             const custIds = wo.fields['Customer'] || [];
             if (custIds.length) {
-              const cust     = await airtableGetById('Customers', custIds[0]);
+              const cust      = await airtableGetById('Customers', custIds[0]);
               const custEmail = (cust.fields['Email'] || '').trim();
               const custName  = cust.fields['Customer Name'] || 'Customer';
               if (custEmail) {
@@ -827,24 +831,59 @@ export default {
           }
         }
 
-        // Update Airtable Quote record status if linked
+        // Determine which Stripe quote ID to act on:
+        // - If qt is provided, use it (dual estimate: customer chose a specific option)
+        // - Otherwise fall back to the WO's primary Stripe Quote ID
+        const wo1 = await airtableGetById('Work Orders', woId);
+        const primaryQuoteId = wo1.fields['Stripe Quote ID'] || '';
+        const activeQuoteId  = qt || primaryQuoteId;
+
+        // Update the matching Airtable Quote record
         try {
-          const wo = await airtableGetById('Work Orders', woId);
-          const quoteLinks = wo.fields['Quotes'] || [];
-          if (quoteLinks.length) {
+          const allQuoteLinks = wo1.fields['Quotes'] || [];
+          if (allQuoteLinks.length) {
             const atStatus = decision === 'approved' ? 'Accepted' : 'Declined';
-            await airtablePatch('Quotes', quoteLinks[0], { 'Status': atStatus });
+            if (activeQuoteId) {
+              // Find the Airtable Quote record whose Stripe Quote ID matches
+              const atQ = await airtableGet('Quotes', `{Stripe Quote ID}="${activeQuoteId}"`);
+              const matchRec = atQ.records?.[0];
+              if (matchRec) {
+                await airtablePatch('Quotes', matchRec.id, { 'Status': atStatus });
+              } else {
+                // Fallback: update first linked quote
+                await airtablePatch('Quotes', allQuoteLinks[0], { 'Status': atStatus });
+              }
+            } else {
+              await airtablePatch('Quotes', allQuoteLinks[0], { 'Status': atStatus });
+            }
           }
         } catch (e) { /* non-fatal */ }
 
-        // Accept/cancel Stripe quote to keep records clean (non-fatal)
+        // Accept/cancel Stripe quotes (non-fatal)
         if (env.STRIPE_SECRET_KEY) {
           try {
-            const wo = await airtableGetById('Work Orders', woId);
-            const stripeQuoteId = wo.fields['Stripe Quote ID'] || '';
-            if (stripeQuoteId) {
+            if (activeQuoteId) {
               const endpoint = decision === 'approved' ? 'accept' : 'cancel';
-              await stripePost(env.STRIPE_SECRET_KEY, `/v1/quotes/${stripeQuoteId}/${endpoint}`, {});
+              await stripePost(env.STRIPE_SECRET_KEY, `/v1/quotes/${activeQuoteId}/${endpoint}`, {});
+            }
+            // For dual estimates: cancel the OTHER quote when one is approved or declined
+            if (qt && primaryQuoteId && qt !== primaryQuoteId && decision === 'approved') {
+              // Customer chose replacement (qt) — cancel the repair (primary) quote
+              await stripePost(env.STRIPE_SECRET_KEY, `/v1/quotes/${primaryQuoteId}/cancel`, {}).catch(() => {});
+            } else if (!qt && primaryQuoteId && decision === 'approved') {
+              // Customer chose repair (primary) — cancel any replacement quotes linked to this WO
+              const allLinkedQuotes = wo1.fields['Quotes'] || [];
+              if (allLinkedQuotes.length > 1) {
+                for (const qRecId of allLinkedQuotes) {
+                  try {
+                    const qRec = await airtableGetById('Quotes', qRecId);
+                    const sId = qRec.fields['Stripe Quote ID'] || '';
+                    if (sId && sId !== primaryQuoteId) {
+                      await stripePost(env.STRIPE_SECRET_KEY, `/v1/quotes/${sId}/cancel`, {}).catch(() => {});
+                    }
+                  } catch(e) {}
+                }
+              }
             }
           } catch (e) { /* non-fatal */ }
         }
@@ -1400,26 +1439,24 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               } catch(e) {}
             }
             const isAcceptedEstimateWO = ['Install Estimate', 'Estimate Only'].includes(acceptedWoType) || !acceptedWoType;
+            const isReplacement = quote.metadata?.quote_type === 'replacement';
 
             if (isAcceptedEstimateWO) {
               if (woId) await airtablePatch('Work Orders', woId, { 'Status': 'Estimate Approved' });
             } else {
-              // Service WO — create a new Repair WO and notify Bridgett
+              // Service WO — create a follow-up WO. Type depends on what the customer approved:
+              // replacement quotes become Installation WOs; repair quotes become Repair WOs.
               const quoteNotes = atQuote.fields?.['Notes'] || '';
               const custRec  = custId ? await airtableGetById('Customers', custId).catch(() => null) : null;
               const custName = custRec?.fields?.['Customer Name'] || 'Customer';
               const todayLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              const newWoType = isReplacement ? 'Installation' : 'Repair';
               const newWoFields = {
-                // Matches the manual /api/convert-to-job naming convention — an unnamed
-                // WO doesn't show up meaningfully anywhere (Dispatch, Customer profile).
-                'Work Order Name': `${custName} — Job — ${todayLabel}`,
-                'Work Order Type': 'Repair',
-                // 'New', not 'Scheduled' - this WO has no date/time yet, so marking it
-                // Scheduled hid it from the Dispatch board (which expects a Scheduled WO
-                // to actually have a scheduled date) without it ever being seen.
+                'Work Order Name': `${custName} — ${isReplacement ? 'Install' : 'Job'} — ${todayLabel}`,
+                'Work Order Type': newWoType,
                 'Status':          'New',
-                'Problem Description': quoteNotes.split('---PHOTOS---')[0].trim() || 'Repair from approved estimate',
-                'Internal Notes': `Auto-created from approved repair estimate — Quote: ${atQuote.fields?.['Quote Number'] || stripeQuoteId}`,
+                'Problem Description': quoteNotes.split('---PHOTOS---')[0].trim() || `${isReplacement ? 'Replacement installation' : 'Repair'} from approved estimate`,
+                'Internal Notes': `Auto-created from approved ${isReplacement ? 'replacement' : 'repair'} estimate — Quote: ${atQuote.fields?.['Quote Number'] || stripeQuoteId}`,
               };
               if (custId)                     newWoFields['Customer']   = [custId];
               if (acceptedWoPropIds.length)   newWoFields['Property']   = acceptedWoPropIds;
@@ -1427,16 +1464,13 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
               if (woId)                       newWoFields['Source Estimate'] = [woId];
               try {
                 const newJobWO = await airtablePost('Work Orders', newWoFields);
-                // Same direct link the manual conversion flow sets, so the Estimates tab
-                // and dashboard widgets resolve this job in one hop instead of relying on
-                // just the reverse Source Estimate link.
                 await airtablePatch('Quotes', atQuote.id, { 'Job': [newJobWO.id] }).catch(() => {});
-              } catch(e) { console.error('New Repair WO creation failed:', e.message); }
+              } catch(e) { console.error('New WO creation failed:', e.message); }
 
               // SMS Bridgett
               if (env.OWNER_PHONE && env.QUO_API_KEY) {
                 sendSms(env.QUO_API_KEY, env.OWNER_PHONE,
-                  `✅ Repair estimate approved — ${custName}. New Repair WO created in Airtable, ready to schedule.`
+                  `✅ ${isReplacement ? 'Replacement' : 'Repair'} estimate approved — ${custName}. New ${newWoType} WO created in Airtable, ready to schedule.`
                 ).catch(() => {});
               }
             }
@@ -3497,6 +3531,174 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
       }
     }
 
+    // ── Dual estimate: repair + replacement in one email ─────────────────
+    if (path === '/api/quote/dual' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const workOrderId = body.woId || body.workOrderId || null;
+        const customerId  = body.customerId;
+        const repair      = body.repair;   // { lineItems, description, notes }
+        const replace     = body.replace;  // { lineItems, description }
+        if (!customerId)       throw new Error('customerId is required');
+        if (!repair?.lineItems?.length)  throw new Error('Repair estimate requires at least one line item');
+        if (!replace?.lineItems?.length) throw new Error('Replacement estimate requires at least one line item');
+
+        const STRIPE_KEY = env.STRIPE_SECRET_KEY;
+        if (!STRIPE_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+
+        // Get customer info
+        const custRec   = await airtableGetById('Customers', customerId);
+        const custEmail = (custRec.fields['Email'] || '').trim();
+        const custName  = (custRec.fields['Customer Name'] || '').trim();
+        if (!custEmail) throw new Error(`Customer "${custName}" has no email`);
+
+        // Find or create Stripe customer
+        let stripeCustId;
+        const srch = await fetch(`https://api.stripe.com/v1/customers?email=${encodeURIComponent(custEmail)}&limit=1`,
+          { headers: { Authorization: `Bearer ${STRIPE_KEY}` } });
+        const srchData = await srch.json();
+        if (srchData.data?.length > 0) {
+          stripeCustId = srchData.data[0].id;
+        } else {
+          const cc = await stripePost(STRIPE_KEY, '/v1/customers', { email: custEmail, name: custName });
+          stripeCustId = cc.id;
+        }
+
+        // Helper: build Stripe line items from raw [{name, unitAmount(cents), qty}] or [{name, unitPrice(dollars), qty}]
+        async function buildStripeLineItems(items) {
+          const result = [];
+          for (const item of items) {
+            const name      = (item.productName || item.name || 'Service').trim();
+            const qty       = Number(item.quantity || item.qty) || 1;
+            const unitPrice = item.unitPrice !== undefined
+              ? Number(item.unitPrice)
+              : (Number(item.unitAmount) || 0) / 100;
+            const isWhole   = Number.isInteger(qty);
+            const cents     = Math.round(unitPrice * (isWhole ? 1 : qty) * 100);
+            const prod = await stripePost(STRIPE_KEY, '/v1/products', { name, type: 'service' });
+            result.push({
+              price_data: { currency: 'usd', product: prod.id, unit_amount: String(cents) },
+              quantity: String(isWhole ? Math.max(1, qty) : 1),
+            });
+          }
+          return result;
+        }
+
+        const expiresAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+        const today     = new Date().toISOString().split('T')[0];
+
+        let woName = '', woCustIds = [], woPropIds = [], woTechIds = [];
+        if (workOrderId) {
+          try {
+            const wo = await airtableGetById('Work Orders', workOrderId);
+            woName    = wo.fields?.['Work Order Name'] || '';
+            woCustIds = wo.fields?.['Customer']        || [];
+            woPropIds = wo.fields?.['Property']        || [];
+            woTechIds = wo.fields?.['Technician']      || [];
+          } catch(e) {}
+        }
+
+        // Create repair quote in Stripe
+        const repairLineItems  = await buildStripeLineItems(repair.lineItems);
+        const repairQuoteObj   = { customer: stripeCustId, expires_at: String(expiresAt), line_items: repairLineItems };
+        if (repair.description) repairQuoteObj.description = repair.description.slice(0, 500);
+        if (repair.notes)       repairQuoteObj.footer      = repair.notes.slice(0, 5000);
+        if (workOrderId)        repairQuoteObj['metadata[work_order_airtable_id]'] = workOrderId;
+        repairQuoteObj['metadata[quote_type]'] = 'repair';
+        const repairStripeQ = await stripePostNested(STRIPE_KEY, '/v1/quotes', repairQuoteObj);
+
+        // Create replacement quote in Stripe
+        const replaceLineItems = await buildStripeLineItems(replace.lineItems);
+        const replaceQuoteObj  = { customer: stripeCustId, expires_at: String(expiresAt), line_items: replaceLineItems };
+        if (replace.description) replaceQuoteObj.description = replace.description.slice(0, 500);
+        if (workOrderId)         replaceQuoteObj['metadata[work_order_airtable_id]'] = workOrderId;
+        replaceQuoteObj['metadata[quote_type]'] = 'replacement';
+        const replaceStripeQ = await stripePostNested(STRIPE_KEY, '/v1/quotes', replaceQuoteObj);
+
+        // Finalize both quotes
+        await stripePost(STRIPE_KEY, `/v1/quotes/${repairStripeQ.id}/finalize`, {}).catch(e => console.error('Repair quote finalize:', e.message));
+        await stripePost(STRIPE_KEY, `/v1/quotes/${replaceStripeQ.id}/finalize`, {}).catch(e => console.error('Replace quote finalize:', e.message));
+
+        // Approve URLs — repair is primary (no qt param); replacement includes qt
+        const repairApproveUrl  = workOrderId ? `${APPROVE_BASE_URL}?wo=${workOrderId}` : null;
+        const replaceApproveUrl = workOrderId ? `${APPROVE_BASE_URL}?wo=${workOrderId}&qt=${replaceStripeQ.id}` : null;
+
+        // Patch WO: repair quote is the primary Stripe Quote ID
+        if (workOrderId) {
+          const woUpdate = { 'Stripe Quote ID': repairStripeQ.id };
+          if (repairApproveUrl) woUpdate['Stripe Quote URL'] = repairApproveUrl;
+          await airtablePatch('Work Orders', workOrderId, woUpdate);
+        }
+
+        // Airtable Quote records for both
+        const repairTotal = repair.lineItems.reduce((s, li) => {
+          const p = li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount) || 0) / 100;
+          return s + p * (Number(li.quantity || li.qty) || 1);
+        }, 0);
+        const replaceTotal = replace.lineItems.reduce((s, li) => {
+          const p = li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount) || 0) / 100;
+          return s + p * (Number(li.quantity || li.qty) || 1);
+        }, 0);
+
+        const repairAtFields = {
+          'Quote Title':     `${custName} — ${woName || 'Repair Estimate'} — ${today}`,
+          'Status':          'Open',
+          'Stripe Quote ID': repairStripeQ.id,
+          'Expiration Date': new Date(expiresAt * 1000).toISOString().split('T')[0],
+          'Total Amount':    repairTotal,
+          'Customer':        [customerId],
+          'Notes':           (repair.description || '') + (repair.notes ? '\n' + repair.notes : ''),
+        };
+        if (workOrderId) repairAtFields['Work Order'] = [workOrderId];
+        const photoUrls = Array.isArray(body.photoUrls) ? body.photoUrls : [];
+        if (photoUrls.length) repairAtFields['Notes'] = (repairAtFields['Notes'] || '') + '\n---PHOTOS---\n' + photoUrls.join('\n');
+        await airtablePost('Quotes', repairAtFields);
+
+        const replaceAtFields = {
+          'Quote Title':     `${custName} — ${woName || 'Replacement Estimate'} — ${today}`,
+          'Status':          'Open',
+          'Stripe Quote ID': replaceStripeQ.id,
+          'Expiration Date': new Date(expiresAt * 1000).toISOString().split('T')[0],
+          'Total Amount':    replaceTotal,
+          'Customer':        [customerId],
+          'Notes':           replace.description || '',
+        };
+        if (workOrderId) replaceAtFields['Work Order'] = [workOrderId];
+        await airtablePost('Quotes', replaceAtFields);
+
+        // Send dual email
+        if (env.RESEND_API_KEY && custEmail && repairApproveUrl && replaceApproveUrl) {
+          const repairEmailItems  = repair.lineItems.map(li => ({ name: (li.productName || li.name || 'Service').trim(), amount: (li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount)||0)/100) * (Number(li.quantity||li.qty)||1) }));
+          const replaceEmailItems = replace.lineItems.map(li => ({ name: (li.productName || li.name || 'Service').trim(), amount: (li.unitPrice !== undefined ? Number(li.unitPrice) : (Number(li.unitAmount)||0)/100) * (Number(li.quantity||li.qty)||1) }));
+          const estSubject = 'Your CJB Comfort Estimate — Two Options to Consider';
+          await sendEmail(env.RESEND_API_KEY, {
+            to:      custEmail,
+            subject: estSubject,
+            html:    emailDualEstimateHtml({
+              customerName: custName,
+              repair:  { description: repair.description || '', lineItems: repairEmailItems,  total: repairTotal,  approveUrl: repairApproveUrl },
+              replace: { description: replace.description || '', lineItems: replaceEmailItems, total: replaceTotal, approveUrl: replaceApproveUrl },
+            }),
+          }).catch(e => console.error('Dual estimate email error:', e.message));
+          logCommunication(env, {
+            type: 'Email', trigger: 'Dual Estimate Sent', sentTo: custEmail,
+            subject: estSubject, customerId, workOrderId: workOrderId || null,
+          }).catch(() => {});
+        }
+
+        return new Response(JSON.stringify({
+          ok: true,
+          repairQuoteId:   repairStripeQ.id,
+          replaceQuoteId:  replaceStripeQ.id,
+          repairApproveUrl,
+          replaceApproveUrl,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // ── Stripe Quote — update draft ───────────────────────────────────────
     // Stripe doesn't support editing line items on an existing quote,
     // so we cancel the old draft and create a fresh one with the same Airtable record.
@@ -5395,6 +5597,51 @@ function emailEstimateHtml({ customerName, approveUrl, description, lineItems, t
       <p style="font-size:13px;color:#6b7280;text-align:center;margin:0;">Or copy this link into your browser:<br><span style="color:#1e40af;">${approveUrl}</span></p>
       <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:14px;font-size:11px;color:#9ca3af;line-height:1.7;">
         Due to the instability of equipment, supply chain and commodity, raw material costs, none of which are controlled by us or our suppliers, CJB Comfort reserves the right to pass on these increases during contractual agreement. Any alteration or deviation from above specifications involving extra costs, will be executed only upon written orders, and will become an extra charge over and above the proposal. All agreements contingent upon strikes, accidents, or delays beyond our control. Owner to carry fire, tornado, and other necessary insurance at time of above work.
+      </div>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services</p>
+  </div>
+</body></html>`;
+}
+
+function emailDualEstimateHtml({ customerName, repair, replace }) {
+  function optionBlock({ label, description, lineItems, total, approveUrl, color }) {
+    const rows = lineItems.map(li =>
+      `<tr>
+        <td style="padding:8px 0;font-size:14px;border-bottom:1px solid #f3f4f6;">${li.name}</td>
+        <td style="padding:8px 0;font-size:14px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;">$${(li.amount||0).toFixed(2)}</td>
+      </tr>`
+    ).join('');
+    const descBlock = description ? `<div style="font-size:14px;color:#374151;line-height:1.5;white-space:pre-line;margin-bottom:12px;">${description}</div>` : '';
+    return `
+      <div style="border:2px solid ${color};border-radius:10px;padding:20px;margin-bottom:20px;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${color};margin-bottom:10px;">${label}</div>
+        ${descBlock}
+        ${rows ? `<table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+          <tbody>${rows}</tbody>
+          <tfoot><tr>
+            <td style="padding:10px 0 0;font-size:15px;font-weight:700;">Total</td>
+            <td style="padding:10px 0 0;font-size:20px;font-weight:800;text-align:right;">$${total.toFixed(2)}</td>
+          </tr></tfoot>
+        </table>` : ''}
+        <div style="text-align:center;margin-top:16px;">
+          <a href="${approveUrl}" style="display:inline-block;background:${color};color:white;font-size:15px;font-weight:700;padding:13px 28px;border-radius:8px;text-decoration:none;">Review &amp; Approve ${label} →</a>
+        </div>
+      </div>`;
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <div style="max-width:540px;margin:0 auto;padding:24px 16px;">
+    <div style="background:#0f1729;padding:16px 20px;border-radius:10px 10px 0 0;text-align:center;">
+      <span style="color:white;font-size:20px;font-weight:800;letter-spacing:1px;">CJB COMFORT</span>
+    </div>
+    <div style="background:white;padding:28px 24px;border-radius:0 0 10px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+      <p style="font-size:17px;margin:0 0 12px;">Hi ${customerName},</p>
+      <p style="font-size:15px;color:#374151;margin:0 0 24px;line-height:1.5;">Your technician has prepared two options for your review. Please look over both and choose the one that works best for you.</p>
+      ${optionBlock({ label: 'Option A — Repair', ...repair, color: '#1e40af' })}
+      ${optionBlock({ label: 'Option B — Replacement', ...replace, color: '#059669' })}
+      <div style="border-top:1px solid #e5e7eb;margin-top:8px;padding-top:14px;font-size:11px;color:#9ca3af;line-height:1.7;">
+        Estimates are valid 30 days. If you have questions, call or text us at <strong>480-604-8622</strong>.
       </div>
     </div>
     <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:16px;">CJB Comfort · Arizona HVAC Services</p>

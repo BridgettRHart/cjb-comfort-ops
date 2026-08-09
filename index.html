@@ -662,6 +662,26 @@
   .repair-choice-btn.choice-no.active  { border-color: #059669; background: #d1fae5; color: #065f46; }
   .repair-choice-btn.choice-yes.active { border-color: #dc2626; background: #fee2e2; color: #991b1b; }
 
+  /* Replacement option toggle */
+  .replace-toggle-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 12px 16px; border: 2px dashed #d1d5db; border-radius: 10px;
+    background: #f9fafb; color: var(--gray-text); font-size: 14px; font-weight: 700;
+    cursor: pointer; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.3px;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .replace-toggle-btn.active {
+    border-color: #059669; border-style: solid; background: #ecfdf5; color: #065f46;
+  }
+  .replace-line-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .replace-line-name { flex: 1; font-size: 14px; color: var(--charcoal); }
+  .replace-line-price { font-size: 14px; font-weight: 600; color: var(--charcoal); min-width: 60px; text-align: right; }
+  .replace-line-qty { width: 52px; border: 1.5px solid #d1d5db; border-radius: 6px; padding: 4px 6px; font-size: 13px; text-align: center; }
+  .replace-line-remove { background: none; border: none; color: #9ca3af; font-size: 18px; cursor: pointer; padding: 0 4px; }
+
   /* Contract visit badge */
   .contract-badge {
     display: inline-flex; align-items: center; gap: 4px;
@@ -1817,6 +1837,30 @@
           </div>
         </div>
 
+        <!-- Dual estimate awaiting state -->
+        <div id="eu-dual-awaiting" style="display:none;text-align:center;padding:8px 0;">
+          <div style="font-size:14px;font-weight:700;color:var(--charcoal);margin-bottom:6px;">Two Options Sent!</div>
+          <div style="font-size:13px;color:var(--gray-text);margin-bottom:16px;">Customer will receive an email with both options. Tap below to open either link on this device.</div>
+          <a id="eu-dual-repair-link" href="" target="_blank" rel="noopener" style="display:block;background:#eff6ff;border:2px solid #1e40af;border-radius:8px;padding:12px 16px;text-decoration:none;margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#1e40af;margin-bottom:2px;">Option A — Repair</div>
+            <div style="font-size:13px;color:#1e40af;">Open approval page →</div>
+          </a>
+          <a id="eu-dual-replace-link" href="" target="_blank" rel="noopener" style="display:block;background:#ecfdf5;border:2px solid #059669;border-radius:8px;padding:12px 16px;text-decoration:none;margin-bottom:16px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#059669;margin-bottom:2px;">Option B — Replacement</div>
+            <div style="font-size:13px;color:#059669;">Open approval page →</div>
+          </a>
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;color:var(--gray-text);font-size:13px;">
+            <div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
+            Waiting for customer response…
+          </div>
+          <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:14px;">
+            <div style="font-size:11px;color:var(--gray-text);margin-bottom:8px;">Customer gave verbal approval on-site?</div>
+            <button onclick="recordVerbalApproval()" class="btn btn-outline" style="font-size:13px;padding:10px 16px;border-color:#059669;color:#059669;">
+              ✓ Customer Said Yes (Verbal)
+            </button>
+          </div>
+        </div>
+
         <!-- Approved state -->
         <div id="eu-approved" style="display:none;text-align:center;padding:16px 0;">
           <div style="font-size:52px;margin-bottom:10px;">✅</div>
@@ -1832,6 +1876,41 @@
         </div>
 
       </div><!-- /estimate-unit-section -->
+
+      <!-- Replacement option — toggled on/off independently from repair estimate -->
+      <div id="replacement-option-section" style="margin-top:4px;margin-bottom:12px;">
+        <button class="replace-toggle-btn" id="replacement-toggle-btn" onclick="toggleReplacement()">
+          <span id="replacement-toggle-icon">＋</span>
+          <span id="replacement-toggle-label">Also offer a replacement option</span>
+        </button>
+
+        <div id="replacement-builder" style="display:none;margin-top:12px;">
+          <div class="detail-section" style="padding:16px;border:2px solid #059669;border-radius:10px;">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#059669;margin-bottom:12px;">Option B — Replacement</div>
+
+            <div class="form-field" style="margin-bottom:12px;">
+              <label class="form-label" for="replacement-desc">Description for Customer</label>
+              <textarea class="form-textarea" id="replacement-desc" rows="2" placeholder="e.g. Full system replacement with new unit and installation…"></textarea>
+            </div>
+
+            <div style="margin-bottom:8px;">
+              <div class="form-label" style="margin-bottom:6px;">Replacement Line Items</div>
+              <div id="replacement-parts-list" style="margin-bottom:8px;"></div>
+              <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <input type="text" class="form-input" id="replacement-item-name" placeholder="Item name" style="flex:1;">
+                <input type="number" class="form-input" id="replacement-item-price" placeholder="Price" step="0.01" min="0" style="width:90px;">
+                <button onclick="addReplacementPart()" style="background:#059669;color:white;border:none;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">Add</button>
+              </div>
+              <div style="margin-top:6px;position:relative;">
+                <input type="text" class="form-input" id="replacement-search" placeholder="Search products…" autocomplete="off" oninput="searchReplacementProducts(this.value)">
+                <div id="replacement-search-results" class="parts-search-results" style="display:none;"></div>
+              </div>
+            </div>
+
+            <div id="replacement-total" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--charcoal);margin-top:8px;display:none;"></div>
+          </div>
+        </div>
+      </div>
 
     </div><!-- /repairs-detail-section -->
 
@@ -2325,6 +2404,10 @@ let selectedParts = [];
 let productListCache = null;
 // Photos uploaded during estimate send — reused by submitComplete to avoid double-upload
 let uploadedPhotoUrls = [];
+
+// Replacement option (dual estimate) state
+let replacementEnabled = false;
+let replacementParts   = []; // [{name, price, qty}]
 
 // Install Estimate state
 let iestLineItems = [];      // [{productName, qty, unitPrice, productId}]
@@ -4130,6 +4213,7 @@ function openCompleteForm() {
   });
   selectedParts = [];
   renderSelectedParts();
+  resetReplacementOption();
 
   // Pre-fill from existing job if this unit was already completed or has a draft saved (In Progress)
   const existingJob = currentJobsByEquipment[selectedEquipmentId];
@@ -5100,6 +5184,7 @@ function setRepairsNeeded(yes) {
       .forEach(id => document.getElementById(id)?.classList.remove('active'));
     selectedParts = [];
     renderSelectedParts();
+    resetReplacementOption();
   }
 }
 
@@ -5124,11 +5209,134 @@ function setEstimateUrl(url) {
 }
 
 function showEstimateState(state) {
-  // state: 'initial' | 'awaiting' | 'approved' | 'declined'
-  ['eu-initial','eu-awaiting','eu-approved','eu-declined'].forEach(id => {
+  // state: 'initial' | 'awaiting' | 'dual-awaiting' | 'approved' | 'declined'
+  ['eu-initial','eu-awaiting','eu-dual-awaiting','eu-approved','eu-declined'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = (id === 'eu-' + state) ? 'block' : 'none';
   });
+}
+
+// ── Replacement option (dual estimate) ───────────────────────────────────────
+
+function toggleReplacement() {
+  replacementEnabled = !replacementEnabled;
+  const btn   = document.getElementById('replacement-toggle-btn');
+  const icon  = document.getElementById('replacement-toggle-icon');
+  const label = document.getElementById('replacement-toggle-label');
+  const builder = document.getElementById('replacement-builder');
+  const sendBtn = document.getElementById('eu-send-btn');
+  if (replacementEnabled) {
+    btn.classList.add('active');
+    icon.textContent  = '✓';
+    label.textContent = 'Replacement option added';
+    builder.style.display = '';
+    if (sendBtn) sendBtn.textContent = '📋 Send Both Options to Customer';
+  } else {
+    btn.classList.remove('active');
+    icon.textContent  = '＋';
+    label.textContent = 'Also offer a replacement option';
+    builder.style.display = 'none';
+    replacementParts = [];
+    renderReplacementParts();
+    const desc = document.getElementById('replacement-desc');
+    if (desc) desc.value = '';
+    if (sendBtn) sendBtn.textContent = '📋 Send Estimate to Customer';
+  }
+}
+
+function resetReplacementOption() {
+  replacementEnabled = false;
+  replacementParts   = [];
+  const btn = document.getElementById('replacement-toggle-btn');
+  if (btn) btn.classList.remove('active');
+  const icon = document.getElementById('replacement-toggle-icon');
+  if (icon) icon.textContent = '＋';
+  const label = document.getElementById('replacement-toggle-label');
+  if (label) label.textContent = 'Also offer a replacement option';
+  const builder = document.getElementById('replacement-builder');
+  if (builder) builder.style.display = 'none';
+  const desc = document.getElementById('replacement-desc');
+  if (desc) desc.value = '';
+  const searchEl = document.getElementById('replacement-search');
+  if (searchEl) searchEl.value = '';
+  const resultsEl = document.getElementById('replacement-search-results');
+  if (resultsEl) { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
+  renderReplacementParts();
+}
+
+function addReplacementPart(name, price) {
+  if (!name) {
+    name  = (document.getElementById('replacement-item-name')?.value  || '').trim();
+    price = parseFloat(document.getElementById('replacement-item-price')?.value || '0') || 0;
+    if (!name) return;
+    const nameEl  = document.getElementById('replacement-item-name');
+    const priceEl = document.getElementById('replacement-item-price');
+    if (nameEl)  nameEl.value  = '';
+    if (priceEl) priceEl.value = '';
+  }
+  if (replacementParts.find(p => p.name === name)) return;
+  replacementParts.push({ name, price: price || 0, qty: 1 });
+  renderReplacementParts();
+}
+
+function removeReplacementPart(name) {
+  replacementParts = replacementParts.filter(p => p.name !== name);
+  renderReplacementParts();
+}
+
+function updateReplacementQty(name, qty) {
+  const part = replacementParts.find(p => p.name === name);
+  if (part) part.qty = Math.max(0.01, parseFloat(qty) || 1);
+  renderReplacementParts();
+}
+
+function renderReplacementParts() {
+  const container = document.getElementById('replacement-parts-list');
+  const totalEl   = document.getElementById('replacement-total');
+  if (!container) return;
+  if (replacementParts.length === 0) {
+    container.innerHTML = '';
+    if (totalEl) totalEl.style.display = 'none';
+    return;
+  }
+  let total = 0;
+  container.innerHTML = replacementParts.map(p => {
+    const lineTotal = (p.price || 0) * (p.qty || 1);
+    total += lineTotal;
+    return `<div class="replace-line-row">
+      <div class="replace-line-name">${escHtml(p.name)}</div>
+      <div class="replace-line-price">$${lineTotal.toFixed(2)}</div>
+      <input type="number" class="replace-line-qty" value="${p.qty||1}" min="0.01" step="any"
+        aria-label="Qty" onchange="updateReplacementQty('${escAttr(p.name)}',this.value)" onclick="this.select()">
+      <button class="replace-line-remove" onclick="removeReplacementPart('${escAttr(p.name)}')" aria-label="Remove">&times;</button>
+    </div>`;
+  }).join('');
+  if (totalEl) {
+    totalEl.textContent = `Replacement Total: $${total.toFixed(2)}`;
+    totalEl.style.display = '';
+  }
+}
+
+async function searchReplacementProducts(query) {
+  const resultsEl = document.getElementById('replacement-search-results');
+  if (!resultsEl) return;
+  if (!query || query.length < 2) { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; return; }
+  // Reuse the same product cache as the repair parts search
+  if (!productListCache) {
+    try {
+      const data = await apiGet('Product List?filterByFormula=AND({Active}=1)&sort[0][field]=Product Name&sort[0][direction]=asc');
+      productListCache = (data.records || []).map(r => ({ name: r.fields['Product Name'] || '', price: r.fields['Unit Price'] || 0 }));
+    } catch(e) { return; }
+  }
+  const q   = query.toLowerCase();
+  const hits = productListCache.filter(p => p.name.toLowerCase().includes(q)).slice(0, 8);
+  if (!hits.length) { resultsEl.style.display = 'none'; return; }
+  resultsEl.innerHTML = hits.map(p =>
+    `<div class="parts-search-item" onclick="addReplacementPart('${escAttr(p.name)}',${p.price});document.getElementById('replacement-search').value='';document.getElementById('replacement-search-results').style.display='none';">
+      <span>${escHtml(p.name)}</span>${p.price ? `<span>$${Number(p.price).toFixed(2)}</span>` : ''}
+    </div>`
+  ).join('');
+  resultsEl.style.display = 'block';
 }
 
 async function sendUnitEstimate() {
@@ -5142,6 +5350,11 @@ async function sendUnitEstimate() {
 
   if (selectedParts.length === 0) {
     errorEl.textContent = 'Add at least one product to the estimate.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (replacementEnabled && replacementParts.length === 0) {
+    errorEl.textContent = 'Add at least one item to the replacement option, or remove it.';
     errorEl.style.display = 'block';
     return;
   }
@@ -5160,56 +5373,103 @@ async function sendUnitEstimate() {
     const customerId = f['Customer'] && f['Customer'][0] ? f['Customer'][0] : null;
     if (!customerId) throw new Error('No customer linked to this work order');
 
-    // Build description from diagnosis + recommendations
+    // Build repair description from diagnosis + recommendations
     const descParts = [];
     if (diagnosis)       descParts.push(diagnosis);
     if (recommendations) descParts.push('Recommended: ' + recommendations);
-    const description = descParts.join('\n\n') || 'Repair estimate';
+    const repairDescription = descParts.join('\n\n') || 'Repair estimate';
 
-    const payload = {
-      woId:        currentJob.id,
-      customerId,
-      description,
-      lineItems: selectedParts.map(p => ({
-        name:       p.name,
-        unitAmount: Math.round((p.price || 0) * 100), // cents
-        qty:        p.qty || 1,
-      })),
-      notes,
-      photoUrls: uploadedPhotoUrls,
-      finalize: true,
-    };
+    if (replacementEnabled) {
+      // ── Dual estimate: send both repair and replacement options ──
+      const replaceDesc = (document.getElementById('replacement-desc')?.value || '').trim();
+      const payload = {
+        woId:        currentJob.id,
+        customerId,
+        photoUrls:   uploadedPhotoUrls,
+        repair: {
+          description: repairDescription,
+          notes,
+          lineItems: selectedParts.map(p => ({
+            name:       p.name,
+            unitAmount: Math.round((p.price || 0) * 100),
+            qty:        p.qty || 1,
+          })),
+        },
+        replace: {
+          description: replaceDesc || 'System replacement and installation',
+          lineItems: replacementParts.map(p => ({
+            name:       p.name,
+            unitAmount: Math.round((p.price || 0) * 100),
+            qty:        p.qty || 1,
+          })),
+        },
+      };
 
-    const res = await fetch(`${PROXY}/quote`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-    });
+      const res = await fetch(`${PROXY}/quote/dual`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Error ${res.status}`);
+      }
+      const result = await res.json();
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `Error ${res.status}`);
+      // Store primary (repair) quote on WO local state
+      unitEstimateUrl = result.repairApproveUrl || '';
+      currentJob.fields['Stripe Quote ID']  = result.repairQuoteId || '';
+      currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
+
+      // Show dual awaiting state with both links
+      const repairLink   = document.getElementById('eu-dual-repair-link');
+      const replaceLink  = document.getElementById('eu-dual-replace-link');
+      if (repairLink)  repairLink.href  = result.repairApproveUrl  || '';
+      if (replaceLink) replaceLink.href = result.replaceApproveUrl || '';
+      showEstimateState('dual-awaiting');
+      showToast('✓ Two options sent to customer!', 'success');
+
+    } else {
+      // ── Single repair estimate (existing flow) ──
+      const payload = {
+        woId:        currentJob.id,
+        customerId,
+        description: repairDescription,
+        lineItems: selectedParts.map(p => ({
+          name:       p.name,
+          unitAmount: Math.round((p.price || 0) * 100),
+          qty:        p.qty || 1,
+        })),
+        notes,
+        photoUrls: uploadedPhotoUrls,
+        finalize: true,
+      };
+
+      const res = await fetch(`${PROXY}/quote`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Error ${res.status}`);
+      }
+      const result = await res.json();
+      unitEstimateUrl = result.approveUrl || `https://app.cjbcomfort.com/approve.html?wo=${currentJob.id}`;
+
+      currentJob.fields['Stripe Quote ID']  = result.stripeQuoteId || '';
+      currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
+      const _sentWoType = currentJob.fields['Work Order Type'] || '';
+      if (['Install Estimate', 'Estimate Only'].includes(_sentWoType)) {
+        currentJob.fields['Status'] = 'Estimate Sent';
+      }
+
+      setEstimateUrl(unitEstimateUrl);
+      showEstimateState('awaiting');
+      showToast('✓ Estimate sent!', 'success');
     }
 
-    const result = await res.json();
-    // approveUrl is our own GitHub Pages page — always available, no Stripe dependency
-    unitEstimateUrl = result.approveUrl || `https://app.cjbcomfort.com/approve.html?wo=${currentJob.id}`;
-
-    // Update local WO state so save-while-waiting works correctly
-    currentJob.fields['Stripe Quote ID']  = result.stripeQuoteId || '';
-    currentJob.fields['Stripe Quote URL'] = unitEstimateUrl;
-    // Only flip WO status for estimate-type WOs — service WOs stay In Progress
-    const _sentWoType = currentJob.fields['Work Order Type'] || '';
-    if (['Install Estimate', 'Estimate Only'].includes(_sentWoType)) {
-      currentJob.fields['Status'] = 'Estimate Sent';
-    }
-
-    // Show QR code + link
-    setEstimateUrl(unitEstimateUrl);
-    showEstimateState('awaiting');
-    showToast('✓ Estimate sent!', 'success');
-
-    // Start polling for customer response
+    // Polling for customer response (works for both single and dual — checks WO status)
     startApprovalPolling(currentJob.id);
 
   } catch (err) {
@@ -5217,7 +5477,7 @@ async function sendUnitEstimate() {
     errorEl.textContent   = '⚠ ' + (err.message || 'Could not send estimate. Try again.');
     errorEl.style.display = 'block';
     btn.disabled    = false;
-    btn.textContent = '📋 Send Estimate to Customer';
+    btn.textContent = replacementEnabled ? '📋 Send Both Options to Customer' : '📋 Send Estimate to Customer';
   }
 }
 

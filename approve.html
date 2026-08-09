@@ -350,6 +350,7 @@ const PROXY = 'https://cjb-comfort-proxy.bridgettrhart.workers.dev/api';
 async function init() {
   const params = new URLSearchParams(window.location.search);
   const woId   = params.get('wo');
+  const qt     = params.get('qt') || ''; // replacement quote ID when dual estimate
   const root   = document.getElementById('root');
 
   if (!woId) {
@@ -358,17 +359,19 @@ async function init() {
   }
 
   try {
-    const res  = await fetch(`${PROXY}/approve?wo=${encodeURIComponent(woId)}`);
+    let approveApiUrl = `${PROXY}/approve?wo=${encodeURIComponent(woId)}`;
+    if (qt) approveApiUrl += `&qt=${encodeURIComponent(qt)}`;
+    const res  = await fetch(approveApiUrl);
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || 'Could not load estimate details');
-    render(data, woId);
+    render(data, woId, qt);
   } catch (err) {
     showError('Could not load estimate: ' + (err.message || 'Unknown error'));
   }
 }
 
 // ── Render estimate ──────────────────────────────────────────────────────────
-function render(data, woId) {
+function render(data, woId, qt) {
   const status = data.status || '';
 
   // Already decided — just show result
@@ -446,10 +449,10 @@ function render(data, woId) {
       <div class="action-card" id="action-section">
         <div class="action-title">Do you approve this estimate?</div>
         <div class="action-sub">Your technician is standing by. Approving means you'd like CJB Comfort to proceed with the repair work described above.</div>
-        <button class="btn btn-approve" id="approve-btn" onclick="respond('${woId}', 'approved')">
+        <button class="btn btn-approve" id="approve-btn" onclick="respond('${woId}', 'approved', '${qt || ''}')">
           ✓ &nbsp;Yes, I Approve This Estimate
         </button>
-        <button class="btn btn-decline" id="decline-btn" onclick="respond('${woId}', 'declined')">
+        <button class="btn btn-decline" id="decline-btn" onclick="respond('${woId}', 'declined', '${qt || ''}')">
           No Thanks — Not Right Now
         </button>
       </div>
@@ -463,7 +466,7 @@ function render(data, woId) {
 }
 
 // ── Record customer decision ─────────────────────────────────────────────────
-async function respond(woId, decision) {
+async function respond(woId, decision, qt) {
   const aBtn = document.getElementById('approve-btn');
   const dBtn = document.getElementById('decline-btn');
   if (aBtn) aBtn.disabled = true;
@@ -473,10 +476,12 @@ async function respond(woId, decision) {
   if (section) section.innerHTML = `<div class="spinner-wrap" style="padding:32px 0;"><div class="spin"></div>Recording your response…</div>`;
 
   try {
+    const body = { woId, decision };
+    if (qt) body.qt = qt;
     const res  = await fetch(`${PROXY}/approve`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ woId, decision })
+      body:    JSON.stringify(body)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Server error');
