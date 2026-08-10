@@ -1562,7 +1562,7 @@
           <div>Tap to add photos</div>
           <div id="pw-photo-status" style="font-size:12px;margin-top:4px;color:var(--gray-text);">Saved to job record</div>
         </div>
-        <input type="file" id="pw-photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="pwHandlePhotos(this)">
+        <input type="file" id="pw-photo-input" accept="image/*" multiple style="display:none" onchange="pwHandlePhotos(this)">
         <div id="pw-photos-preview" class="photos-preview" role="list"></div>
       </div>
       <div style="padding:0 0 12px;">
@@ -1736,7 +1736,7 @@
           <div>Tap to add photos</div>
           <div id="photo-upload-status" style="font-size:12px;margin-top:4px;color:var(--gray-text);">Saved to job &amp; equipment record</div>
         </div>
-        <input type="file" id="photo-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handlePhotos(this)" aria-label="Upload job photos">
+        <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotos(this)" aria-label="Upload job photos">
         <div class="photos-preview" id="photos-preview" aria-label="Photo previews" role="list"></div>
       </div>
     </div>
@@ -2232,7 +2232,7 @@
     <div class="iest-section">
       <div class="iest-section-title">Photos</div>
       <div id="iest-photos-row" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;"></div>
-      <input type="file" id="iest-camera-input" accept="image/*" capture="environment" multiple style="display:none;" onchange="iestHandlePhotos(event)">
+      <input type="file" id="iest-camera-input" accept="image/*" multiple style="display:none;" onchange="iestHandlePhotos(event)">
       <button class="btn btn-outline" style="width:100%;font-size:15px;" onclick="document.getElementById('iest-camera-input').click()">📷 Take / Upload Photo</button>
     </div>
 
