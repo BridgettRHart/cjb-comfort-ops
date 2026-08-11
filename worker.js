@@ -1348,36 +1348,20 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
                 const newStartFmt = new Date(newStartStr + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'});
                 const newEndFmt   = new Date(newEndStr   + 'T12:00:00').toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'});
 
-                // Auto-create and send renewal invoice
-                if (contactEmail && env.STRIPE_SECRET_KEY) {
+                // Stripe auto-creates a draft invoice when a quote is accepted (quote.invoice).
+                // Update its metadata/collection method, then finalize and send it.
+                if (quote.invoice && env.STRIPE_SECRET_KEY) {
                   try {
-                    const srchRes  = await fetch(
-                      `https://api.stripe.com/v1/customers?email=${encodeURIComponent(contactEmail)}&limit=1`,
-                      { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Stripe-Version': STRIPE_VERSION } });
-                    const srchData = await srchRes.json();
-                    let stripeCustId;
-                    if (srchData.data?.length > 0) {
-                      stripeCustId = srchData.data[0].id;
-                    } else {
-                      const cc = await stripePost(env.STRIPE_SECRET_KEY, '/v1/customers', { email: contactEmail, name: custName });
-                      stripeCustId = cc.id;
-                    }
-                    await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoiceitems', {
-                      customer:    stripeCustId,
-                      amount:      Math.round(acceptedPrice * 100),
-                      currency:    'usd',
-                      description: `${planName} — Annual Renewal (Option ${option})`,
-                    });
-                    const inv = await stripePost(env.STRIPE_SECRET_KEY, '/v1/invoices', {
-                      customer:                         stripeCustId,
+                    const autoInvoiceId = quote.invoice;
+                    await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${autoInvoiceId}`, {
                       description:                      `${planName} — Annual Renewal`,
                       'metadata[invoice_type]':         'maintenance_renewal',
                       'metadata[contract_airtable_id]': contractId,
                       'collection_method':              'send_invoice',
                       'days_until_due':                 '30',
                     });
-                    await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${inv.id}/finalize`, {});
-                    const sent = await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${inv.id}/send`, {});
+                    await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${autoInvoiceId}/finalize`, {});
+                    const sent = await stripePost(env.STRIPE_SECRET_KEY, `/v1/invoices/${autoInvoiceId}/send`, {});
                     await airtablePatch('Maintenance Contracts', contractId, {
                       'Stripe Invoice ID':  sent.id,
                       'Stripe Invoice URL': sent.hosted_invoice_url || '',
