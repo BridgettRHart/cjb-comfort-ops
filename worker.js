@@ -6909,6 +6909,13 @@ footer a:hover{text-decoration:underline}
           <div id="list-invoices"></div>
         </div>
 
+        <div class="sec-block" id="sec-inv-history" style="display:none">
+          <div class="sec-label sec-label-toggle" onclick="toggleSection('list-inv-history',this.querySelector('.toggle-chev'))">
+            Payment History <span class="toggle-chev">▶</span>
+          </div>
+          <div id="list-inv-history" style="display:none"></div>
+        </div>
+
         <div class="sec-block" id="sec-contracts" style="display:none">
           <div class="sec-label">Your Maintenance Agreement</div>
           <div id="list-contracts"></div>
@@ -7012,19 +7019,28 @@ function invCard(i) {
   const linked = _allWOs.find(w=>(i.woIds||[]).includes(w.id));
   const ctx    = linked
     ? \`<div class="card-sub" style="margin-bottom:10px">\${esc(linked.type||'Service')} · \${fmtDate(linked.date)}\${linked.address?' · '+esc(linked.address):''}</div>\`
-    : '';
-  const total  = (i.total && i.total!==i.balanceDue) ? \`<div class="amount-sub">Total: \${money(i.total)}</div>\` : '';
-  const btns   = hasBal
-    ? \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>
-       <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`
-    : \`<a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>\`;
+    : (i.invoiceType ? \`<div class="card-sub" style="margin-bottom:10px">\${esc(i.invoiceType)}</div>\` : '');
+  if (hasBal) {
+    const total = (i.total && i.total!==i.balanceDue) ? \`<div class="amount-sub">Total: \${money(i.total)}</div>\` : '';
+    return \`<div class="card">
+      <div class="card-eyebrow">\${esc(i.status||'Invoice')} · \${fmtDate(i.date)}</div>
+      \${ctx}
+      <div class="amount">\${money(i.balanceDue)}</div>
+      <div class="amount-sub">Balance due</div>
+      \${total}
+      <div class="btn-row">
+        <a href="\${esc(url)}" target="_blank" rel="noopener" class="pay-btn">Pay Now — \${money(i.balanceDue)}</a>
+        <a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn">View Invoice</a>
+      </div>
+    </div>\`;
+  }
+  const amtDisplay = i.amountPaid > 0 ? i.amountPaid : i.total;
   return \`<div class="card">
-    <div class="card-eyebrow">\${esc(i.status||'Invoice')} · \${fmtDate(i.date)}</div>
+    <div class="card-eyebrow">\${esc(i.status||'Paid')} · \${fmtDate(i.paidDate||i.date)}</div>
     \${ctx}
-    <div class="amount">\${money(i.balanceDue)}</div>
-    <div class="amount-sub">Balance due</div>
-    \${total}
-    <div class="btn-row">\${btns}</div>
+    <div class="amount" style="color:#16a34a">\${money(amtDisplay)}</div>
+    <div class="amount-sub">Amount paid</div>
+    <div class="btn-row"><a href="\${esc(url)}" target="_blank" rel="noopener" class="view-btn" style="border-color:#16a34a;color:#16a34a;">View Receipt &rarr;</a></div>
   </div>\`;
 }
 
@@ -7387,6 +7403,11 @@ async function load() {
     document.getElementById('list-invoices').innerHTML=d.unpaidInvoices&&d.unpaidInvoices.length
       ? d.unpaidInvoices.map(invCard).join('')
       : '<div class="empty">No outstanding invoices — you\\'re all caught up!</div>';
+
+    if (d.invoiceHistory&&d.invoiceHistory.length) {
+      document.getElementById('sec-inv-history').style.display='block';
+      document.getElementById('list-inv-history').innerHTML=d.invoiceHistory.map(invCard).join('');
+    }
 
     if (d.contracts&&d.contracts.length) {
       document.getElementById('sec-contracts').style.display='block';
