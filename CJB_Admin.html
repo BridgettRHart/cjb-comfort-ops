@@ -3016,7 +3016,11 @@ async function selectCustomer(id) {
     const custName = (selectedCustomer.fields['Customer Name'] || '').replace(/"/g, '\\"');
     if (custName) {
       const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`);
-      currentEquipment = eqRecs.filter(e => e.fields['Active'] !== false);
+      currentEquipment = eqRecs.sort((a, b) => {
+        const aActive = a.fields['Active'] === true;
+        const bActive = b.fields['Active'] === true;
+        return aActive === bActive ? 0 : aActive ? -1 : 1;
+      });
     }
 
     // Fetch jobs for this customer so we can show equipment linkage in WO rows + equipment cards
@@ -3510,10 +3514,12 @@ function renderEquipmentSection(equipment, props) {
         const lWoName = esc(lf['Work Order Name'] || '');
         lastServiceHtml = lDateStr ? `<div class="eq-meta" style="color:#888;">Last: ${lDateStr}${lWoName ? ' · ' + lWoName : ''}</div>` : '';
       }
-      return `<div class="eq-card">
+      const isInactive = e.fields['Active'] !== true;
+      const inactiveBadge = isInactive ? `<span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;background:#f3f4f6;color:#9ca3af;border:1px solid #e5e7eb;padding:2px 7px;border-radius:3px;margin-left:6px;vertical-align:middle;">Replaced</span>` : '';
+      return `<div class="eq-card"${isInactive ? ' style="opacity:0.55;"' : ''}>
         <div class="eq-type-badge">${esc(badge)}</div>
         <div class="eq-info">
-          <div class="eq-name">${esc(f['Equipment Name'] || '(unnamed)')}</div>
+          <div class="eq-name">${esc(f['Equipment Name'] || '(unnamed)')}${inactiveBadge}</div>
           ${meta  ? `<div class="eq-meta">${esc(meta)}</div>` : ''}
           ${specs ? `<div class="eq-meta">${esc(specs)}${cond ? ` · <span class="${condCls}">${esc(cond)}</span>` : ''}</div>` : ''}
           ${lastServiceHtml}
