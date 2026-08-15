@@ -3259,6 +3259,7 @@ let selectedEquipmentId = null;
 let selectedEquipmentName = '';
 let currentWorkOrderEquipment = []; // Equipment records for this property
 let currentJobsByEquipment = {};    // equipmentId -> job record, kept in sync with Airtable
+let currentWOAssignedEqIds = new Set(); // IDs of equipment specifically linked to this WO (Specific Unit mode)
 let summaryReadyToInvoice = false;
 let pendingSkipEqId = null;
 let pendingSkipEqName = null;
@@ -3424,14 +3425,17 @@ async function activateJobScreen(record) {
   const seen = new Set(allPropertyEquipment.map(e => e.id));
   const merged = [...allPropertyEquipment, ...custNoProperty.filter(e => !seen.has(e.id))];
 
-  // Specific Unit mode: show only the linked unit if one is set
-  // Property-Wide mode: hide equipment list entirely — complete visit as one action
+  // Specific Unit mode: show ALL property equipment so tech can orient,
+  // but track which unit(s) are assigned so only those count for progress.
+  // Property-Wide mode: hide equipment list entirely — complete visit as one action.
   const serviceMode = (f['Service Mode'] || '').toLowerCase().trim();
   const specificEqLinks = f['Specific Equipment'];
+  currentWOAssignedEqIds = new Set();
   if (serviceMode === 'property-wide') {
     currentWorkOrderEquipment = [];
   } else if (serviceMode === 'specific unit' && specificEqLinks && specificEqLinks.length > 0) {
-    currentWorkOrderEquipment = merged.filter(eq => specificEqLinks.includes(eq.id));
+    currentWorkOrderEquipment = merged;
+    currentWOAssignedEqIds = new Set(specificEqLinks);
   } else {
     currentWorkOrderEquipment = merged;
   }
@@ -3472,7 +3476,8 @@ async function renderActiveEquipmentList(refreshJobs = false) {
   if (!listEl) return;
 
   const woId = currentJob ? currentJob.id : null;
-  const totalUnits = currentWorkOrderEquipment.length;
+  // In Specific Unit mode, progress tracks only the assigned unit(s), not all visible equipment.
+  const totalUnits = currentWOAssignedEqIds.size > 0 ? currentWOAssignedEqIds.size : currentWorkOrderEquipment.length;
 
   // Only fetch jobs from Airtable when something job-related changed.
   // Equipment adds and renames don't change job status — reuse the cache
@@ -3515,10 +3520,10 @@ async function renderActiveEquipmentList(refreshJobs = false) {
   }
   currentJobsByEquipment = jobsByEquipment;
 
-  const completedCount = Object.values(jobsByEquipment).filter(j =>
-    j.fields['Status'] === 'Complete').length;
-  const skippedCount = Object.values(jobsByEquipment).filter(j =>
-    j.fields['Status'] === 'Cancelled').length + _sessionSkippedEqIds.size;
+  const assignedOnly = ([id]) => currentWOAssignedEqIds.size === 0 || currentWOAssignedEqIds.has(id);
+  const completedCount = Object.entries(jobsByEquipment).filter(([id, j]) => assignedOnly([id]) && j.fields['Status'] === 'Complete').length;
+  const skippedCount = Object.entries(jobsByEquipment).filter(([id, j]) => assignedOnly([id]) && j.fields['Status'] === 'Cancelled').length
+    + [..._sessionSkippedEqIds].filter(id => currentWOAssignedEqIds.size === 0 || currentWOAssignedEqIds.has(id)).length;
   const doneCount = completedCount + skippedCount;
 
   // Progress bar
@@ -3583,20 +3588,24 @@ async function renderActiveEquipmentList(refreshJobs = false) {
         actions = '<div class="unit-card-actions"><button class="btn-small btn-small-outline" style="flex:none;font-size:11px;" onclick="unskipUnit(\'' + eq.id + '\', \'' + escAttr(skipJobId) + '\')">Undo Skip</button></div>';
       } else {
         const woServiceMode = (currentJob && currentJob.fields['Service Mode'] || '').toLowerCase().trim();
-        // Hide skip only when exactly one unit is designated (specific unit mode with a linked unit).
-        // If specific unit is set but no unit was linked, all units show — skip should be available.
-        const hideSkip = woServiceMode === 'specific unit' && currentWorkOrderEquipment.length === 1;
-        const skipBtn = hideSkip
-          ? ''
-          : '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\', this)">Not This Visit</button>';
-        actions = '<div class="unit-card-actions">'
-          + '<button class="btn-small btn-small-red" onclick="startUnitComplete(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Complete This Unit</button>'
-          + skipBtn
-          + '</div>';
+        const isAssigned = currentWOAssignedEqIds.size === 0 || currentWOAssignedEqIds.has(eq.id);
+        if (!isAssigned) {
+          actions = '<div class="unit-card-actions"><span style="font-size:12px;color:var(--gray-text);font-style:italic;">Reference only — not on this ticket</span></div>';
+        } else {
+          const hideSkip = woServiceMode === 'specific unit' && currentWOAssignedEqIds.size === 1;
+          const skipBtn = hideSkip
+            ? ''
+            : '<button class="btn-small btn-small-outline" onclick="skipUnit(\'' + eq.id + '\', \'' + escAttr(name) + '\', this)">Not This Visit</button>';
+          actions = '<div class="unit-card-actions">'
+            + '<button class="btn-small btn-small-red" onclick="startUnitComplete(\'' + eq.id + '\', \'' + escAttr(name) + '\')">Complete This Unit</button>'
+            + skipBtn
+            + '</div>';
+        }
       }
 
       const renameBtn = '<button class="btn-small btn-small-outline" style="flex:none;font-size:11px;padding:3px 8px;margin-left:6px;" onclick="openRenameOverlay(\'' + eq.id + '\', \'' + escAttr(name) + '\')">✏</button>';
-      return '<div class="' + cardClass + '"><div class="unit-card-header">' + dot + '<div class="unit-card-name">' + escHtml(name) + '</div>' + renameBtn + '</div>' + (meta ? '<div class="unit-card-meta">' + escHtml(meta) + '</div>' : '') + actions + summary + '</div>';
+      const assignedBadge = currentWOAssignedEqIds.has(eq.id) ? '<span style="display:inline-block;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;background:var(--gold);color:var(--charcoal);padding:2px 7px;border-radius:3px;margin-left:8px;vertical-align:middle;">This Visit</span>' : '';
+      return '<div class="' + cardClass + '"><div class="unit-card-header">' + dot + '<div class="unit-card-name">' + escHtml(name) + assignedBadge + '</div>' + renameBtn + '</div>' + (meta ? '<div class="unit-card-meta">' + escHtml(meta) + '</div>' : '') + actions + summary + '</div>';
     }).join('');
   }
 
