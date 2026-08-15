@@ -4675,7 +4675,7 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const customer = await airtableGetById('Customers', stored.customerId);
         const custName = customer.fields['Customer Name'] || '';
         const nameEsc  = custName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const eqRecords = await airtableFetchAll('Equipment', `{Customer}="${nameEsc}"`, 100, [{ field: 'Equipment Name', direction: 'asc' }]);
+        const eqRecords = await airtableFetchAll('Equipment', `AND({Customer}="${nameEsc}", {Active}=1)`, 100, [{ field: 'Equipment Name', direction: 'asc' }]);
 
         // Batch-fetch property names for grouping
         const propIds = [...new Set(eqRecords.flatMap(e => e.fields['Property'] || []))];
@@ -4723,6 +4723,9 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const eq = await airtableGetById('Equipment', eqId);
         if (!(eq.fields['Customer'] || []).includes(stored.customerId)) {
           return new Response(JSON.stringify({ error: 'access denied' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        if (eq.fields['Active'] === false) {
+          return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
         // Fetch property for address display
