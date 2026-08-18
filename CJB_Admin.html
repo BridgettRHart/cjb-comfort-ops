@@ -3010,6 +3010,20 @@ async function selectCustomer(id) {
     }
     currentWorkOrders = _sortWOs(currentWorkOrders);
 
+    // Pre-fill the EA project cache for any WOs that have an EA project linked,
+    // so the EA banner renders correctly on every load without needing the EA tab open first.
+    const _eaIdsNeeded = [...new Set(currentWorkOrders.flatMap(wo => wo.fields['EA Projects'] || []))]
+      .filter(id => !_eaProjectsCache.find(r => r.id === id));
+    if (_eaIdsNeeded.length) {
+      try {
+        const _eaFormula = _eaIdsNeeded.length === 1
+          ? `RECORD_ID()="${_eaIdsNeeded[0]}"`
+          : `OR(${_eaIdsNeeded.map(id => `RECORD_ID()="${id}"`).join(',')})`;
+        const _eaFetched = await fetchAll('EA Projects', `filterByFormula=${encodeURIComponent(_eaFormula)}`);
+        _eaFetched.forEach(r => { if (!_eaProjectsCache.find(e => e.id === r.id)) _eaProjectsCache.push(r); });
+      } catch(e) {}
+    }
+
     // Query Equipment directly by customer name — Airtable linked field formulas match
     // on the linked record's primary field value (name), not the record ID.
     currentEquipment = [];
