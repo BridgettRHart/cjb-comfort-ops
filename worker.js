@@ -1800,6 +1800,7 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
           amount_due:    inv.amount_due || 0,
           description:   inv.description || '',
           hostedUrl:     inv.hosted_invoice_url || null,
+          paid_at:       inv.status_transitions?.paid_at || null,
           lines: (lines.data || []).map(l => {
             // unit_amount_excluding_tax is Stripe's most reliable per-unit field on invoice lines
             // (always present, always a string in cents). Fall back through price object then amount÷qty.

@@ -5648,6 +5648,7 @@ async function openFinalInvoiceModal(workOrderId, customerId) {
   // ── 2. Add deposit credit line if deposit was paid ──
   if (depositPaid) {
     let depAmount = 0;
+    let depPaidAt = null;
     try {
       // Try Deposit Invoice Stripe ID first (new field), fall back to fetching Airtable Invoice records
       const depStripeId = wo?.fields?.['Deposit Invoice Stripe ID'] || '';
@@ -5656,6 +5657,7 @@ async function openFinalInvoiceModal(workOrderId, customerId) {
         const dData = dRes.ok ? await dRes.json() : null;
         // Deposit invoice has one positive line — sum it for the paid amount
         depAmount = (dData?.lines || []).reduce((s, l) => s + Math.max(0, (l.unitPrice || 0) * (l.quantity || 1)), 0);
+        if (dData?.paid_at) depPaidAt = dData.paid_at;
       }
       // Fallback: look through linked Airtable Invoice records for one typed "Deposit"
       if (!depAmount) {
@@ -5673,9 +5675,40 @@ async function openFinalInvoiceModal(workOrderId, customerId) {
     } catch(e) { /* non-fatal */ }
 
     if (depAmount > 0) {
-      const paidDateStr = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      const paidDateStr = depPaidAt
+        ? new Date(depPaidAt * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'America/Phoenix' })
+        : new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'America/Phoenix' });
       fillLineItem(`Deposit Paid — ${paidDateStr}`, 1, -depAmount, null);
     }
+  }
+
+  // ── 3. Add EA rebate credit if WO is linked to an EA project ──
+  const eaProjectIds = wo?.fields?.['EA Projects'] || [];
+  if (eaProjectIds.length) {
+    try {
+      const eaId = eaProjectIds[0];
+      if (!_eaProjectsCache.find(r => r.id === eaId)) {
+        const fetched = await fetchAll('EA Projects',
+          `filterByFormula=${encodeURIComponent(`RECORD_ID()="${eaId}"`)}`);
+        fetched.forEach(r => { if (!_eaProjectsCache.find(e => e.id === r.id)) _eaProjectsCache.push(r); });
+      }
+      const eaRec = _eaProjectsCache.find(r => r.id === eaId);
+      if (eaRec) {
+        const ef = eaRec.fields || {};
+        const totalRebate = _eaTotalRebate(ef);
+        if (totalRebate > 0) {
+          fillLineItem(`EA HEAR Rebate — Project #${ef['EA Project Number'] || ''}`, 1, -totalRebate, null);
+          // Show info banner above line items
+          const liBod = document.getElementById('li-body');
+          if (liBod) {
+            const eaBanner = document.createElement('div');
+            eaBanner.style.cssText = 'background:#f0faf4;border:1px solid #c3dfc9;border-radius:6px;padding:8px 12px;margin:0 0 10px;font-size:12px;color:#1a6b35;line-height:1.6;';
+            eaBanner.innerHTML = `⚡ <strong>EA Project #${esc(String(ef['EA Project Number'] || ''))}</strong> &nbsp;·&nbsp; EA HEAR rebate credit: <strong>$${totalRebate.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong> &nbsp;·&nbsp; Verify amount before sending`;
+            liBod.parentNode.insertBefore(eaBanner, liBod);
+          }
+        }
+      }
+    } catch(e) { /* non-fatal */ }
   }
 
   // Recalc total display after all lines are populated
