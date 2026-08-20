@@ -3189,7 +3189,7 @@ function renderDetail(customer, props, wos, contacts) {
         const stripeUrl       = extractStripeUrl(wf['Internal Notes']);
 
         // Quote button: show for any status except Invoiced / Paid / Cancelled
-        const noEstimateStatuses = ['Cancelled', 'Inspection'];
+        const noEstimateStatuses = ['Cancelled'];
         let quoteBtn = '';
         if (!noEstimateStatuses.includes(status)) {
           quoteBtn = hasQuote
