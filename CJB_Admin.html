@@ -9384,7 +9384,9 @@ function _eaTotalRebate(f) {
   const sum = (f['HVAC Heat Pump Rebate'] || 0) + (f['Water Heater Rebate'] || 0) +
     (f['Dryer Rebate'] || 0) + (f['Home Efficiency Rebate'] || 0) +
     (f['Electrical Wiring Rebate'] || 0) + (f['Electrical Panel Rebate'] || 0);
-  return f['Total Rebate Expected'] || f['Total Rebate Available'] || sum;
+  // Prefer the computed sum when individual line items are present;
+  // fall back to stored totals only when no line items have been entered.
+  return sum || f['Total Rebate Expected'] || f['Total Rebate Available'] || 0;
 }
 
 function _eaStatusBadge(status) {
@@ -9995,7 +9997,6 @@ async function saveEAProject() {
     'Active':                 document.getElementById('ea-f-active').checked,
   };
   const rebateFields = {
-    'Total Rebate Available':  num(document.getElementById('ea-f-rebate-total').value),
     'HVAC Heat Pump Rebate':   num(document.getElementById('ea-f-rebate-hvac').value),
     'Water Heater Rebate':     num(document.getElementById('ea-f-rebate-wh').value),
     'Dryer Rebate':            num(document.getElementById('ea-f-rebate-dryer').value),
@@ -10004,6 +10005,12 @@ async function saveEAProject() {
     'Electrical Panel Rebate': num(document.getElementById('ea-f-rebate-panel').value),
   };
   Object.entries(rebateFields).forEach(([k,v]) => { if (v !== undefined) fields[k] = v; });
+  // Compute sum from individual items; if non-zero, store it as Total Rebate Available
+  // so the summary box always reflects the line items rather than a stale manual total.
+  const computedSum = Object.values(rebateFields).reduce((s, v) => s + (v || 0), 0);
+  const manualTotal = num(document.getElementById('ea-f-rebate-total').value);
+  fields['Total Rebate Available'] = computedSum > 0 ? computedSum : (manualTotal ?? undefined);
+  if (fields['Total Rebate Available'] === undefined) delete fields['Total Rebate Available'];
   if (_eaModalCustId) fields['Customer'] = [_eaModalCustId];
   if (_eaModalPropId) fields['Property'] = [_eaModalPropId];
   // Remove undefined keys
