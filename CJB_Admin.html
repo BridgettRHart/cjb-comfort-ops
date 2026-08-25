@@ -8730,6 +8730,10 @@ async function selectEstimate(id) {
   _selectedEst = _allEstimates.find(e => e.id === id) || null;
   renderEstimatesList();
   renderEstimateDetail();
+  if (isMobile()) {
+    document.getElementById('app-estimates').querySelector('.sidebar').classList.add('mobile-hidden');
+    document.getElementById('est-detail').classList.add('mobile-visible');
+  }
   const sqId = _selectedEst?.quote?.fields?.['Stripe Quote ID'];
   if (sqId && _quoteTotalCache[sqId] == null) {
     try {
@@ -8792,6 +8796,7 @@ function renderEstimateDetail(quoteTotalOverride) {
   }
 
   det.innerHTML = `
+    ${isMobile() ? `<button class="mobile-back" onclick="document.getElementById('est-detail').classList.remove('mobile-visible');document.getElementById('app-estimates').querySelector('.sidebar').classList.remove('mobile-hidden');">← Estimates</button>` : ''}
     <div class="cust-card">
       <div class="cust-card-name">${esc(custName)}</div>
       ${addr ? `<div style="font-size:13px;color:#555;margin-bottom:8px;">${esc(addr)}</div>` : ''}
