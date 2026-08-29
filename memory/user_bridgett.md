@@ -11,6 +11,7 @@ Bridgett Hart is the co-owner/operator of CJB Comfort LLC (veteran-owned HVAC, C
 - She is NOT a coder but is highly capable and engaged — explain things plainly without being condescending
 - She uses GitHub Desktop (not CLI), Airtable, and Stripe
 - She is building this app as a potential IP product for franchise/multi-company scaling
+- Approved pitch language for the platform: "We built a proprietary field service management platform on a modern serverless architecture — custom to our workflow, integrated with our billing and scheduling systems, with a field app for technicians and an admin dashboard for operations."
 - She makes the invoicing decisions — Cornell flags "Ready to Invoice," Bridgett reviews and sends
 - She uses Wave for bookkeeping and wants to keep it for that; invoicing will move to Stripe
 - She primarily uses Apple devices; Cornell also uses Apple
