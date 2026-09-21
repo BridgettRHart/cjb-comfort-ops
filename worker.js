@@ -5226,10 +5226,12 @@ async function waveQuery(apiKey, query, variables = {}) {
 }
 
 async function waveEnsureCustomer(apiKey, name, email, airtableCustomerId) {
-  // Check if Airtable already has the Wave Customer ID cached
-  const custRec = await airtableGetById('Customers', airtableCustomerId);
-  const cachedId = custRec.fields?.['Wave Customer ID'];
-  if (cachedId) return cachedId;
+  // Check if Airtable already has the Wave Customer ID cached (skip when no Airtable record)
+  if (airtableCustomerId) {
+    const custRec = await airtableGetById('Customers', airtableCustomerId);
+    const cachedId = custRec.fields?.['Wave Customer ID'];
+    if (cachedId) return cachedId;
+  }
 
   // Search Wave by email (up to 200 customers)
   if (email) {
