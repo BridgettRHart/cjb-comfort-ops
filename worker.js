@@ -2512,6 +2512,12 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
         }
 
         // ── Full payment ─────────────────────────────────────────────────
+        // Finalize draft invoices first — Stripe rejects /pay on a draft.
+        if (stripeInv.status === 'draft') {
+          await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}/finalize`, {
+            auto_advance: 'false'  // don't auto-send to customer
+          });
+        }
         // Update Stripe invoice metadata, then mark paid out of band.
         await stripePost(STRIPE_KEY, `/v1/invoices/${stripeInvoiceId}`, {
           'metadata[payment_method]': paymentNote,
@@ -2533,6 +2539,51 @@ Return ONLY the raw JSON object. No markdown, no explanation.`
             'Payment Method':  [paymentMethodSelect],
             'Payment Notes':   allNotes,
           });
+        }
+
+        // Create Wave bookkeeping invoice for EA rebate receivable.
+        // Wave API never emails on invoiceCreate/invoiceApprove — safe to run without
+        // notifying the EA contact. Customer = Efficiency Arizona, not the homeowner.
+        if (slot === 'ea_rebate' && env.WAVE_API_KEY) {
+          try {
+            const WAVE_KEY   = env.WAVE_API_KEY;
+            const eaCustId   = await waveEnsureCustomer(WAVE_KEY, 'Efficiency Arizona', 'incentives@efficiencyarizona.com', null);
+            const waveProdId = await waveEnsureServiceProduct(WAVE_KEY);
+            const today3     = new Date().toISOString().split('T')[0];
+            const waveInv    = await waveQuery(WAVE_KEY, `
+              mutation($input: InvoiceCreateInput!) {
+                invoiceCreate(input: $input) {
+                  invoice { id invoiceNumber }
+                  didSucceed
+                  inputErrors { message path code }
+                }
+              }`, {
+              input: {
+                businessId: WAVE_BUSINESS_ID,
+                customerId: eaCustId,
+                invoiceDate: today3,
+                dueDate:    today3,
+                memo: `EA HEAR Rebate — ${wo.fields['Job Name'] || workOrderId}`,
+                items: [{
+                  productId:   waveProdId,
+                  description: 'EA HEAR Rebate',
+                  quantity:    '1',
+                  unitPrice:   String(invoiceTotal.toFixed(2)),
+                }]
+              }
+            });
+            if (waveInv.invoiceCreate.didSucceed) {
+              await waveQuery(WAVE_KEY, `
+                mutation($input: InvoiceApproveInput!) {
+                  invoiceApprove(input: $input) { didSucceed inputErrors { message } }
+                }`, { input: { invoiceId: waveInv.invoiceCreate.invoice.id } });
+            } else {
+              console.error('Wave EA rebate invoiceCreate failed:', JSON.stringify(waveInv.invoiceCreate.inputErrors));
+            }
+          } catch (waveErr) {
+            console.error('Wave EA rebate sync failed:', waveErr.message);
+            // non-fatal — payment recorded; Wave invoice can be created manually
+          }
         }
 
         return new Response(JSON.stringify({ ok: true }),
