@@ -9562,8 +9562,9 @@ async function renderEADetail(record) {
           Internal draft invoice billed to Efficiency Arizona — HEAR Program. Never emailed. Collect from Stripe once the reimbursement check arrives.
         </div>
         ${existingRebateInvId
-          ? `<div style="display:flex;align-items:center;gap:10px;">
+          ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                <span style="font-size:13px;color:#166534;font-weight:600;">✓ EA Rebate Invoice on file</span>
+               <button class="btn btn-green btn-sm" onclick="openAdminPayModal('${billingWO.id}','ea_rebate')">Collect EA Payment</button>
                <button class="btn btn-gray btn-sm" onclick="createEARebateInvoice('${record.id}','${billingWO.id}',${totalRebate},this)">Recreate ($${totalRebate.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</button>
              </div>`
           : `<button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="createEARebateInvoice('${record.id}','${billingWO.id}',${totalRebate},this)">
