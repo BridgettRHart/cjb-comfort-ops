@@ -4727,7 +4727,10 @@ ${jobRows ? `<div class="section"><h2>Service Details</h2>${jobRows}</div>` : ''
         const customer = await airtableGetById('Customers', stored.customerId);
         const custName = customer.fields['Customer Name'] || '';
         const nameEsc  = custName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const eqRecords = await airtableFetchAll('Equipment', `AND({Customer}="${nameEsc}", {Active}=1)`, 100, [{ field: 'Equipment Name', direction: 'asc' }]);
+        const eqFormula = await equipmentFormulaForCustomer(nameEsc, stored.customerId);
+        const eqRecords = eqFormula
+          ? await airtableFetchAll('Equipment', `AND(${eqFormula}, {Active}=1)`, 100, [{ field: 'Equipment Name', direction: 'asc' }])
+          : [];
 
         // Batch-fetch property names for grouping
         const propIds = [...new Set(eqRecords.flatMap(e => e.fields['Property'] || []))];
@@ -5102,6 +5105,28 @@ async function airtableFetchAll(table, formula, limit = 100, sort = []) {
     offset = data.offset || null;
   } while (offset && records.length < limit);
   return records;
+}
+
+// Equipment has its own direct Customer link, matched by name (Airtable linked-field formulas
+// match the linked record's primary field value, not its record ID). A Property can be linked
+// to more than one Customer (shared group-home style accounts), so matching by Customer name
+// alone misses equipment whose Property is shared but whose own Customer link points at a
+// different one of that property's customers. OR in a match on each of this customer's
+// Property names too, so shared equipment shows up for every customer on the property.
+async function equipmentFormulaForCustomer(custNameEsc, customerId) {
+  const allProps = await airtableFetchAll('Properties', 'TRUE()', 1000);
+  const propNames = [...new Set(
+    allProps
+      .filter(p => (p.fields['Customer'] || []).includes(customerId))
+      .map(p => p.fields['Property Name'])
+      .filter(Boolean)
+  )].map(n => n.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
+
+  const conditions = [];
+  if (custNameEsc) conditions.push(`{Customer}="${custNameEsc}"`);
+  propNames.forEach(n => conditions.push(`{Property}="${n}"`));
+  if (!conditions.length) return '';
+  return conditions.length === 1 ? conditions[0] : `OR(${conditions.join(',')})`;
 }
 
 async function airtablePost(table, fields) {
