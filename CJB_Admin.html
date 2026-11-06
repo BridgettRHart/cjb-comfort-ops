@@ -2955,6 +2955,22 @@ function _sortWOs(list) {
   });
 }
 
+// Equipment has its own direct Customer link (matched by name, since Airtable linked-field
+// formulas match the linked record's primary field value, not its record ID). A Property can
+// now be linked to more than one Customer (shared group-home style accounts), so matching by
+// Customer name alone misses equipment whose Property is shared but whose own Customer link
+// points at a different one of that property's customers. OR in a match on each of this
+// customer's Property names too, so shared equipment shows up for every customer on the property.
+function _equipmentFormulaForCustomer(custName, props) {
+  const propNames = [...new Set((props || []).map(p => p.fields['Property Name']).filter(Boolean))]
+    .map(n => n.replace(/"/g, '\\"'));
+  const conditions = [];
+  if (custName) conditions.push(`{Customer}="${custName}"`);
+  propNames.forEach(n => conditions.push(`{Property}="${n}"`));
+  if (!conditions.length) return '';
+  return conditions.length === 1 ? conditions[0] : `OR(${conditions.join(',')})`;
+}
+
 let _selectSeq = 0; // increments on every selectCustomer call; stale fetches check against it
 async function selectCustomer(id) {
   const seq = ++_selectSeq;
@@ -3028,8 +3044,9 @@ async function selectCustomer(id) {
     // on the linked record's primary field value (name), not the record ID.
     currentEquipment = [];
     const custName = (selectedCustomer.fields['Customer Name'] || '').replace(/"/g, '\\"');
-    if (custName) {
-      const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`);
+    const eqFormula = _equipmentFormulaForCustomer(custName, props);
+    if (eqFormula) {
+      const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(eqFormula)}`);
       currentEquipment = eqRecs.sort((a, b) => {
         const aActive = a.fields['Active'] === true;
         const bActive = b.fields['Active'] === true;
@@ -7045,9 +7062,10 @@ async function spPickCust(id) {
   // Load equipment for this customer
   _sp.custEquipment = [];
   const custName = (_sp.cust.fields['Customer Name'] || '').replace(/"/g, '\\"');
-  if (custName) {
+  const eqFormula = _equipmentFormulaForCustomer(custName, _sp.custProps);
+  if (eqFormula) {
     try {
-      const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(`{Customer}="${custName}"`)}`);
+      const eqRecs = await fetchAll('Equipment', `filterByFormula=${encodeURIComponent(eqFormula)}`);
       _sp.custEquipment = eqRecs.filter(e => e.fields['Active'] !== false);
     } catch(e) { /* non-fatal */ }
   }
